@@ -1,0 +1,29 @@
+{
+    "Seeker": {
+        "checkpoints": [
+            {
+                "steps": 35640,
+                "file_path": "results\\seeker4\\Seeker\\Seeker-35640.onnx",
+                "reward": -65.75199501514435,
+                "creation_time": 1784220492.5376074,
+                "auxillary_file_paths": [
+                    "results\\seeker4\\Seeker\\Seeker-35640.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 35640,
+            "file_path": "results\\seeker4\\Seeker.onnx",
+            "reward": -65.75199501514435,
+            "creation_time": 1784220492.5376074,
+            "auxillary_file_paths": [
+                "results\\seeker4\\Seeker\\Seeker-35640.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.2.0.dev0",
+        "torch_version": "2.2.2+cu121"
+    }
+}
