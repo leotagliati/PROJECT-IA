@@ -8,16 +8,13 @@ using Unity.MLAgents.Sensors;
 public class SeekerAgent : Agent
 {
     [SerializeField] private float _moveSpeed = 0.5f;
-    [SerializeField] private float _rotationSpeed = 200f;
     [SerializeField] private Renderer _renderer;
 
-    [SerializeField] private float _cellSize = 1f;
-    [SerializeField] private float _explorationReward = 0.02f;
+    [SerializeField] private float _explorationReward = 0.05f;
     [SerializeField] private float _wallCollisionPenalty = 0.5f;
     [SerializeField] private float _wallFlashDuration = 0.2f;
 
     private Rigidbody _rigidbody;
-    private readonly HashSet<Vector2Int> _visitedCells = new HashSet<Vector2Int>();
     private int _currentEpisode = 0;
     private float _cumulativeReward = 0f;
 
@@ -38,7 +35,6 @@ public class SeekerAgent : Agent
         _cumulativeReward = 0f;
         _renderer.material.color = Color.blue;
 
-        _visitedCells.Clear();
         ResetAgentPose();
     }
 
@@ -63,8 +59,6 @@ public class SeekerAgent : Agent
             AddReward(-2f / MaxStep);
         }
 
-        RewardExplorationIfNewCell();
-
         _cumulativeReward += GetCumulativeReward();
     }
 
@@ -75,25 +69,20 @@ public class SeekerAgent : Agent
         switch (action)
         {
             case 1:
-                _rigidbody.MovePosition(_rigidbody.position + transform.forward * _moveSpeed * Time.fixedDeltaTime);
+                _rigidbody.MovePosition(_rigidbody.position + Vector3.forward * _moveSpeed * Time.fixedDeltaTime);
                 break;
-            case 2: // rotate left
-                _rigidbody.MoveRotation(_rigidbody.rotation * Quaternion.Euler(0f, -_rotationSpeed * Time.fixedDeltaTime, 0f));
+            case 2: // move left
+                this.transform.Rotate(0f, -90f, 0f);
+                _rigidbody.MovePosition(_rigidbody.position + Vector3.left * _moveSpeed * Time.fixedDeltaTime);
                 break;
             case 3: // rotate right
-                _rigidbody.MoveRotation(_rigidbody.rotation * Quaternion.Euler(0f, _rotationSpeed * Time.fixedDeltaTime, 0f));
+                this.transform.Rotate(0f, 90f, 0f);
+                _rigidbody.MovePosition(_rigidbody.position + Vector3.right * _moveSpeed * Time.fixedDeltaTime);
                 break;
-        }
-    }
-
-    private void RewardExplorationIfNewCell()
-    {
-        Vector3 pos = transform.localPosition;
-        var cell = new Vector2Int(Mathf.FloorToInt(pos.x / _cellSize), Mathf.FloorToInt(pos.z / _cellSize));
-
-        if (_visitedCells.Add(cell))
-        {
-            AddReward(_explorationReward);
+            case 4: // move backward
+                this.transform.Rotate(0f, 180f, 0f);
+                _rigidbody.MovePosition(_rigidbody.position - transform.forward * _moveSpeed * Time.fixedDeltaTime);
+                break;
         }
     }
 
