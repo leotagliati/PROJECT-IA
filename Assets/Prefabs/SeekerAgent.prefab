@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 5933273504992383281}
   - component: {fileID: 6494860486982347579}
   - component: {fileID: 5419974756313205085}
-  - component: {fileID: 5782860116631594467}
+  - component: {fileID: 572788143576534877}
   - component: {fileID: 7686348265000432108}
   - component: {fileID: 3826134330585851163}
   m_Layer: 0
@@ -37,6 +37,7 @@ Transform:
   m_Children:
   - {fileID: 1772856882328885764}
   - {fileID: 6826935874050121370}
+  - {fileID: 1732916299684617384}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &5933273504992383281
@@ -103,22 +104,22 @@ MonoBehaviour:
     VectorObservationSize: 3
     NumStackedVectorObservations: 1
     m_ActionSpec:
-      m_NumContinuousActions: 0
-      BranchSizes: 04000000
-    VectorActionSize: 04000000
+      m_NumContinuousActions: 2
+      BranchSizes: 
+    VectorActionSize: 02000000
     VectorActionDescriptions: []
-    VectorActionSpaceType: 0
+    VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: e46dde9fbf752534884b242ce25e3a1b, type: 3}
+  m_Model: {fileID: 0}
   m_InferenceDevice: 0
-  m_BehaviorType: 2
+  m_BehaviorType: 0
   m_BehaviorName: Seeker
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
   m_DeterministicInference: 0
   m_ObservableAttributeHandling: 0
---- !u!114 &5782860116631594467
+--- !u!114 &572788143576534877
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,18 +128,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 578036348230745126}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 55f6d801598161444a065cb5fe4090f6, type: 3}
+  m_Script: {fileID: 11500000, guid: 18e3b3e45f01edd44bc942a53bac3880, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SeekerAgent
+  m_EditorClassIdentifier: 
   agentParameters:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  _moveSpeed: 0.5
-  _renderer: {fileID: 0}
-  _explorationReward: 0.05
+  _perceptionSystem: {fileID: 0}
+  _movementSystem: {fileID: 0}
+  _existentialPenalty: 2
+  _wallProximityPenalty: 0.01
   _wallCollisionPenalty: 0.5
-  _wallFlashDuration: 0.2
 --- !u!114 &7686348265000432108
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -169,7 +170,7 @@ MonoBehaviour:
   agentParameters:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
-  MaxStep: 0
+  MaxStep: 500
 --- !u!1 &2670993543641738545
 GameObject:
   m_ObjectHideFlags: 0
@@ -384,6 +385,52 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &2916927826506737166
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1732916299684617384}
+  - component: {fileID: 597491712929593994}
+  m_Layer: 0
+  m_Name: MovementeSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1732916299684617384
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2916927826506737166}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 1.6475698, y: -1.6056447, z: -1.4306943}
+  m_LocalScale: {x: 2.8702533, y: 2.96872, z: 2.9095674}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4965023623266010248}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &597491712929593994
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2916927826506737166}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 294b5dfbc00fc484b951c7293c14acd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _rigidbody: {fileID: 0}
+  _moveSpeed: 2
 --- !u!1 &3055854575949163188
 GameObject:
   m_ObjectHideFlags: 0
@@ -782,4 +829,3 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 8
   _originHeightOffset: 0.1
-  _rayPerceptionSensor: {fileID: 0}
