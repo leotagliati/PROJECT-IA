@@ -98,7 +98,7 @@ GameObject:
   - component: {fileID: 3980329505647209647}
   - component: {fileID: 3491740303732639119}
   m_Layer: 0
-  m_Name: AgentCube_Blue
+  m_Name: Visual
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -356,6 +356,8 @@ GameObject:
   m_Component:
   - component: {fileID: 3413119557056679456}
   - component: {fileID: 4278829662154945489}
+  - component: {fileID: 8029110233081034637}
+  - component: {fileID: 568902791971407126}
   m_Layer: 0
   m_Name: HiderAgent
   m_TagString: Goal
@@ -400,6 +402,55 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 1, y: 1, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!54 &8029110233081034637
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4236463866320846714}
+  serializedVersion: 4
+  m_Mass: 1
+  m_Drag: 0
+  m_AngularDrag: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
+  m_Constraints: 80
+  m_CollisionDetection: 0
+--- !u!114 &568902791971407126
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4236463866320846714}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c4266d79f35207643a67f54fba4800c7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _moveSpeed: 2
+  _minTurnAngle: 90
+  _maxTurnAngle: 270
+  _spawnPoints: []
+  _detectionRange: 0.2
+  _raycastSpread: 0.15
+  _wallLayer:
+    serializedVersion: 2
+    m_Bits: 8
+  _originHeightOffset: 0
 --- !u!1 &4782403736211688992
 GameObject:
   m_ObjectHideFlags: 0

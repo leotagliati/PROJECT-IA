@@ -101,7 +101,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Policies.BehaviorParameters
   m_BrainParameters:
-    VectorObservationSize: 3
+    VectorObservationSize: 4
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
@@ -137,9 +137,14 @@ MonoBehaviour:
   MaxStep: 0
   _perceptionSystem: {fileID: 0}
   _movementSystem: {fileID: 0}
+  _hider: {fileID: 0}
+  _floorRenderer: {fileID: 0}
+  _maxEpisodeSteps: 5000
+  _episodeEndDelay: 1.5
   _existentialPenalty: 2
   _wallProximityPenalty: 0.01
   _wallCollisionPenalty: 0.5
+  _hiderFoundReward: 1
 --- !u!114 &7686348265000432108
 MonoBehaviour:
   m_ObjectHideFlags: 0
