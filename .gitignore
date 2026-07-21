@@ -1,10 +1,7 @@
-# Created by https://www.toptal.com/developers/gitignore/api/unity
-# Edit at https://www.toptal.com/developers/gitignore?templates=unity
-
-### Unity ###
 # This .gitignore file should be placed at the root of your Unity project directory
 #
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
+#
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
@@ -13,8 +10,7 @@
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
 
-# MemoryCaptures can get excessive in size.
-# They also could contain extremely sensitive data
+# MemoryCaptures can get excessive in size
 /[Mm]emoryCaptures/
 
 # Recordings can get excessive in size
@@ -74,4 +70,8 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 
-# End of https://www.toptal.com/developers/gitignore/api/unity
+# ML-Agents training output (checkpoints, tensorboard logs, exported models)
+/results/
+/summaries/
+/models/
+/[Aa]ssets/ML-Agents/Timers/
