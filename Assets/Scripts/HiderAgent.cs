@@ -3,14 +3,10 @@ using UnityEngine;
 public class HiderAgent : MonoBehaviour
 {
     [SerializeField] private float _moveSpeed = 2f;
-    [SerializeField] private float _minTurnAngle = 90f;
-    [SerializeField] private float _maxTurnAngle = 270f;
     [SerializeField] private Transform[] _spawnPoints;
-
-    [SerializeField] private float _detectionRange = 1f;
-    [SerializeField] private float _raycastSpread = 0.3f;
     [SerializeField] private LayerMask _wallLayer;
-    [SerializeField] private float _originHeightOffset = 0.1f;
+
+    [SerializeField] private float rayDistance = 1f;
 
     private Rigidbody _rigidbody;
 
@@ -24,39 +20,51 @@ public class HiderAgent : MonoBehaviour
         Transform point = _spawnPoints[Random.Range(0, _spawnPoints.Length)];
 
         _rigidbody.position = point.position;
-        _rigidbody.rotation = point.rotation;
         _rigidbody.linearVelocity = Vector3.zero;
         _rigidbody.angularVelocity = Vector3.zero;
     }
 
     private void FixedUpdate()
     {
-        if (IsWallAhead())
+        _rigidbody.MovePosition(_rigidbody.position + _moveSpeed * Time.fixedDeltaTime * transform.forward);
+    }
+
+    private void Update()
+    {
+        VerifyChangeDirection();
+    }
+
+    private void VerifyChangeDirection()
+    {
+        if (Physics.Raycast(transform.position, transform.forward, out RaycastHit hit, rayDistance, _wallLayer))
         {
-            transform.Rotate(0f, Random.Range(_minTurnAngle, _maxTurnAngle), 0f);
+            TurnAwayRandomDirection();
         }
-
-        _rigidbody.MovePosition(_rigidbody.position + transform.forward * _moveSpeed * Time.fixedDeltaTime);
     }
 
-    private bool IsWallAhead()
+    private void TurnAwayRandomDirection()
     {
-        Vector3 origin = transform.position + Vector3.up * _originHeightOffset;
-        Vector3 leftOrigin = origin - transform.right * _raycastSpread;
-        Vector3 rightOrigin = origin + transform.right * _raycastSpread;
+        var randInt = Random.Range(0, 2);
 
-        return Physics.Raycast(leftOrigin, transform.forward, _detectionRange, _wallLayer)
-            || Physics.Raycast(rightOrigin, transform.forward, _detectionRange, _wallLayer);
+        switch (randInt)
+        {
+            case 0:
+                transform.Rotate(Vector3.up, 90f);
+                break;
+            case 1:
+                transform.Rotate(Vector3.up, -90f);
+                break;
+            case 2:
+                transform.Rotate(Vector3.up, 180f);
+                break;
+            default:
+                break;
+        }
     }
 
-    private void OnDrawGizmosSelected()
+    private void OnDrawGizmos()
     {
-        Vector3 origin = transform.position + Vector3.up * _originHeightOffset;
-        Vector3 leftOrigin = origin - transform.right * _raycastSpread;
-        Vector3 rightOrigin = origin + transform.right * _raycastSpread;
-
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawLine(leftOrigin, leftOrigin + transform.forward * _detectionRange);
-        Gizmos.DrawLine(rightOrigin, rightOrigin + transform.forward * _detectionRange);
+        Gizmos.color = Color.red;
+        Gizmos.DrawRay(transform.position, transform.forward * rayDistance);
     }
 }
