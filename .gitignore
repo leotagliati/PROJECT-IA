@@ -76,4 +76,7 @@ crashlytics-build.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/unity
 
+# Local Unity package settings that should not be committed
+/ProjectSettings/Packages/com.unity.probuilder/Settings.json
+
 /results
