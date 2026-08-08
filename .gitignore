@@ -80,3 +80,7 @@ crashlytics-build.properties
 /ProjectSettings/Packages/com.unity.probuilder/Settings.json
 
 /results
+
+# ML-Agents profiling output (reescrito a cada Play)
+/[Aa]ssets/ML-Agents/[Tt]imers/
+/[Aa]ssets/ML-Agents/[Tt]imers.meta

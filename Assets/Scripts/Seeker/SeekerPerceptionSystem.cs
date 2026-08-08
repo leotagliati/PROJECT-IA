@@ -15,14 +15,22 @@ namespace Assets.Scripts.Seeker
         [SerializeField] private string _hiderTag = "Goal";
         [SerializeField] private bool _isSeeingHider = false;
 
+        // Distância para considerar que o agente "chegou" à última posição conhecida.
+        [SerializeField] private float _arrivalThreshold = 0.5f;
+
         private bool _hasSeenHider;
         private Vector3 _lastKnownHiderPosition;
+        private float _closestWallProximity;
 
         public bool IsSeeingHider => _isSeeingHider;
 
         public bool HasSeenHider => _hasSeenHider;
 
         public Vector3 LastKnownHiderPosition => _lastKnownHiderPosition;
+
+        public float[] WallProximities => _wallProximities;
+
+        public float ClosestWallProximity => _closestWallProximity;
 
         private static readonly Vector3[] Directions =
         {
@@ -33,22 +41,38 @@ namespace Assets.Scripts.Seeker
     };
 
         // 0 = livre, ~1 = parede perto
+        private readonly float[] _wallProximities = new float[Directions.Length];
 
-
-        public void GetWallProximities(float[] results)
+        /// <summary>
+        /// Único ponto de amostragem do mundo. Varre paredes e hider uma vez por step de física e
+        /// guarda o resultado; observação e recompensa leem esse snapshot em vez de consultar o
+        /// mundo por conta própria, então os dois enxergam a mesma coisa mesmo com Decision Period > 1.
+        /// </summary>
+        public void Tick()
         {
-            for (int i = 0; i < Directions.Length; i++)
-                results[i] = GetWallProximity(Directions[i]);
+            ScanForWalls();
+            ScanForHider();
         }
 
         public int DirectionCount => Directions.Length;
+
+        private void ScanForWalls()
+        {
+            _closestWallProximity = 0f;
+
+            for (int i = 0; i < Directions.Length; i++)
+            {
+                _wallProximities[i] = GetWallProximity(Directions[i]);
+                _closestWallProximity = Mathf.Max(_closestWallProximity, _wallProximities[i]);
+            }
+        }
 
         /// <summary>
         /// Varre um cone de visão à frente do agente. Para cada raio, o hider só conta se for a PRIMEIRA coisa
         /// atingida — assim uma parede no caminho bloqueia a visão. Guarda o hider mais
         /// próximo entre os raios.
         /// </summary>
-        public void ScanForHider()
+        private void ScanForHider()
         {
             _isSeeingHider = false;
 
@@ -98,6 +122,19 @@ namespace Assets.Scripts.Seeker
             _isSeeingHider = false;
             _hasSeenHider = false;
             _lastKnownHiderPosition = Vector3.zero;
+        }
+
+        /// <summary>
+        /// Chegou à última posição conhecida e o hider não está mais lá: esquece e volta a procurar.
+        /// A transição é de memória, então mora aqui — não no cálculo de recompensa.
+        /// </summary>
+        public void ForgetIfArrived(Vector3 seekerPosition)
+        {
+            if (_isSeeingHider || !_hasSeenHider)
+                return;
+
+            if (Vector3.Distance(seekerPosition, _lastKnownHiderPosition) <= _arrivalThreshold)
+                ForgetHider();
         }
 
         private float GetWallProximity(Vector3 direction)

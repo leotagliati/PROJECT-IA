@@ -2,72 +2,92 @@ using System.Collections;
 using Assets.Scripts.Seeker;
 using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
+using Unity.MLAgents.Policies;
 using Unity.MLAgents.Sensors;
 using UnityEngine;
 
+/// <summary>
+/// Orquestrador do agente: é o único que conhece os callbacks do ML-Agents e a ordem do step
+/// (sentir -> observar -> agir -> avaliar -> terminar). Não calcula recompensa nem lê o mundo;
+/// monta o SeekerStepContext e delega.
+/// </summary>
 public class SeekerManager : Agent
 {
+    // 4 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição conhecida.
+    public const int ObservationCount = 9;
+
+    [Header("-----Systems-----")]
     [SerializeField] private SeekerPerceptionSystem _perceptionSystem;
     [SerializeField] private SeekerMovementSystem _movementSystem;
-    [SerializeField] private HiderAgent _hider;
-    [SerializeField] private Renderer _floorRenderer;
+    [SerializeField] private SeekerRewardSystem _rewardSystem;
+    [SerializeField] private SeekerArenaController _arenaController;
 
-    [SerializeField] private int _maxEpisodeSteps = 500;
-    [SerializeField] private float _episodeEndDelay = 1.5f;
-    [SerializeField] private float _existentialPenalty = 2f;
-    [SerializeField] private float _wallProximityPenalty = 0.01f;
-    [SerializeField] private float _wallCollisionPenalty = 0.5f;
-    [SerializeField] private float _hiderFoundReward = 1f;
+    [Header("-----Settings-----")]
+    [SerializeField] private int _maxEpisodeSteps = 5000;
     [SerializeField] private float _maxHiderDistance = 20f;
-    [SerializeField] private float _hiderSightReward = 0.1f;      // bônus único ao avistar
-    [SerializeField] private float _hiderApproachReward = 0.3f;   // por aproximar da última posição
-    [SerializeField] private float _hiderArrivalThreshold = 0.5f; // distância p/ considerar "chegou"
 
-    private float[] _wallProximities = new float[4];
     private Vector3 _initialLocalPosition;
     private Quaternion _initialLocalRotation;
-    private Color _initialFloorColor;
     private int _elapsedSteps;
     private bool _episodeEnding;
 
-    private bool _wasSeeingHider;
+    // Percepção é amostrada uma vez por step de física. Como CollectObservations e
+    // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
+    // dispara o Tick e o outro reaproveita o mesmo snapshot.
+    private int _physicsStep;
+    private int _lastPerceptionStep = -1;
 
     public override void Initialize()
     {
-        Debug.Log("Agent initialized");
+        // Checagem explícita, e não ??=: o operador de null-coalescing ignora o "fake null" que
+        // o Unity devolve para referências não atribuídas.
+        if (_perceptionSystem == null)
+            _perceptionSystem = GetComponentInChildren<SeekerPerceptionSystem>();
 
-        _perceptionSystem = this.GetComponentInChildren<SeekerPerceptionSystem>();
-        _movementSystem = this.GetComponentInChildren<SeekerMovementSystem>();
+        if (_movementSystem == null)
+            _movementSystem = GetComponentInChildren<SeekerMovementSystem>();
+
+        if (_rewardSystem == null)
+            _rewardSystem = GetComponentInChildren<SeekerRewardSystem>();
+
+        if (_arenaController == null)
+            _arenaController = GetComponentInParent<SeekerArenaController>();
 
         _initialLocalPosition = transform.localPosition;
         _initialLocalRotation = transform.localRotation;
 
-        _initialFloorColor = _floorRenderer.material.color;
+        ValidateSetup();
     }
+
     public override void OnEpisodeBegin()
     {
-        Debug.Log("Episode started");
-
-        _floorRenderer.material.color = _initialFloorColor;
-
         _elapsedSteps = 0;
         _episodeEnding = false;
 
-        _wasSeeingHider = false;
+        _arenaController.ResetEpisode();
 
-        transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
+        if (_arenaController.TryGetSeekerSpawn(out Vector3 position, out Quaternion rotation))
+            transform.SetPositionAndRotation(position, rotation);
+        else
+            transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
+
         _movementSystem.ResetMovement();
         _perceptionSystem.ResetHiderMemory();
-        _hider.Spawn();
+        _rewardSystem.ResetEpisode();
+
+        // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
+        // dedup precisa ser invalidado: sem isso a primeira observação da nova run enxergaria
+        // o snapshot tirado antes do respawn.
+        _lastPerceptionStep = -1;
+        TickPerception();
     }
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        _perceptionSystem.ScanForHider();
+        TickPerception();
 
         // Proximidade de paredes nas 4 direções. (4)
-        _perceptionSystem.GetWallProximities(_wallProximities);
-        sensor.AddObservation(_wallProximities);
+        sensor.AddObservation(_perceptionSystem.WallProximities);
 
         // Frescor da informação do hider. (2)
         sensor.AddObservation(_perceptionSystem.IsSeeingHider);
@@ -78,7 +98,7 @@ public class SeekerManager : Agent
         if (_perceptionSystem.HasSeenHider)
         {
             Vector3 toLast = _perceptionSystem.LastKnownHiderPosition - transform.position;
-            Vector2 planar = new Vector2(toLast.x, toLast.z);
+            Vector2 planar = new(toLast.x, toLast.z);
             float distance = planar.magnitude;
             Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
 
@@ -97,87 +117,60 @@ public class SeekerManager : Agent
     public override void OnActionReceived(ActionBuffers actions)
     {
         if (_episodeEnding)
-        {
             return;
-        }
+
+        TickPerception();
 
         Vector3 preMovePosition = transform.position;
 
-        Vector3 direction = new Vector3(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
+        Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
         _movementSystem.Move(direction);
 
-        AddReward(-_existentialPenalty / _maxEpisodeSteps);
+        AddReward(_rewardSystem.EvaluateStep(BuildStepContext(preMovePosition)));
 
-        float closestWallProximity = 0f;
-        for (int i = 0; i < _wallProximities.Length; i++)
-        {
-            closestWallProximity = Mathf.Max(closestWallProximity, _wallProximities[i]);
-        }
-        AddReward(-_wallProximityPenalty * closestWallProximity);
-
-        RewardHiderProgress(preMovePosition);
+        _perceptionSystem.ForgetIfArrived(transform.position);
 
         _elapsedSteps++;
         if (_elapsedSteps >= _maxEpisodeSteps)
-        {
             FinishEpisode(won: false);
-        }
     }
 
-    // Recompensa por avistar o hider e por reduzir a distância até sua última posição conhecida.
-    private void RewardHiderProgress(Vector3 preMovePosition)
-    {
-        // Bônus único no passo em que passa a enxergar o hider (borda de subida).
-        bool seeing = _perceptionSystem.IsSeeingHider;
-        if (seeing && !_wasSeeingHider)
-        {
-            AddReward(_hiderSightReward);
-        }
-        _wasSeeingHider = seeing;
+    private void FixedUpdate() => _physicsStep++;
 
-        if (!_perceptionSystem.HasSeenHider)
-        {
+    private void TickPerception()
+    {
+        if (_lastPerceptionStep == _physicsStep)
             return;
-        }
 
-        // Progresso do PRÓPRIO seeker rumo ao alvo atual: ambas as distâncias usam a mesma
-        // posição conhecida, então um salto do alvo (novo avistamento) não gera falso ganho.
-        Vector3 known = _perceptionSystem.LastKnownHiderPosition;
-        float previousDistance = Vector3.Distance(preMovePosition, known);
-        float currentDistance = Vector3.Distance(transform.position, known);
-        AddReward(_hiderApproachReward * (previousDistance - currentDistance));
-
-        // Chegou à última posição conhecida sem ver o hider: esquece e volta a procurar.
-        if (!seeing && currentDistance <= _hiderArrivalThreshold)
-        {
-            _perceptionSystem.ForgetHider();
-        }
+        _lastPerceptionStep = _physicsStep;
+        _perceptionSystem.Tick();
     }
 
-    private void OnCollisionEnter(Collision collision)
-    {
-        HandleContact(collision.gameObject);
-    }
+    private SeekerStepContext BuildStepContext(Vector3 preMovePosition) => new(
+        preMovePosition,
+        transform.position,
+        _perceptionSystem.IsSeeingHider,
+        _perceptionSystem.HasSeenHider,
+        _perceptionSystem.LastKnownHiderPosition,
+        _perceptionSystem.ClosestWallProximity,
+        _maxEpisodeSteps);
 
-    private void OnTriggerEnter(Collider other)
-    {
-        HandleContact(other.gameObject);
-    }
+    private void OnCollisionEnter(Collision collision) => HandleContact(collision.gameObject);
+
+    private void OnTriggerEnter(Collider other) => HandleContact(other.gameObject);
 
     private void HandleContact(GameObject other)
     {
         if (_episodeEnding)
-        {
             return;
-        }
 
         if (other.CompareTag("Wall"))
         {
-            AddReward(-_wallCollisionPenalty);
+            AddReward(_rewardSystem.WallCollisionPenalty);
         }
         else if (other.CompareTag("Goal"))
         {
-            AddReward(_hiderFoundReward);
+            AddReward(_rewardSystem.HiderFoundReward);
             FinishEpisode(won: true);
         }
     }
@@ -185,13 +178,43 @@ public class SeekerManager : Agent
     private void FinishEpisode(bool won)
     {
         _episodeEnding = true;
-        _floorRenderer.material.color = won ? Color.green : Color.red;
-        StartCoroutine(EndEpisodeAfterDelay());
+        _arenaController.ShowOutcome(won);
+
+        float delay = _arenaController.EpisodeEndDelay;
+        if (delay <= 0f)
+        {
+            EndEpisode();
+            return;
+        }
+
+        StartCoroutine(EndEpisodeAfterDelay(delay));
     }
 
-    private IEnumerator EndEpisodeAfterDelay()
+    private IEnumerator EndEpisodeAfterDelay(float delay)
     {
-        yield return new WaitForSeconds(_episodeEndDelay);
+        yield return new WaitForSeconds(delay);
         EndEpisode();
+    }
+
+    // Erros de wiring em ML-Agents são silenciosos e só aparecem como treino que não converge.
+    private void ValidateSetup()
+    {
+        if (_perceptionSystem == null || _movementSystem == null || _rewardSystem == null)
+            Debug.LogError($"{name}: sistema do seeker faltando — confira os componentes filhos.", this);
+
+        if (_arenaController == null)
+            Debug.LogError($"{name}: SeekerArenaController não encontrado nos pais.", this);
+
+        var behaviorParameters = GetComponent<BehaviorParameters>();
+        if (behaviorParameters == null)
+            return;
+
+        int declared = behaviorParameters.BrainParameters.VectorObservationSize;
+        if (declared != ObservationCount)
+        {
+            Debug.LogError(
+                $"{name}: VectorObservationSize = {declared} mas o agente emite {ObservationCount} observações. " +
+                "Ajuste no Behavior Parameters, senão o treino roda com o vetor truncado.", this);
+        }
     }
 }
