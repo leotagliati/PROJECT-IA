@@ -13,13 +13,15 @@ using UnityEngine;
 /// </summary>
 public class SeekerManager : Agent
 {
-    // 4 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição conhecida.
-    public const int ObservationCount = 9;
+    // 8 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição
+    // conhecida + a janela 5x5 de células já visitadas.
+    public const int ObservationCount = 13 + 25;
 
     [Header("-----Systems-----")]
     [SerializeField] private SeekerPerceptionSystem _perceptionSystem;
     [SerializeField] private SeekerMovementSystem _movementSystem;
     [SerializeField] private SeekerRewardSystem _rewardSystem;
+    [SerializeField] private SeekerExplorationMemory _explorationMemory;
     [SerializeField] private SeekerArenaController _arenaController;
 
     [Header("-----Settings-----")]
@@ -30,6 +32,7 @@ public class SeekerManager : Agent
     private Quaternion _initialLocalRotation;
     private int _elapsedSteps;
     private bool _episodeEnding;
+    private bool _touchingWall;
 
     // Percepção é amostrada uma vez por step de física. Como CollectObservations e
     // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
@@ -50,8 +53,16 @@ public class SeekerManager : Agent
         if (_rewardSystem == null)
             _rewardSystem = GetComponentInChildren<SeekerRewardSystem>();
 
+        if (_explorationMemory == null)
+            _explorationMemory = GetComponentInChildren<SeekerExplorationMemory>();
+
         if (_arenaController == null)
             _arenaController = GetComponentInParent<SeekerArenaController>();
+
+        // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
+        // usar coordenadas de mundo faria as arenas compartilharem células.
+        if (_explorationMemory != null && _arenaController != null)
+            _explorationMemory.Configure(_arenaController.transform);
 
         _initialLocalPosition = transform.localPosition;
         _initialLocalRotation = transform.localRotation;
@@ -63,6 +74,7 @@ public class SeekerManager : Agent
     {
         _elapsedSteps = 0;
         _episodeEnding = false;
+        _touchingWall = false;
 
         _arenaController.ResetEpisode();
 
@@ -73,6 +85,7 @@ public class SeekerManager : Agent
 
         _movementSystem.ResetMovement();
         _perceptionSystem.ResetHiderMemory();
+        _explorationMemory.ResetEpisode();
         _rewardSystem.ResetEpisode();
 
         // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
@@ -86,7 +99,7 @@ public class SeekerManager : Agent
     {
         TickPerception();
 
-        // Proximidade de paredes nas 4 direções. (4)
+        // Proximidade de paredes nas 8 direções. (8)
         sensor.AddObservation(_perceptionSystem.WallProximities);
 
         // Frescor da informação do hider. (2)
@@ -112,6 +125,9 @@ public class SeekerManager : Agent
             sensor.AddObservation(0f);
             sensor.AddObservation(0f);
         }
+
+        // Janela 5x5 de células já visitadas ao redor do agente. (25)
+        sensor.AddObservation(_explorationMemory.Window);
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -127,6 +143,10 @@ public class SeekerManager : Agent
         _movementSystem.Move(direction);
 
         AddReward(_rewardSystem.EvaluateStep(BuildStepContext(preMovePosition)));
+
+        // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
+        // step de física marca de novo; se acabou, ela fica false sozinha.
+        _touchingWall = false;
 
         _perceptionSystem.ForgetIfArrived(transform.position);
 
@@ -144,6 +164,7 @@ public class SeekerManager : Agent
 
         _lastPerceptionStep = _physicsStep;
         _perceptionSystem.Tick();
+        _explorationMemory.Tick(transform.position);
     }
 
     private SeekerStepContext BuildStepContext(Vector3 preMovePosition) => new(
@@ -153,22 +174,32 @@ public class SeekerManager : Agent
         _perceptionSystem.HasSeenHider,
         _perceptionSystem.LastKnownHiderPosition,
         _perceptionSystem.ClosestWallProximity,
-        _maxEpisodeSteps);
+        _maxEpisodeSteps,
+        _touchingWall,
+        _explorationMemory.EnteredNewCell,
+        _arenaController.ApproachRewardScale,
+        _arenaController.WallProximityScale);
 
+    // Pegar o hider é um evento discreto, então continua por evento.
     private void OnCollisionEnter(Collision collision) => HandleContact(collision.gameObject);
 
     private void OnTriggerEnter(Collider other) => HandleContact(other.gameObject);
+
+    // Encostar em parede é uma condição contínua. OnCollisionStay dispara uma vez por step
+    // POR collider, então aqui só marca a flag — quem cobra é o step, uma vez só, mesmo que
+    // o agente esteja tocando várias paredes ao mesmo tempo numa quina.
+    private void OnCollisionStay(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Wall"))
+            _touchingWall = true;
+    }
 
     private void HandleContact(GameObject other)
     {
         if (_episodeEnding)
             return;
 
-        if (other.CompareTag("Wall"))
-        {
-            AddReward(_rewardSystem.WallCollisionPenalty);
-        }
-        else if (other.CompareTag("Goal"))
+        if (other.CompareTag("Goal"))
         {
             AddReward(_rewardSystem.HiderFoundReward);
             FinishEpisode(won: true);
@@ -199,7 +230,7 @@ public class SeekerManager : Agent
     // Erros de wiring em ML-Agents são silenciosos e só aparecem como treino que não converge.
     private void ValidateSetup()
     {
-        if (_perceptionSystem == null || _movementSystem == null || _rewardSystem == null)
+        if (_perceptionSystem == null || _movementSystem == null || _rewardSystem == null || _explorationMemory == null)
             Debug.LogError($"{name}: sistema do seeker faltando — confira os componentes filhos.", this);
 
         if (_arenaController == null)

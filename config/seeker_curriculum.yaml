@@ -21,21 +21,40 @@ behaviors:
       extrinsic:
         gamma: 0.99
         strength: 1.0
+      # Curiosidade removida de proposito: o bonus por celula inedita do SeekerRewardSystem
+      # faz o mesmo trabalho de forma explicita, interpretavel e ajustavel no Inspector.
+      # Manter os dois tornaria impossivel saber qual dos sinais causou qual comportamento.
     keep_checkpoints: 5
     max_steps: 1000000
     time_horizon: 64
     summary_freq: 20000
 
 environment_parameters:
+  # Lido pelo SeekerArenaController.ApplyCurriculum(), que liga/desliga o objeto Maze
+  # no comeco de cada episodio. 0.0 = sala aberta, 1.0 = labirinto.
   maze_enabled:
     curriculum:
       - name: OpenRoom
         completion_criteria:
-          measure: reward
+          # 'progress' = fracao de max_steps, independente da escala de recompensa. Escolhido
+          # de proposito enquanto a funcao de recompensa ainda esta mudando: cada ajuste nos
+          # pesos invalida um threshold baseado em reward, e ja custou tres runs. Trocar de
+          # volta para 'reward' quando a recompensa congelar e houver um plato medido.
+          measure: progress
           behavior: Seeker
           signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 0.7
+          # Segura a promocao ate a politica estabilizar. Com episodios de ~170 steps,
+          # 800 episodios equivalem a ~140k steps — ponto em que o Std of Reward do
+          # seeker8 ja tinha caido de 28 para ~1.0.
+          min_lesson_length: 800
+          # Com measure: progress o threshold e fracao de max_steps (0 a 1), nao recompensa.
+          # 0.3 promove aos 300k de 1M, deixando 700k para a licao do labirinto — que e a
+          # parte dificil e merece o maior orcamento.
+          threshold: 0.3
+          # Ao promover, reseta todos os ambientes de imediato em vez de esperar cada
+          # arena terminar seu episodio.
+          require_reset: true
         value: 0.0
+      # Ultima licao nao leva completion_criteria: nao ha para onde promover.
       - name: Maze
         value: 1.0

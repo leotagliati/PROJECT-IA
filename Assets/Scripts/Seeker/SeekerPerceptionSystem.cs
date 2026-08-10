@@ -4,7 +4,9 @@ namespace Assets.Scripts.Seeker
 {
     public class SeekerPerceptionSystem : MonoBehaviour
     {
-        [SerializeField] private float _detectionRange = 2f;
+        // Alcance da leitura de paredes. Precisa ser da ordem do alcance de visão do hider:
+        // com 2 contra 10, o agente avistava um alvo sem ter ideia de como chegar até ele.
+        [SerializeField] private float _detectionRange = 5f;
         [SerializeField] private LayerMask _wallLayer;
         [SerializeField] private float _originHeightOffset = 0.1f;
 
@@ -32,13 +34,22 @@ namespace Assets.Scripts.Seeker
 
         public float ClosestWallProximity => _closestWallProximity;
 
+        /// <summary>
+        /// Oito direções no referencial do MUNDO — o mesmo das ações (X/Z), então o agente não
+        /// precisa aprender nenhuma rotação entre o que sente e o que faz. As diagonais são o que
+        /// permite perceber aberturas (e não só obstáculos), que é o mínimo para navegar corredor.
+        /// </summary>
         private static readonly Vector3[] Directions =
         {
-        Vector3.forward, // frente
-        Vector3.back,    // trás
-        Vector3.left,    // esquerda
-        Vector3.right,   // direita
-    };
+            new Vector3( 0f, 0f,  1f),              // frente
+            new Vector3( 1f, 0f,  1f).normalized,   // frente-direita
+            new Vector3( 1f, 0f,  0f),              // direita
+            new Vector3( 1f, 0f, -1f).normalized,   // trás-direita
+            new Vector3( 0f, 0f, -1f),              // trás
+            new Vector3(-1f, 0f, -1f).normalized,   // trás-esquerda
+            new Vector3(-1f, 0f,  0f),              // esquerda
+            new Vector3(-1f, 0f,  1f).normalized,   // frente-esquerda
+        };
 
         // 0 = livre, ~1 = parede perto
         private readonly float[] _wallProximities = new float[Directions.Length];
