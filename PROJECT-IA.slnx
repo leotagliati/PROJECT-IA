@@ -56,5 +56,4 @@
   <Project Path="Unity.InferenceEngine.iOSBLAS.csproj" />
   <Project Path="Unity.PlasticSCM.Editor.Entities.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="Unity.Collections.Editor.csproj" />
 </Solution>
