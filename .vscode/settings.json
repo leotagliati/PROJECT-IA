@@ -67,6 +67,5 @@
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "PROJECT-IA.slnx",
     "dotnet.enableWorkspaceBasedDevelopment": false
 }
