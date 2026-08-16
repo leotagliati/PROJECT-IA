@@ -51,7 +51,13 @@ public class HiderAgent : MonoBehaviour
         _lastPosition = transform.position;
     }
 
-    public void Spawn()
+    /// <summary>
+    /// Reposiciona o hider e devolve onde ele ficou. Devolve a posição em vez de deixar quem
+    /// chama ler transform.position depois: escrever em Rigidbody.position não propaga para o
+    /// Transform até a próxima simulação, então ler de fora traria a posição do episódio
+    /// ANTERIOR — silenciosamente, e só no frame do respawn.
+    /// </summary>
+    public Vector3 Spawn()
     {
         if (_spawnPoints != null && _spawnPoints.Length > 0)
             _rigidbody.position = _spawnPoints[Random.Range(0, _spawnPoints.Length)].position;
@@ -64,6 +70,8 @@ public class HiderAgent : MonoBehaviour
 
         _lastPosition = _rigidbody.position;
         _stuckSteps = 0;
+
+        return _rigidbody.position;
     }
 
     private void FixedUpdate()
