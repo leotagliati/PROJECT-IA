@@ -110,7 +110,7 @@ Material:
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _ScaleFactorX: 0.5
+    - _ScaleFactorX: 1
     - _ScaleFactorY: 0.4
     - _ScaleFactorZ: 3
     - _Smoothness: 0.5
