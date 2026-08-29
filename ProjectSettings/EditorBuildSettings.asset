@@ -5,9 +5,12 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/Teste-UI.unity
     guid: 4a46fd3d7b88efb46b5fda5b6b1c548f
+  - enabled: 1
+    path: Assets/Scenes/MainMenu.unity
+    guid: 0569112b743f9264ab0b75cba3c399b8
   - enabled: 1
     path: Assets/Scenes/Arthur/Map_8.unity
     guid: 4383b6342a480c245be71810b2d699e0
