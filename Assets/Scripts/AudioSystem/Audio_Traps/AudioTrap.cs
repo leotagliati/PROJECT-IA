@@ -22,8 +22,18 @@ public class AudioTrap : MonoBehaviour
             Debug.LogError("No Collider found on " + gameObject.name);
         }
 
-        if (hunterTransform == null)
-            Debug.LogWarning("HunterTransform não atribuído no AudioTrap " + gameObject.name);
+         GameObject hunter = GameObject.FindWithTag("Hunter");
+
+        if (hunter != null)
+        {
+            hunterTransform = hunter.transform;
+            Debug.Log("Transform do Hunter obtido");
+        }
+        else
+        {
+            Debug.LogWarning("Nenhum objeto com a tag 'Hunter' foi encontrado na cena.");
+        }
+
     }
 
     void OnTriggerEnter(Collider other)
@@ -31,7 +41,6 @@ public class AudioTrap : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             playerMovement = other.GetComponent<PlayerMovement>();
-            Debug.Log("Player entered trap zone");
             CheckPlayerMovement(other.transform.position);
             AlertHunter(other.transform.position);
         }
@@ -41,7 +50,7 @@ public class AudioTrap : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
-            // Garante que playerMovement está atualizado
+
             if (playerMovement == null)
                 playerMovement = other.GetComponent<PlayerMovement>();
 
@@ -53,7 +62,6 @@ public class AudioTrap : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
-            Debug.Log("Player left the zone.");
             playerMovement = null;
         }
     }
@@ -87,6 +95,5 @@ public class AudioTrap : MonoBehaviour
     private void AlertHunter(Vector3 playerPosition)
     {
         Debug.Log("Hunter hears the player at " + playerPosition);
-
     }
 }
