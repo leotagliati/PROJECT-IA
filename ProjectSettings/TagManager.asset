@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Goal
   - Wall
+  - Hunter
   layers:
   - Default
   - TransparentFX

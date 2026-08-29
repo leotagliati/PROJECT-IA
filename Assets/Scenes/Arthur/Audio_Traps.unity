@@ -149,9 +149,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f7a4cf79b0ff84945b4d6d24917b872b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  HunterTransform: {fileID: 1748479188}
+  hunterTransform: {fileID: 0}
   hunterEarRange: 10
-  movementThreshold: 0.1
+  alertCooldown: 0.01
 --- !u!65 &401592254
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -171,7 +171,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 5, y: 1, z: 5}
+  m_Size: {x: 1.5, y: 1, z: 1.5}
   m_Center: {x: 0.03, y: 0, z: 0}
 --- !u!4 &401592255
 Transform:
@@ -2018,7 +2018,7 @@ GameObject:
   - component: {fileID: 1748479185}
   m_Layer: 0
   m_Name: Cube (1)
-  m_TagString: Untagged
+  m_TagString: Hunter
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
