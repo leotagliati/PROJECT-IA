@@ -198,9 +198,17 @@ public class SeekerManager : Agent
     // o agente esteja tocando várias paredes ao mesmo tempo numa quina.
     private void OnCollisionStay(Collision collision)
     {
-        if (collision.gameObject.CompareTag("Wall"))
+        if (IsWall(collision.gameObject))
             _touchingWall = true;
     }
+
+    // Parede é identificada por LAYER, e não por tag. A percepção já usa _wallLayer nos
+    // raycasts, então a tag era uma segunda fonte de verdade para a mesma pergunta — e foi
+    // exatamente o que quebrou no Map_8: os objetos do mapa estão na layer Wall, mas nenhum
+    // deles leva a tag, então a penalidade de contato simplesmente nunca era cobrada. Sem
+    // erro, sem log: só um termo da recompensa morto.
+    private bool IsWall(GameObject other) =>
+        (_perceptionSystem.WallLayer.value & (1 << other.layer)) != 0;
 
     private void HandleContact(GameObject other)
     {

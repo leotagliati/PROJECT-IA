@@ -62,9 +62,16 @@ namespace Assets.Scripts.Seeker
             if (context.IsTouchingWall)
                 reward -= _wallContactPenalty;
 
-            // Com ~120 celulas alcancaveis, cobrir o mapa inteiro rende ~+2.4: bate de longe
-            // o -2 de ficar parado o episodio todo, e continua bem abaixo do +5 de achar o
-            // hider, para explorar nao virar um objetivo em si.
+            // O que importa aqui e o TOTAL: (celulas alcancaveis) x _newCellReward tem que
+            // ficar bem abaixo do +5 de achar o hider, senao cobrir o mapa vira um objetivo
+            // em si. O numero de celulas depende de _arenaSize e _cellSize da memoria de
+            // exploracao, entao este peso E ESPECIFICO DO MAPA e precisa ser refeito sempre
+            // que a grade mudar:
+            //   arena antiga: ~120 celulas x 0.02   = ~+2.4
+            //   Map_8:       ~1450 celulas x 0.002  = ~+2.9
+            // (O existencial nao entra na conta: ele e cobrado por tempo, o agente parado ou
+            // andando paga o mesmo. Explorar e sempre bonus liquido — a pergunta e so se e
+            // bonus demais.)
             if (context.EnteredNewCell)
                 reward += _newCellReward;
 
