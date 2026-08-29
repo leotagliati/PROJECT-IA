@@ -27,6 +27,7 @@ public class PlayerMovement : MonoBehaviour
 
     private Vector3 lastFootstepPosition;
     private float distanceSinceStep;
+    public bool IsMoving => moveInput.magnitude > 0f;
 
     private void Awake()
     {
