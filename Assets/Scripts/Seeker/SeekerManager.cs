@@ -30,6 +30,7 @@ public class SeekerManager : Agent
 
     private Vector3 _initialLocalPosition;
     private Quaternion _initialLocalRotation;
+    private Vector3 _previousStepPosition;
     private int _elapsedSteps;
     private bool _episodeEnding;
     private bool _touchingWall;
@@ -82,6 +83,10 @@ public class SeekerManager : Agent
             transform.SetPositionAndRotation(position, rotation);
         else
             transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
+
+        // Âncora do termo de aproximação. Sem reancorar no respawn, o primeiro step do
+        // episódio mediria o salto do teleporte como progresso rumo ao hider.
+        _previousStepPosition = transform.position;
 
         _movementSystem.ResetMovement();
         _perceptionSystem.ResetHiderMemory();
@@ -137,18 +142,21 @@ public class SeekerManager : Agent
 
         TickPerception();
 
-        Vector3 preMovePosition = transform.position;
+        // Avalia primeiro, age depois: esta posição já é o resultado do move pedido no step
+        // anterior — a simulação de física roda entre um OnActionReceived e o próximo.
+        Vector3 currentPosition = transform.position;
+
+        AddReward(_rewardSystem.EvaluateStep(BuildStepContext(currentPosition)));
+        _previousStepPosition = currentPosition;
 
         Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
         _movementSystem.Move(direction);
-
-        AddReward(_rewardSystem.EvaluateStep(BuildStepContext(preMovePosition)));
 
         // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
         // step de física marca de novo; se acabou, ela fica false sozinha.
         _touchingWall = false;
 
-        _perceptionSystem.ForgetIfArrived(transform.position);
+        _perceptionSystem.ForgetIfArrived(currentPosition);
 
         _elapsedSteps++;
         if (_elapsedSteps >= _maxEpisodeSteps)
@@ -167,9 +175,9 @@ public class SeekerManager : Agent
         _explorationMemory.Tick(transform.position);
     }
 
-    private SeekerStepContext BuildStepContext(Vector3 preMovePosition) => new(
-        preMovePosition,
-        transform.position,
+    private SeekerStepContext BuildStepContext(Vector3 currentPosition) => new(
+        _previousStepPosition,
+        currentPosition,
         _perceptionSystem.IsSeeingHider,
         _perceptionSystem.HasSeenHider,
         _perceptionSystem.LastKnownHiderPosition,

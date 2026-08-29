@@ -78,7 +78,7 @@ namespace Assets.Scripts.Seeker
             {
                 // Progresso do PRÓPRIO seeker rumo ao alvo atual: as duas distâncias usam a mesma
                 // posição conhecida, então um salto do alvo (novo avistamento) não gera falso ganho.
-                float previousDistance = Vector3.Distance(context.PreMovePosition, context.LastKnownHiderPosition);
+                float previousDistance = Vector3.Distance(context.PreviousStepPosition, context.LastKnownHiderPosition);
                 float currentDistance = Vector3.Distance(context.CurrentPosition, context.LastKnownHiderPosition);
 
                 // A distância é euclidiana, então só equivale a "progresso" em espaço aberto.
