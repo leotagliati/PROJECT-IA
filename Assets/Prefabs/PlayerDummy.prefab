@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 1042654503540933444}
   - component: {fileID: 6337691064454773718}
   - component: {fileID: 8136329723317198858}
+  - component: {fileID: 3947188273615540912}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -104,11 +105,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4b295d700165b994dbe591827c2cbdac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveSpeed: 1
+  moveSpeed: 3
+  sprintMultiplier: 1.7
   jumpHeight: 1.5
   gravity: -9.81
+  groundedGraceTime: 0.1
+  animator: {fileID: 8811738717715037470}
   footstepSoundId: footstep
   stepDistance: 2
+  runStepDistance: 1.2
   footstepHeightOffset: 0
 --- !u!114 &8136329723317198858
 MonoBehaviour:
@@ -124,6 +129,30 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerCamera: {fileID: 6399354207596021297}
   mouseSensitivity: 30
+--- !u!114 &3947188273615540912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3b7c1e9a5d4f42a8b6c0e1f2a3d4b5c6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetCamera: {fileID: 6399354207596021297}
+  walkBobAmount: 0.035
+  runBobAmount: 0.06
+  walkBobFrequency: 8
+  runBobFrequency: 12
+  bobSmoothing: 8
+  strafeTilt: 1.6
+  tiltSmoothing: 6
+  runFovKick: 8
+  fovSmoothing: 6
+  landDipAmount: 0.12
+  landDipRecover: 0.18
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0

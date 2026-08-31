@@ -20,6 +20,7 @@
   <Project Path="Unity.ML-Agents.csproj" />
   <Project Path="Unity.InferenceEngine.csproj" />
   <Project Path="Unity.ML-Agents.Editor.Input.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Unity.Searcher.Editor.csproj" />
   <Project Path="Unity.ProBuilder.Editor.csproj" />
   <Project Path="Unity.InferenceEngine.Tokenization.csproj" />
@@ -35,7 +36,6 @@
   <Project Path="Unity.Rider.Editor.csproj" />
   <Project Path="Unity.VisualScripting.State.csproj" />
   <Project Path="Unity.AI.Navigation.Updater.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Unity.ML-Agents.Editor.csproj" />
   <Project Path="Unity.AI.Navigation.Editor.csproj" />
   <Project Path="Unity.AppUI.MVVM.csproj" />

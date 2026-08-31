@@ -51,6 +51,9 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 lastFootstepPosition;
     private float distanceSinceStep;
 
+    /// <summary>Input de movimento cru deste frame (x = lado, y = frente).</summary>
+    public Vector2 MoveInput => moveInput;
+
     public PlayerState CurrentState { get; private set; } = PlayerState.Idle;
 
     public event Action<PlayerState> StateChanged;
