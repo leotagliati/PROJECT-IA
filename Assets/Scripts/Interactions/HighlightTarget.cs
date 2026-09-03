@@ -4,8 +4,13 @@ public class HighlightTarget : MonoBehaviour
 {
     [HideInInspector] public int originalLayer;
 
-    void Awake()
+    protected virtual void Awake()
     {
         originalLayer = gameObject.layer;
+    }
+
+    public virtual bool CanHighlight()
+    {
+        return true;
     }
 }

@@ -50,14 +50,18 @@ public class InteractionController : MonoBehaviour
         {
             if (hit.collider.TryGetComponent(out HighlightTarget target))
             {
-                GameObject targetObject = target.gameObject;
-                if (lastHighlightedObject != targetObject)
+                if (target.CanHighlight())
                 {
-                    ClearHighlight();
-                    targetObject.layer = outlineLayer;
-                    lastHighlightedObject = targetObject;
+                    GameObject targetObject = target.gameObject;
+                    if (lastHighlightedObject != targetObject)
+                    {
+                        ClearHighlight();
+                        targetObject.layer = outlineLayer;
+                        lastHighlightedObject = targetObject;
+                    }
+                    return;
                 }
-                return;
+
             }
         }
         ClearHighlight();
@@ -67,7 +71,7 @@ public class InteractionController : MonoBehaviour
     {
         if (lastHighlightedObject != null)
         {
-            if (lastHighlightedObject.TryGetComponent(out HighlightTarget target))
+            if (lastHighlightedObject.TryGetComponent(out HighlightTarget target) && target != null)
             {
                 lastHighlightedObject.layer = target.originalLayer;
             }
