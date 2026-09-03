@@ -6,11 +6,12 @@ public class InteractionController : MonoBehaviour
     [SerializeField] private string outlineLayerName = "Outline";
 
     private int outlineLayer;
-    private GameObject lastHighlightedObject;
-
-    // --- Adicionado para Interação ---
-    private InputSystem_Actions playerInput;
     private Camera cam;
+    private InputSystem_Actions playerInput;
+
+    // Estados separados: visual vs funcionalidade
+    private HighlightTarget currentHighlightTarget;
+    private IInteractable currentInteractable;
 
     void Awake()
     {
@@ -21,16 +22,8 @@ public class InteractionController : MonoBehaviour
         playerInput.Player.Interact.performed += ctx => OnInteractPressed();
     }
 
-    void OnEnable()
-    {
-        playerInput.Player.Enable();
-    }
-
-    void OnDisable()
-    {
-        playerInput.Player.Disable();
-    }
-    // ---------------------------------
+    void OnEnable() => playerInput.Player.Enable();
+    void OnDisable() => playerInput.Player.Disable();
 
     void Start()
     {
@@ -39,54 +32,52 @@ public class InteractionController : MonoBehaviour
 
     void Update()
     {
-        HighlightRaycastCheck();
+        PerformRaycast();
     }
 
-    void HighlightRaycastCheck()
+    void PerformRaycast()
     {
         Ray ray = cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
 
         if (Physics.Raycast(ray, out RaycastHit hit, raycastDistance))
         {
-            if (hit.collider.TryGetComponent(out HighlightTarget target))
-            {
-                if (target.CanHighlight())
-                {
-                    GameObject targetObject = target.gameObject;
-                    if (lastHighlightedObject != targetObject)
-                    {
-                        ClearHighlight();
-                        targetObject.layer = outlineLayer;
-                        lastHighlightedObject = targetObject;
-                    }
-                    return;
-                }
+            // Lógica da interação
+            currentInteractable = hit.collider.GetComponentInParent<IInteractable>();
 
+            // Lógica do contorno
+            if (hit.collider.TryGetComponent(out HighlightTarget target) && target.CanHighlight())
+            {
+                if (currentHighlightTarget != target)
+                {
+                    ClearHighlight();
+                    target.gameObject.layer = outlineLayer;
+                    currentHighlightTarget = target;
+                }
+                return;
             }
         }
+        else
+        {
+            currentInteractable = null;
+        }
+
         ClearHighlight();
     }
 
     void ClearHighlight()
     {
-        if (lastHighlightedObject != null)
+        if (currentHighlightTarget != null)
         {
-            if (lastHighlightedObject.TryGetComponent(out HighlightTarget target) && target != null)
-            {
-                lastHighlightedObject.layer = target.originalLayer;
-            }
-            lastHighlightedObject = null;
+            currentHighlightTarget.gameObject.layer = currentHighlightTarget.originalLayer;
+            currentHighlightTarget = null;
         }
     }
 
     private void OnInteractPressed()
     {
-        if (lastHighlightedObject != null)
+        if (currentInteractable != null)
         {
-            if (lastHighlightedObject.TryGetComponent(out IInteractable interactable))
-            {
-                interactable.Interact();
-            }
+            currentInteractable.Interact();
         }
     }
 }

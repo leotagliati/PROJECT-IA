@@ -3,11 +3,7 @@ using UnityEngine;
 
 public class KeyInventoryUI : MonoBehaviour
 {
-    [Header("UI References")]
-    [Tooltip("Prefab of an UI Image with the Key sprite")]
     [SerializeField] private GameObject keyIconPrefab;
-
-    [Tooltip("Transform that contains the Vertical Layout Group")]
     [SerializeField] private Transform iconsContainer;
 
     private readonly List<GameObject> spawnedIcons = new List<GameObject>();

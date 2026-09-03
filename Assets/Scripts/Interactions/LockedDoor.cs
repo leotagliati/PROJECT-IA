@@ -1,16 +1,13 @@
 using UnityEngine;
 
-public class LockedDoor : HighlightTarget, IInteractable
+public class LockedDoor : MonoBehaviour, IInteractable
 {
-    [Header("Door Requirements")]
-    [Tooltip("Amount ok keys required to enable interaction with the door.")]
     [SerializeField] private int requiredKeys = 3;
 
     private PlayerInventory cachedPlayerInventory;
 
-    protected override void Awake()
+    void Awake()
     {
-        base.Awake();
         cachedPlayerInventory = FindFirstObjectByType<PlayerInventory>();
     }
 
