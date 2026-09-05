@@ -616,7 +616,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: 014a06cf43dd3164493650a9af5c7dea, type: 3}
       propertyPath: m_Name
-      value: teste mongo
+      value: char
       objectReference: {fileID: 0}
     - target: {fileID: 1469694194731619934, guid: 014a06cf43dd3164493650a9af5c7dea, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
