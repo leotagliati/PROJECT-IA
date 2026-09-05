@@ -1,14 +1,20 @@
 using UnityEngine;
+using Assets.Scripts.Seeker;
 
 public class AudioTrap : MonoBehaviour
 {
+    [Header("Referências")]
     [SerializeField] private Transform hunterTransform;
     [SerializeField] private float hunterEarRange = 10f;
-    [SerializeField] private float alertCooldown = 0.01f;
+    [SerializeField] private float alertCooldown = 0.5f;
+
+    [Header("Configurações de Trigger")]
+    [SerializeField] private string targetTag = "Goal";
+    [SerializeField] private float movementThreshold = 0.1f;
 
     private Collider trapCollider;
-    private PlayerMovement playerMovement;
     private float lastAlertTime;
+    private SeekerPerceptionSystem seekerPerception;
 
     void Start()
     {
@@ -22,78 +28,86 @@ public class AudioTrap : MonoBehaviour
             Debug.LogError("No Collider found on " + gameObject.name);
         }
 
-         GameObject hunter = GameObject.FindWithTag("Hunter");
-
-        if (hunter != null)
+        if (hunterTransform == null)
         {
-            hunterTransform = hunter.transform;
-            Debug.Log("Transform do Hunter obtido");
+            GameObject hunter = GameObject.FindWithTag("Hunter");
+            if (hunter != null)
+            {
+                hunterTransform = hunter.transform;
+                seekerPerception = hunter.GetComponentInChildren<SeekerPerceptionSystem>();
+                if (seekerPerception == null)
+                    seekerPerception = hunter.GetComponent<SeekerPerceptionSystem>();
+            }
+            else
+            {
+                Debug.LogWarning("Nenhum objeto com a tag 'Hunter' foi encontrado na cena.");
+            }
         }
         else
         {
-            Debug.LogWarning("Nenhum objeto com a tag 'Hunter' foi encontrado na cena.");
+            seekerPerception = hunterTransform.GetComponentInChildren<SeekerPerceptionSystem>();
+            if (seekerPerception == null)
+                seekerPerception = hunterTransform.GetComponent<SeekerPerceptionSystem>();
         }
-
     }
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
+        if (other.CompareTag(targetTag))
         {
-            playerMovement = other.GetComponent<PlayerMovement>();
-            CheckPlayerMovement(other.transform.position);
-            AlertHunter(other.transform.position);
+            CheckAndAlert(other);
         }
     }
 
     void OnTriggerStay(Collider other)
     {
-        if (other.CompareTag("Player"))
+        if (other.CompareTag(targetTag))
         {
-
-            if (playerMovement == null)
-                playerMovement = other.GetComponent<PlayerMovement>();
-
-            CheckPlayerMovement(other.transform.position);
+            CheckAndAlert(other);
         }
     }
 
-    void OnTriggerExit(Collider other)
+    private void CheckAndAlert(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            playerMovement = null;
-        }
-    }
-
-    private void CheckPlayerMovement(Vector3 playerPosition)
-    {
-        if (playerMovement == null)
+        if (!IsMoving(other))
             return;
 
-        if (playerMovement.IsMoving) 
+        if (Time.time - lastAlertTime < alertCooldown)
+            return;
+
+        if (hunterTransform != null && !IsHunterInRange(other.transform.position))
+            return;
+
+        lastAlertTime = Time.time;
+        AlertHunter(other.transform.position);
+    }
+
+    private bool IsMoving(Collider other)
+    {
+        PlayerMovement playerMovement = other.GetComponent<PlayerMovement>();
+        if (playerMovement != null)
+            return playerMovement.IsMoving;
+
+        Rigidbody rb = other.GetComponent<Rigidbody>();
+        if (rb != null)
+            return rb.linearVelocity.magnitude > movementThreshold;
+
+        return false;
+    }
+
+    private bool IsHunterInRange(Vector3 targetPosition)
+    {
+        return Vector3.Distance(hunterTransform.position, targetPosition) <= hunterEarRange;
+    }
+
+    private void AlertHunter(Vector3 targetPosition)
+    {
+        Debug.Log("Hunter hears the target at " + targetPosition);
+
+    
+        if (seekerPerception != null)
         {
-   
-            if (hunterTransform != null && IsHunterInRange(playerPosition))
-            {
-                if (Time.time - lastAlertTime >= alertCooldown)
-                {
-                    lastAlertTime = Time.time;
-                    AlertHunter(playerPosition);
-                }
-            }
+            seekerPerception.SetHeardHiderPosition(targetPosition);
         }
-       
-    }
-
-    private bool IsHunterInRange(Vector3 playerPosition)
-    {
-      
-        return Vector3.Distance(hunterTransform.position, playerPosition) <= hunterEarRange;
-    }
-
-    private void AlertHunter(Vector3 playerPosition)
-    {
-        Debug.Log("Hunter hears the player at " + playerPosition);
     }
 }

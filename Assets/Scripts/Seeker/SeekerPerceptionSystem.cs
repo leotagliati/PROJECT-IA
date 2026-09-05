@@ -24,11 +24,17 @@ namespace Assets.Scripts.Seeker
         private Vector3 _lastKnownHiderPosition;
         private float _closestWallProximity;
 
+        // Audição
+        private bool _hasHeardHider;
+        private Vector3 _lastHeardHiderPosition;
+
         public bool IsSeeingHider => _isSeeingHider;
 
-        public bool HasSeenHider => _hasSeenHider;
+        // Combina visão e audição: retorna true se viu OU ouviu
+        public bool HasSeenHider => _hasSeenHider || _hasHeardHider;
 
-        public Vector3 LastKnownHiderPosition => _lastKnownHiderPosition;
+        // Prioriza a posição vista, se disponível; caso contrário, a ouvida
+        public Vector3 LastKnownHiderPosition => _hasSeenHider ? _lastKnownHiderPosition : _lastHeardHiderPosition;
 
         public float[] WallProximities => _wallProximities;
 
@@ -125,6 +131,15 @@ namespace Assets.Scripts.Seeker
         }
 
         /// <summary>
+        /// Método público chamado pela AudioTrap quando o agente ouve o hider.
+        /// </summary>
+        public void SetHeardHiderPosition(Vector3 position)
+        {
+            _hasHeardHider = true;
+            _lastHeardHiderPosition = position;
+        }
+
+        /// <summary>
         /// Esquece a última posição conhecida (HasSeenHider volta a false). Chamar quando o
         /// agente chega ao ponto e o hider não está mais lá, forçando uma nova busca.
         /// </summary>
@@ -133,6 +148,10 @@ namespace Assets.Scripts.Seeker
             _isSeeingHider = false;
             _hasSeenHider = false;
             _lastKnownHiderPosition = Vector3.zero;
+
+            // Limpa também a audição
+            _hasHeardHider = false;
+            _lastHeardHiderPosition = Vector3.zero;
         }
 
         /// <summary>
@@ -141,10 +160,10 @@ namespace Assets.Scripts.Seeker
         /// </summary>
         public void ForgetIfArrived(Vector3 seekerPosition)
         {
-            if (_isSeeingHider || !_hasSeenHider)
+            if (_isSeeingHider || !HasSeenHider)
                 return;
 
-            if (Vector3.Distance(seekerPosition, _lastKnownHiderPosition) <= _arrivalThreshold)
+            if (Vector3.Distance(seekerPosition, LastKnownHiderPosition) <= _arrivalThreshold)
                 ForgetHider();
         }
 
@@ -175,11 +194,11 @@ namespace Assets.Scripts.Seeker
             for (int i = 0; i < _rayCount; i++)
                 Gizmos.DrawLine(origin, origin + ConeDirection(i) * _visionRange);
 
-            // Marca a última posição conhecida.
-            if (_hasSeenHider)
+            // Marca a última posição conhecida (vista ou ouvida).
+            if (HasSeenHider)
             {
                 Gizmos.color = Color.magenta;
-                Gizmos.DrawWireSphere(_lastKnownHiderPosition, 0.3f);
+                Gizmos.DrawWireSphere(LastKnownHiderPosition, 0.3f);
             }
         }
     }
