@@ -23,6 +23,7 @@ public class SeekerManager : Agent
     [SerializeField] private SeekerRewardSystem _rewardSystem;
     [SerializeField] private SeekerExplorationMemory _explorationMemory;
     [SerializeField] private SeekerArenaController _arenaController;
+    [SerializeField] private SeekerAnimationSystem _animationSystem;
 
     [Header("-----Settings-----")]
     [SerializeField] private int _maxEpisodeSteps = 5000;
@@ -60,6 +61,9 @@ public class SeekerManager : Agent
         if (_arenaController == null)
             _arenaController = GetComponentInParent<SeekerArenaController>();
 
+        if (_animationSystem == null)
+            _animationSystem = GetComponentInChildren<SeekerAnimationSystem>();
+
         // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
         // usar coordenadas de mundo faria as arenas compartilharem células.
         if (_explorationMemory != null && _arenaController != null)
@@ -92,6 +96,9 @@ public class SeekerManager : Agent
         _perceptionSystem.ResetHiderMemory();
         _explorationMemory.ResetEpisode();
         _rewardSystem.ResetEpisode();
+
+        if (_animationSystem != null)
+            _animationSystem.ResetEpisode();
 
         // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
         // dedup precisa ser invalidado: sem isso a primeira observação da nova run enxergaria
@@ -151,6 +158,9 @@ public class SeekerManager : Agent
 
         Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
         _movementSystem.Move(direction);
+
+        if (_animationSystem != null)
+            _animationSystem.Tick(direction, _perceptionSystem.IsSeeingHider);
 
         // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
         // step de física marca de novo; se acabou, ela fica false sozinha.
