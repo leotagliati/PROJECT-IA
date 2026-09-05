@@ -86,17 +86,43 @@ namespace Assets.Scripts.Seeker
         // e ajusta o regime de recompensa para combinar com ela.
         private void ApplyCurriculum()
         {
-            float mazeEnabled = Academy.Instance.EnvironmentParameters
+            float mazeProbability = Academy.Instance.EnvironmentParameters
                 .GetWithDefault(_mazeParameterName, 0f);
-            bool mazeOn = mazeEnabled > 0.5f;
+
+            // maze_enabled é lido como PROBABILIDADE por episódio e por arena, não como flag
+            // global. Com várias arenas na cena e 0.5, o mesmo batch carrega os dois regimes.
+            // Sem isso, uma lição de labirinto puro tira a sala aberta do gradiente por
+            // centenas de milhares de steps e a perseguição em espaço aberto degrada — o PPO
+            // não preserva um comportamento que parou de dar recompensa.
+            bool mazeOn = RollMaze(mazeProbability);
 
             // Fora do if do _maze de propósito: mesmo sem labirinto atribuído o regime de
-            // recompensa precisa acompanhar a lição.
+            // recompensa precisa acompanhar a lição. Agora que o sorteio é por arena, cada
+            // cópia usa o regime do PRÓPRIO layout no mesmo step — que é justamente o ponto:
+            // a arena aberta continua cobrando aproximação em peso cheio enquanto a vizinha
+            // com labirinto roda no regime reduzido.
             ApproachRewardScale = mazeOn ? _mazeApproachScale : 1f;
             WallProximityScale = mazeOn ? _mazeWallProximityScale : 1f;
 
             if (_maze != null)
                 _maze.SetActive(mazeOn);
+        }
+
+        /// <summary>
+        /// Sorteia o layout do episódio. Os extremos são tratados à parte porque
+        /// UnityEngine.Random.value inclui o 1.0: uma comparação solta faria a lição "sempre
+        /// labirinto" abrir a sala uma vez a cada alguns milhões de episódios — raro o
+        /// bastante para nunca aparecer num teste e mesmo assim ser um bug.
+        /// </summary>
+        private static bool RollMaze(float probability)
+        {
+            if (probability <= 0f)
+                return false;
+
+            if (probability >= 1f)
+                return true;
+
+            return Random.value < probability;
         }
     }
 }

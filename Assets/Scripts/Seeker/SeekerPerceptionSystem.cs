@@ -35,6 +35,12 @@ namespace Assets.Scripts.Seeker
         public float ClosestWallProximity => _closestWallProximity;
 
         /// <summary>
+        /// Máscara que define o que é parede. Exposta para que a detecção de CONTATO use o
+        /// mesmo critério dos raycasts — uma fonte de verdade só para "isto é uma parede".
+        /// </summary>
+        public LayerMask WallLayer => _wallLayer;
+
+        /// <summary>
         /// Oito direções no referencial do MUNDO — o mesmo das ações (X/Z), então o agente não
         /// precisa aprender nenhuma rotação entre o que sente e o que faz. As diagonais são o que
         /// permite perceber aberturas (e não só obstáculos), que é o mínimo para navegar corredor.
