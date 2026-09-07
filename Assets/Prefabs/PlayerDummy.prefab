@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 8136329723317198858}
   - component: {fileID: 3947188273615540912}
   - component: {fileID: 3312891736075415501}
+  - component: {fileID: 3171679303800502958}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -196,9 +197,30 @@ MonoBehaviour:
   flickerBlinkDuration: {x: 0.02, y: 0.07}
   flickerOffLevel: 0
   startsOn: 1
-  toggleKey: 20
   turnOnSpeed: 22
   turnOffSpeed: 44
+--- !u!114 &3171679303800502958
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 82571688b59905143bdb33d8cdf61e2a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetCamera: {fileID: 0}
+  movement: {fileID: 0}
+  peekAngle: 135
+  allowFullBack: 1
+  fullBackAngle: 180
+  peekRoll: 2.5
+  enterSmoothTime: 0.11
+  exitSmoothTime: 0.16
+  requireMovement: 0
+  blockWhileJumping: 0
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0

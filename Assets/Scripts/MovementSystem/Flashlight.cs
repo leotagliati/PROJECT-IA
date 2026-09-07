@@ -82,10 +82,10 @@ public class Flashlight : MonoBehaviour
 
     [Header("Liga/desliga")]
     [SerializeField] private bool startsOn = true;
-    [SerializeField] private Key toggleKey = Key.F;
     [SerializeField] private float turnOnSpeed = 14f;
     [SerializeField] private float turnOffSpeed = 22f;
 
+    private PlayerInputActions playerInput;
     private Transform cameraTransform;
     private Transform lightTransform;
 
@@ -118,6 +118,8 @@ public class Flashlight : MonoBehaviour
 
     private void Awake()
     {
+        playerInput = new PlayerInputActions();
+
         if (targetCamera == null)
             targetCamera = GetComponentInChildren<Camera>();
 
@@ -238,9 +240,19 @@ public class Flashlight : MonoBehaviour
             Destroy(generatedCookie);
     }
 
+    private void OnEnable()
+    {
+        playerInput.Player.Enable();
+    }
+
+    private void OnDisable()
+    {
+        playerInput.Player.Disable();
+    }
+
     private void Update()
     {
-        if (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame)
+        if (playerInput.Player.Flashlight.WasPressedThisFrame())
             Toggle();
     }
 
