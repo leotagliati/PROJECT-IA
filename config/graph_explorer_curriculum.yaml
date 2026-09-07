@@ -1,0 +1,132 @@
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.01          # mais alto que o do seeker: entropia e o que segura a politica
+                          # explorando ACOES enquanto ela ainda nao sabe explorar o MAPA.
+                          # Com 0.005 ela converge cedo demais para "andar sempre pro mesmo lado".
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false    # todas as observacoes ja saem em [-1, 1] ou [0, 1] do
+                          # GraphExplorerManager; normalizar de novo so adiciona estado movel.
+      hidden_units: 128
+      num_layers: 2
+      vis_encode_type: simple
+      # Memoria recorrente NAO usada de proposito: a GraphExplorationMemory ja entrega "onde eu
+      # ja estive" explicitamente na observacao. Um LSTM aqui aprenderia a reconstruir, a partir
+      # de um historico, uma informacao que ele ja recebe pronta — mais parametros, mais tempo,
+      # e um comportamento bem menos interpretavel quando algo der errado.
+    reward_signals:
+      extrinsic:
+        # 0.995, e nao 0.99: com episodios de ate 4000 decisoes e recompensa espalhada por
+        # dezenas de nos, 0.99 da um horizonte efetivo de ~100 steps — curto demais para o
+        # agente ligar "atravessei este corredor" a "achei a sala do outro lado".
+        gamma: 0.995
+        strength: 1.0
+      # Curiosity NAO usada: o bonus por no/aresta/area inedita do GraphRewardSystem faz o mesmo
+      # trabalho de forma explicita, interpretavel e ajustavel no Inspector. Manter os dois
+      # tornaria impossivel saber qual dos sinais causou qual comportamento.
+    keep_checkpoints: 5
+    max_steps: 2000000
+    time_horizon: 128     # o dobro do seeker: as recompensas aqui sao mais esparsas no tempo.
+    summary_freq: 20000
+
+environment_parameters:
+  # ATENCAO: os dois parametros abaixo formam UMA licao conceitual cada, mas o ML-Agents avalia
+  # o curriculo de cada parametro de forma independente. Os completion_criteria dos dois sao
+  # identicos de proposito — e a unica forma de garantir que avancem juntos. Se mexer num
+  # threshold, mexa no outro.
+
+  # Fracao do grafo que encerra o episodio em sucesso (lida pelo GraphArenaController).
+  # Comeca baixa: um alvo de 100% desde o inicio faz TODO episodio terminar em timeout, e o
+  # agente nunca vê o sinal de conclusao — ele passa o treino inteiro aprendendo so com o
+  # shaping, que e justamente a parte que voce quer poder desligar depois.
+  coverage_target:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          # 'progress' = fracao de max_steps, independente da escala de recompensa. Mesma
+          # escolha do curriculo do seeker, e pelo mesmo motivo: enquanto os pesos da recompensa
+          # ainda estao sendo ajustados, um threshold baseado em reward e invalidado a cada
+          # ajuste. Troque para 'reward' quando os pesos congelarem.
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.2
+          require_reset: true
+        value: 0.3
+      - name: Half
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.45
+          require_reset: true
+        value: 0.6
+      - name: Most
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.7
+          require_reset: true
+        value: 0.9
+      # 0.9, e nao 1.0: o ultimo no do mapa costuma custar tanto quanto os dez anteriores
+      # juntos, e exigir cobertura perfeita transforma quase todo episodio bem-sucedido em
+      # fracasso por timeout. O objetivo e percorrer o mapa, nao varre-lo.
+      - name: MostNoHint
+        value: 0.9
+
+  # Peso da dica de fronteira: escala a OBSERVACAO da direcao do nao-visitado mais proximo e o
+  # shaping de recompensa que a acompanha (os dois juntos, de proposito — sao a mesma muleta).
+  #
+  # Ela existe para o inicio do treino: sem nenhuma dica, o agente leva centenas de milhares de
+  # steps ate topar por acaso com uma sequencia de nos ineditos boa o bastante para o PPO
+  # notar. Com a dica, ele aprende rapido a NAVEGAR (seguir um rumo, atravessar porta, contornar
+  # parede) e so depois precisa aprender a DECIDIR o rumo sozinho.
+  #
+  # Por isso ela cai no fim: uma politica treinada com a dica ligada o tempo todo aprende a
+  # seguir a seta, e no cenario final essa seta pode nao existir. As duas ultimas licoes tiram a
+  # muleta enquanto o resto do comportamento ja esta formado.
+  frontier_hint:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.2
+          require_reset: true
+        value: 1.0
+      - name: Half
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.45
+          require_reset: true
+        value: 1.0
+      - name: Most
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.7
+          require_reset: true
+        value: 0.5
+      - name: MostNoHint
+        value: 0.0
