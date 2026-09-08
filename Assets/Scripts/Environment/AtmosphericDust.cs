@@ -313,9 +313,6 @@ public class AtmosphericParticles : MonoBehaviour
             target.DisableKeyword("_FADING_ON");
     }
 
-    /// <summary>
-    /// Grão redondo com borda macia. Quadrado é o que denuncia partícula barata.
-    /// </summary>
     private static Texture2D BuildDustTexture(int size)
     {
         var created = new Texture2D(size, size, TextureFormat.RGBA32, true)
