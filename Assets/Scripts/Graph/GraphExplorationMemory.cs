@@ -24,6 +24,31 @@ namespace Assets.Scripts.Graph
     /// </summary>
     public class GraphExplorationMemory : MonoBehaviour
     {
+        [Header("-----Gizmos (só em Play)-----")]
+        // A memória é estado de EPISÓDIO: fora do Play não existe nada para desenhar. Quem
+        // desenha a estrutura do mapa (nós, raios, ligações) é o NavGraph, e ele desenha sempre.
+        //
+        // Legenda:
+        //   disco verde       nó já visitado neste episódio
+        //   disco alaranjado  nó revisitado — quanto mais quente, mais vezes o agente voltou
+        //   contorno cinza    nó que ainda falta
+        //   linha branca      aresta já percorrida (não paga de novo neste episódio)
+        //   disco amarelo     nó âncora atual
+        //   esfera magenta    alvo da fronteira, com a linha até o próximo passo
+        [SerializeField] private bool _drawGizmos = true;
+        [SerializeField] private bool _drawVisitedNodes = true;
+        [SerializeField] private bool _drawPendingNodes = true;
+        [SerializeField] private bool _drawTraversedEdges = true;
+        [SerializeField] private bool _drawFrontier = true;
+
+        // Quantas revisitas levam a cor ao topo da escala de calor.
+        [SerializeField] private int _heatSaturationVisits = 5;
+
+        private static readonly Color VisitedColor = new Color(0.15f, 0.9f, 0.3f, 0.9f);
+        private static readonly Color RevisitedColor = new Color(1f, 0.5f, 0.05f, 0.9f);
+        private static readonly Color PendingColor = new Color(0.45f, 0.45f, 0.5f, 0.35f);
+        private static readonly Color TraversedEdgeColor = new Color(1f, 1f, 1f, 0.85f);
+
         private NavGraph _graph;
 
         private bool[] _visited;
@@ -317,17 +342,14 @@ namespace Assets.Scripts.Graph
 
         private void OnDrawGizmos()
         {
-            if (_graph == null || _visited == null || !Application.isPlaying)
+            if (!_drawGizmos || _graph == null || _visited == null || !Application.isPlaying)
                 return;
 
-            for (int i = 0; i < _visited.Length; i++)
-            {
-                if (!_visited[i])
-                    continue;
+            if (_drawVisitedNodes || _drawPendingNodes)
+                DrawNodeMemory();
 
-                Gizmos.color = new Color(0.1f, 0.9f, 0.3f, 0.8f);
-                Gizmos.DrawSphere(_graph.NodePosition(i), 0.22f);
-            }
+            if (_drawTraversedEdges)
+                DrawTraversedEdges();
 
             // O disco do nó atual, no mesmo formato do gizmo de autoria: dá para ver ao vivo se
             // o raio que você calibrou está registrando a chegada onde você achou que ia.
@@ -337,14 +359,77 @@ namespace Assets.Scripts.Graph
                 GraphGizmos.DrawGroundCircle(
                     _graph.NodePosition(CurrentNodeIndex),
                     _graph.NodeRadius(CurrentNodeIndex),
-                    height: 0.08f);
+                    height: 0.12f);
             }
 
-            if (HasFrontier)
+            if (_drawFrontier && HasFrontier)
             {
                 Gizmos.color = Color.magenta;
                 Gizmos.DrawWireSphere(_graph.NodePosition(FrontierTarget), 0.45f);
                 Gizmos.DrawLine(transform.position, _graph.NodePosition(FrontierNextStep));
+            }
+        }
+
+        /// <summary>
+        /// Pinta o raio de chegada de cada nó com o estado dele neste episódio. O disco (e não
+        /// um pontinho) porque é ele que diz onde a visita É registrada: assim a cor responde
+        /// "já passei aqui?" e a área responde "onde eu preciso passar?" na mesma figura.
+        /// </summary>
+        private void DrawNodeMemory()
+        {
+            for (int i = 0; i < _visited.Length; i++)
+            {
+                if (!_graph.IsNodeEnabled(i))
+                    continue;
+
+                Vector3 position = _graph.NodePosition(i);
+                float radius = _graph.NodeRadius(i);
+
+                if (!_visited[i])
+                {
+                    // O que falta, só de contorno: o pendente precisa ser localizável sem
+                    // competir visualmente com o que já foi feito.
+                    if (_drawPendingNodes)
+                    {
+                        Gizmos.color = PendingColor;
+                        GraphGizmos.DrawGroundCircle(position, radius, height: 0.04f);
+                    }
+
+                    continue;
+                }
+
+                if (!_drawVisitedNodes)
+                    continue;
+
+                // Verde -> laranja conforme as revisitas. Ver o nó esquentar é a forma mais
+                // rápida de flagrar vai-e-vem: nó e aresta pagam uma vez por episódio, então
+                // cor quente aqui é tempo gasto sem retorno nenhum.
+                float heat = Mathf.Clamp01((_visitCount[i] - 1f) / Mathf.Max(1, _heatSaturationVisits));
+
+                Gizmos.color = Color.Lerp(VisitedColor, RevisitedColor, heat);
+                GraphGizmos.DrawGroundDisc(position, radius, height: 0.06f);
+                Gizmos.DrawSphere(position, 0.3f);
+            }
+        }
+
+        /// <summary>
+        /// As arestas já percorridas, desenhadas ACIMA das ligações do NavGraph (que são verdes
+        /// e significam outra coisa: "esta ligação é válida"). Sem isto, a regra de que a aresta
+        /// paga uma vez só por episódio é invisível — e ela é justamente a defesa contra o
+        /// ping-pong entre dois nós vizinhos.
+        /// </summary>
+        private void DrawTraversedEdges()
+        {
+            Gizmos.color = TraversedEdgeColor;
+
+            foreach (long key in _traversedEdges)
+            {
+                // Desempacota a chave montada por EdgeKey.
+                int a = (int)(key >> 32);
+                int b = (int)(key & 0xFFFFFFFFL);
+
+                Vector3 offset = Vector3.up * 0.7f;
+                Gizmos.DrawLine(_graph.NodePosition(a) + offset, _graph.NodePosition(b) + offset);
             }
         }
     }

@@ -30,14 +30,35 @@ namespace Assets.Scripts.Graph
 
         // Por STEP em contato, não por evento de colisão (o Unity re-dispara OnCollisionEnter
         // dezenas de vezes por segundo ao deslizar numa parede, e uma penalidade por evento
-        // explode em corredor). Mesma ordem de grandeza da existencial.
-        [SerializeField] private float _wallContactPenalty = 0.002f;
+        // explode em corredor).
+        //
+        // O valor tem que ser lido junto com _maxEpisodeSteps, porque o que importa é o TETO:
+        //   0.0005 x 4000 steps = -2.0 por episódio, a mesma ordem da existencial.
+        //
+        // Era 0.002, copiado do seeker. Lá o número está certo porque os episódios dele duram
+        // ~150 steps (custo total ~0.3, irrelevante); aqui duram 4000, e o mesmo número virava
+        // -8.0 — quatro vezes a existencial e da ordem de TODA a recompensa de cobertura do
+        // mapa. Num labirinto, onde raspar parede é a condição normal de andar em corredor,
+        // isso ensina a não entrar em corredor nenhum. Ao trocar de agente, reconfira o teto,
+        // não o valor por step.
+        [SerializeField] private float _wallContactPenalty = 0.0005f;
 
         // Antídoto para o agente que entala numa quina ou orbita um nó já visitado. Só entra
         // depois de _stagnationSteps sem NÓ NOVO — não sem movimento: andar em círculo por uma
         // sala inteira já explorada é exatamente o comportamento que queremos encarecer.
-        [SerializeField] private float _stagnationPenalty = 0.002f;
-        [SerializeField] private int _stagnationSteps = 250;
+        // Mesma leitura por TETO: 0.001 x (4000 - 1250) = -2.75 por episódio no pior caso, o
+        // que a mantém como um empurrão contra entalar, e não como a maior força do sistema.
+        [SerializeField] private float _stagnationPenalty = 0.001f;
+
+        // Em steps de FÍSICA (o DecisionRequester da cena usa TakeActionsBetweenDecisions, então
+        // OnActionReceived roda todo FixedUpdate). 1250 steps = 25 s a 0.02 de timestep.
+        //
+        // O valor antigo, 250, foi calibrado como se fosse em decisões: davam 5 SEGUNDOS sem nó
+        // novo. Uma aresta de 14 m a 5 u/s leva 2,8 s em linha reta perfeita e o dobro ou o
+        // triplo com curva e porta — a penalidade disparava durante a viagem legítima entre dois
+        // nós e cancelava o prêmio da chegada. O limiar tem que ser MAIOR que a travessia normal
+        // do mapa: ele existe para punir quem entalou numa quina, não quem está a caminho.
+        [SerializeField] private int _stagnationSteps = 1250;
 
         // Cobrada ao CHEGAR a um nó já visitado, escalada por 1/visitas. Default 0: com a
         // recompensa por aresta paga uma vez só, revisitar já rende zero, e voltar por onde veio
@@ -77,6 +98,28 @@ namespace Assets.Scripts.Graph
         // nas lições finais justamente para o comportamento sobreviver sem ela.
         [SerializeField] private float _frontierProgressReward = 0.05f;
 
+        // Por METRO de aproximação do próximo passo da fronteira. Este é o termo que faltava: o
+        // _frontierProgressReward acima mede distância em ARESTAS, e distância em arestas só
+        // muda quando o agente troca de nó — ou seja, ele é tão esparso quanto a chegada, e
+        // durante a travessia inteira o agente só recebia penalidade.
+        //
+        // TETO deste valor, e a conta que você deve refazer a cada mapa novo:
+        //
+        //   chegada = (orçamento da região / nós da região) x _regionCoverageReward
+        //   teto    = chegada / aresta_mediana
+        //
+        // Acima do teto, percorrer a aresta paga mais que chegar ao nó, e o agente otimiza o
+        // ANDAR em vez do CHEGAR. Abaixo dele, o gradual guia e os eventos continuam definindo
+        // o objetivo — que é o arranjo que sobrevive ao currículo desligar a dica
+        // (frontier_hint 0.5 -> 0.0 nas últimas lições).
+        //
+        // Não é farmável: é uma diferença de distâncias, então afastar cobra exatamente o que
+        // aproximar pagou e o vai-e-vem rende zero. O limite acima é conceitual, não de exploit.
+        //
+        // Mesma família do _hiderApproachReward do seeker, que mede exatamente assim: a
+        // diferença de distância euclidiana entre dois steps.
+        [SerializeField] private float _frontierApproachReward = 0.02f;
+
         public float FullCoverageReward => _fullCoverageReward;
 
         public void ResetEpisode()
@@ -115,6 +158,11 @@ namespace Assets.Scripts.Graph
             // descoberta.
             if (context.HasFrontierProgress)
                 reward += _frontierProgressReward * context.FrontierDistanceDelta * context.FrontierRewardScale;
+
+            // O sinal denso. Multiplicado pela mesma escala do currículo que o termo em arestas:
+            // os dois são a MESMA muleta, e desligar só um deixaria metade da dependência de pé.
+            if (context.HasFrontierApproach)
+                reward += _frontierApproachReward * context.FrontierApproachDelta * context.FrontierRewardScale;
 
             return reward;
         }

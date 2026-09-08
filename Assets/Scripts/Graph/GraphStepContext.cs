@@ -48,6 +48,25 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public readonly bool HasFrontierProgress;
 
+        /// <summary>
+        /// Redução da distância EM METROS até o PRÓXIMO PASSO da fronteira, medida no plano
+        /// X/Z. Positivo = andou na direção certa neste step. Este é o termo DENSO: ao
+        /// contrário do <see cref="FrontierDistanceDelta"/>, que só muda quando o agente troca
+        /// de nó, este muda a cada step em que o agente se mexe — e é o que dá gradiente
+        /// durante a travessia de uma aresta longa, onde antes só havia penalidade.
+        /// Válido apenas quando <see cref="HasFrontierApproach"/> é true.
+        /// </summary>
+        public readonly float FrontierApproachDelta;
+
+        /// <summary>
+        /// Se o delta de aproximação é comparável: os dois steps mediram a distância até o
+        /// MESMO nó. A checagem é de identidade do nó, e não de "tem fronteira": quando o
+        /// agente chega num nó a BFS reaponta para outro lugar e a distância salta de forma
+        /// descontínua — cobrar esse salto seria punir (ou premiar) o agente por uma mudança
+        /// de alvo que ele não causou andando.
+        /// </summary>
+        public readonly bool HasFrontierApproach;
+
         public readonly int StepsSinceNewNode;
 
         public readonly bool IsTouchingWall;
@@ -65,6 +84,8 @@ namespace Assets.Scripts.Graph
             int currentNodeVisitCount,
             int frontierDistanceDelta,
             bool hasFrontierProgress,
+            float frontierApproachDelta,
+            bool hasFrontierApproach,
             int stepsSinceNewNode,
             bool isTouchingWall,
             float frontierRewardScale)
@@ -78,6 +99,8 @@ namespace Assets.Scripts.Graph
             CurrentNodeVisitCount = currentNodeVisitCount;
             FrontierDistanceDelta = frontierDistanceDelta;
             HasFrontierProgress = hasFrontierProgress;
+            FrontierApproachDelta = frontierApproachDelta;
+            HasFrontierApproach = hasFrontierApproach;
             StepsSinceNewNode = stepsSinceNewNode;
             IsTouchingWall = isTouchingWall;
             FrontierRewardScale = frontierRewardScale;

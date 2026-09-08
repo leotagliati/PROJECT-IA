@@ -34,5 +34,16 @@ namespace Assets.Scripts.Graph
                 previous = current;
             }
         }
+
+        /// <summary>
+        /// Aproximação de disco CHEIO por anéis concêntricos. O Gizmos não tem primitiva de
+        /// disco preenchido, e o contorno sozinho some na vista de cima do mapa inteiro — que é
+        /// justamente a vista em que a memória de nós precisa ser lida de relance.
+        /// </summary>
+        public static void DrawGroundDisc(Vector3 center, float radius, int rings = 3, float height = 0.05f, int segments = 20)
+        {
+            for (int ring = rings; ring > 0; ring--)
+                DrawGroundCircle(center, radius * ring / rings, height, segments);
+        }
     }
 }

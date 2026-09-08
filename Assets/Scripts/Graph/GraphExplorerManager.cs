@@ -96,7 +96,11 @@ namespace Assets.Scripts.Graph
         [SerializeField] private int _maxGraphDistance = 20;
 
         [Header("-----Settings-----")]
-        // Em DECISÕES, não em steps de física (igual ao seeker).
+        // Em steps de FÍSICA, não em decisões: com TakeActionsBetweenDecisions ligado no
+        // DecisionRequester (que é como a cena está montada), OnActionReceived roda todo
+        // FixedUpdate e é ele quem incrementa o contador. 4000 steps = 80 s a 0.02 de timestep,
+        // ou 800 decisões com Decision Period 5 — que é o número que aparece no
+        // "Environment/Episode Length" do TensorBoard.
         [SerializeField] private int _maxEpisodeSteps = 4000;
 
         private Vector3 _initialLocalPosition;
@@ -112,6 +116,13 @@ namespace Assets.Scripts.Graph
         // uma fração do que o agente controla com uma ação.
         private int _frontierDistanceAtLastDecision;
         private bool _hadFrontierAtLastDecision;
+
+        // Estado do shaping denso: qual nó era o próximo passo da fronteira no step anterior e a
+        // que distância em metros ele estava. Guardar o ÍNDICE, e não só a distância, é o que
+        // permite comparar por identidade — quando a BFS reaponta para outro nó a distância
+        // salta, e sem essa checagem o salto viraria recompensa (ou punição) fantasma.
+        private int _frontierNextStepAtLastDecision = -1;
+        private float _frontierApproachDistanceAtLastDecision;
 
         private readonly List<int> _neighborBuffer = new List<int>();
         private Comparison<int> _byDistanceFromNode;
@@ -182,6 +193,7 @@ namespace Assets.Scripts.Graph
 
             _hadFrontierAtLastDecision = _memory.HasFrontier;
             _frontierDistanceAtLastDecision = _memory.FrontierDistance;
+            RememberFrontierApproach();
         }
 
         // A memória é amostrada a cada step de FÍSICA. Com Decision Period > 1 o agente percorre
@@ -339,6 +351,7 @@ namespace Assets.Scripts.Graph
             // step de física.
             _hadFrontierAtLastDecision = _memory.HasFrontier;
             _frontierDistanceAtLastDecision = _memory.FrontierDistance;
+            RememberFrontierApproach();
             _memory.ClearStepFlags();
             _touchingWall = false;
 
@@ -370,6 +383,20 @@ namespace Assets.Scripts.Graph
                 ? _frontierDistanceAtLastDecision - _memory.FrontierDistance
                 : 0;
 
+            // Aproximação em metros do próximo passo da fronteira. Aqui a porteira é OUTRA: não
+            // interessa se o agente entrou num nó novo, e sim se os dois steps mediram a
+            // distância até o MESMO nó. Enquanto o alvo não muda, cada centímetro andado na
+            // direção dele conta — é isso que dá gradiente no meio de uma aresta longa, onde o
+            // delta em arestas acima vale zero do começo ao fim da travessia.
+            int frontierNextStep = FrontierNextStepOrNone();
+
+            bool approachComparable =
+                frontierNextStep >= 0 && frontierNextStep == _frontierNextStepAtLastDecision;
+
+            float approachDelta = approachComparable
+                ? _frontierApproachDistanceAtLastDecision - PlanarDistanceToNode(frontierNextStep)
+                : 0f;
+
             return new GraphStepContext(
                 _maxEpisodeSteps,
                 _memory.EnteredNewNode,
@@ -380,9 +407,35 @@ namespace Assets.Scripts.Graph
                 _memory.CurrentNodeVisitCount,
                 delta,
                 frontierComparable,
+                approachDelta,
+                approachComparable,
                 _memory.StepsSinceNewNode,
                 _touchingWall,
                 _arenaController.FrontierHintScale);
+        }
+
+        /// <summary>
+        /// Próximo passo do caminho até o não-visitado mais próximo, ou -1 quando não há
+        /// fronteira. O peso da lição NÃO entra aqui: quem zera o shaping é a multiplicação por
+        /// FrontierRewardScale na recompensa, num lugar só.
+        /// </summary>
+        private int FrontierNextStepOrNone() => _memory.HasFrontier ? _memory.FrontierNextStep : -1;
+
+        // Planar (X/Z), pela mesma razão que FindNodeAt é planar: o mapa tem um andar só, e a
+        // diferença de altura entre o agente e o nó entraria no cálculo como distância que
+        // nenhuma ação consegue reduzir — um piso constante que só faria diluir o sinal.
+        private float PlanarDistanceToNode(int node)
+        {
+            Vector3 delta = _graph.NodePosition(node) - transform.position;
+            return new Vector2(delta.x, delta.z).magnitude;
+        }
+
+        private void RememberFrontierApproach()
+        {
+            _frontierNextStepAtLastDecision = FrontierNextStepOrNone();
+            _frontierApproachDistanceAtLastDecision = _frontierNextStepAtLastDecision >= 0
+                ? PlanarDistanceToNode(_frontierNextStepAtLastDecision)
+                : 0f;
         }
 
         // Encostar em parede é condição contínua: OnCollisionStay dispara uma vez por step POR
