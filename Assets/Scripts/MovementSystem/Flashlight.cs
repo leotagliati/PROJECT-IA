@@ -321,6 +321,12 @@ public class Flashlight : MonoBehaviour
                     targetFrequency = walkSwayFrequency;
                     break;
 
+                // Agachado balança menos e mais devagar que andando de pé.
+                case PlayerState.CrouchWalking:
+                    targetAngle = walkSwayAngle * 0.5f;
+                    targetFrequency = walkSwayFrequency * 0.7f;
+                    break;
+
                 case PlayerState.Running:
                     targetAngle = runSwayAngle;
                     targetFrequency = runSwayFrequency;
