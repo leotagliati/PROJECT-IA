@@ -36,15 +36,22 @@ public class ShoulderPeek : MonoBehaviour
     [Tooltip("Folga mantida da parede.")]
     [SerializeField] private float leanSkin = 0.08f;
 
-    [Tooltip("Input de movimento acima disso conta como 'em movimento'.")]
+    [Tooltip("Input para frente acima disso conta como 'correndo para frente'.")]
     [SerializeField] private float movementThreshold = 0.1f;
+
+    [Tooltip("Quanto tempo o movimento precisa contrariar o modo travado antes do peek ser cancelado.")]
     [SerializeField] private float modeSwitchDelay = 0.2f;
 
-    private PlayerInputActions playerInput;
     private Transform cameraTransform;
 
     // -1 = esquerda, 0 = nenhum, +1 = direita. Quem chegou primeiro manda.
     private int activeSide;
+
+    // Índice 0 = esquerda, 1 = direita.
+    private readonly bool[] held = new bool[2];
+
+    // Tecla que já gastou o peek dela: só volta a valer depois de soltar e apertar de novo.
+    private readonly bool[] blocked = new bool[2];
 
     private PeekMode currentMode = PeekMode.Lean;
     private float modeTimer;
@@ -67,8 +74,6 @@ public class ShoulderPeek : MonoBehaviour
 
     private void Awake()
     {
-        playerInput = new PlayerInputActions();
-
         if (targetCamera == null)
             targetCamera = GetComponentInChildren<Camera>();
 
@@ -78,12 +83,40 @@ public class ShoulderPeek : MonoBehaviour
 
     private void OnEnable()
     {
-        playerInput.Player.Enable();
+        PlayerInputProvider.Acquire();
+
+        var player = PlayerInputProvider.Player;
+
+        player.PeekLeft.started += OnPeekLeftStarted;
+        player.PeekLeft.canceled += OnPeekLeftCanceled;
+        player.PeekRight.started += OnPeekRightStarted;
+        player.PeekRight.canceled += OnPeekRightCanceled;
+
+        // Tecla já segurada quando o componente liga não gera 'started', então ela entra
+        // travada: o peek começa no aperto seguinte, não no meio de um hold antigo.
+        SyncHeldOnEnable(0, player.PeekLeft.IsPressed());
+        SyncHeldOnEnable(1, player.PeekRight.IsPressed());
     }
 
     private void OnDisable()
     {
-        playerInput.Player.Disable();
+        var player = PlayerInputProvider.Player;
+
+        player.PeekLeft.started -= OnPeekLeftStarted;
+        player.PeekLeft.canceled -= OnPeekLeftCanceled;
+        player.PeekRight.started -= OnPeekRightStarted;
+        player.PeekRight.canceled -= OnPeekRightCanceled;
+
+        PlayerInputProvider.Release();
+
+        activeSide = 0;
+        modeTimer = 0f;
+    }
+
+    private void SyncHeldOnEnable(int index, bool pressed)
+    {
+        held[index] = pressed;
+        blocked[index] = pressed;
     }
 
     private void Start()
@@ -100,55 +133,80 @@ public class ShoulderPeek : MonoBehaviour
 
     private void LateUpdate()
     {
-        UpdateActiveSide();
-        UpdateMode();
+        UpdateModeWatchdog();
         UpdateTargets();
         ApplyToCamera();
     }
 
+    // ------------------------------------------------------------------- input
+
+    private void OnPeekLeftStarted(InputAction.CallbackContext _) => BeginPeek(0);
+
+    private void OnPeekRightStarted(InputAction.CallbackContext _) => BeginPeek(1);
+
+    private void OnPeekLeftCanceled(InputAction.CallbackContext _) => EndPeek(0);
+
+    private void OnPeekRightCanceled(InputAction.CallbackContext _) => EndPeek(1);
+
     /// <summary>
     /// Trava o lado na primeira tecla apertada: enquanto Q estiver segurado, E é ignorado
-    /// por completo, e vice-versa. Se você soltar a primeira e a segunda ainda estiver
-    /// pressionada, ela assume — segurar uma tecla e não ter resposta ao soltar a outra
-    /// seria mais estranho do que a troca.
+    /// por completo, e vice-versa. O modo também é decidido aqui, no aperto, e não muda
+    /// mais até o peek acabar.
     /// </summary>
-    private void UpdateActiveSide()
+    private void BeginPeek(int index)
     {
-        bool left = playerInput.Player.PeekLeft.IsPressed();
-        bool right = playerInput.Player.PeekRight.IsPressed();
+        held[index] = true;
 
-        // Enquanto o dono do peek continuar segurando, ninguém toma o lugar dele.
-        if (activeSide < 0 && left)
+        // O dono do peek continua sendo quem chegou primeiro.
+        if (activeSide != 0 || blocked[index])
             return;
 
-        if (activeSide > 0 && right)
-            return;
-
-        if (left)
-            activeSide = -1;
-        else if (right)
-            activeSide = 1;
-        else
-            activeSide = 0;
+        activeSide = SideOf(index);
+        currentMode = IsRunningForward() ? PeekMode.LookBack : PeekMode.Lean;
+        modeTimer = 0f;
     }
 
     /// <summary>
-    /// Escolhe entre inclinar e olhar para trás pelo estado de movimento, com um atraso
-    /// de confirmação. Sem esse atraso, soltar o W por um instante no meio de uma fuga
-    /// faria a câmera começar a girar de volta — ruim justamente na hora mais tensa.
+    /// Soltar sempre destrava a tecla. Se quem soltou era o dono do peek e a outra tecla
+    /// ainda está segurada e válida, ela assume — segurar uma tecla e não ter resposta ao
+    /// soltar a outra seria mais estranho do que a troca.
     /// </summary>
-    private void UpdateMode()
+    private void EndPeek(int index)
     {
-        PeekMode desired = IsMoving() ? PeekMode.LookBack : PeekMode.Lean;
+        held[index] = false;
+        blocked[index] = false;
 
-        // Fora do peek não há nada para estabilizar: já entra no modo certo, para a
-        // próxima espiada não começar no modo errado e corrigir no meio.
+        if (activeSide != SideOf(index))
+            return;
+
+        activeSide = 0;
+        modeTimer = 0f;
+
+        int other = 1 - index;
+
+        if (held[other] && !blocked[other])
+            BeginPeek(other);
+    }
+
+    /// <summary>
+    /// Cancela o peek quando o estado de movimento deixa de casar com o modo travado no
+    /// aperto — correr, espiar por cima do ombro e parar não vira uma inclinada; vira o
+    /// fim da espiada. A tecla ainda segurada fica travada até ser solta, senão o peek
+    /// voltaria sozinho no frame seguinte, no outro modo, que é exatamente o vai-e-vem
+    /// que se quer evitar.
+    ///
+    /// O atraso existe porque soltar o W por um instante no meio de uma fuga não deveria
+    /// custar a espiada: só um estado de movimento que se mantém contrário cancela.
+    /// </summary>
+    private void UpdateModeWatchdog()
+    {
         if (activeSide == 0)
         {
-            currentMode = desired;
             modeTimer = 0f;
             return;
         }
+
+        PeekMode desired = IsRunningForward() ? PeekMode.LookBack : PeekMode.Lean;
 
         if (desired == currentMode)
         {
@@ -161,9 +219,26 @@ public class ShoulderPeek : MonoBehaviour
         if (modeTimer < modeSwitchDelay)
             return;
 
-        currentMode = desired;
-        modeTimer = 0f;
+        CancelPeek();
     }
+
+    /// <summary>
+    /// Encerra a espiada em curso e trava toda tecla de peek ainda segurada. O modo fica
+    /// como estava, para a volta da câmera usar o tempo de saída do modo certo.
+    /// </summary>
+    private void CancelPeek()
+    {
+        activeSide = 0;
+        modeTimer = 0f;
+
+        for (int i = 0; i < held.Length; i++)
+        {
+            if (held[i])
+                blocked[i] = true;
+        }
+    }
+
+    private static int SideOf(int index) => index == 0 ? -1 : 1;
 
     private void UpdateTargets()
     {
@@ -251,12 +326,20 @@ public class ShoulderPeek : MonoBehaviour
             Quaternion.Euler(0f, 0f, currentRoll);
     }
 
-    private bool IsMoving()
+    /// <summary>
+    /// Só correndo para frente. Olhar por cima do ombro é o gesto de quem está fugindo:
+    /// andando, parado ou correndo de lado o certo é inclinar, que deixa a mira e o rumo
+    /// intactos. A diagonal (W+D correndo) ainda conta como frente — o eixo lateral só
+    /// desqualifica quando manda mais que o de frente.
+    /// </summary>
+    private bool IsRunningForward()
     {
-        if (movement == null)
+        if (movement == null || !movement.SprintHeld)
             return false;
 
-        return movement.MoveInput.sqrMagnitude > movementThreshold * movementThreshold;
+        Vector2 input = movement.MoveInput;
+
+        return input.y > movementThreshold && input.y >= Mathf.Abs(input.x);
     }
 
 #if UNITY_EDITOR

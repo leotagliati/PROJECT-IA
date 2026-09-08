@@ -85,7 +85,6 @@ public class Flashlight : MonoBehaviour
     [SerializeField] private float turnOnSpeed = 14f;
     [SerializeField] private float turnOffSpeed = 22f;
 
-    private PlayerInputActions playerInput;
     private Transform cameraTransform;
     private Transform lightTransform;
 
@@ -118,8 +117,6 @@ public class Flashlight : MonoBehaviour
 
     private void Awake()
     {
-        playerInput = new PlayerInputActions();
-
         if (targetCamera == null)
             targetCamera = GetComponentInChildren<Camera>();
 
@@ -242,17 +239,17 @@ public class Flashlight : MonoBehaviour
 
     private void OnEnable()
     {
-        playerInput.Player.Enable();
+        PlayerInputProvider.Acquire();
     }
 
     private void OnDisable()
     {
-        playerInput.Player.Disable();
+        PlayerInputProvider.Release();
     }
 
     private void Update()
     {
-        if (playerInput.Player.Flashlight.WasPressedThisFrame())
+        if (PlayerInputProvider.Player.Flashlight.WasPressedThisFrame())
             Toggle();
     }
 

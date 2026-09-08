@@ -16,7 +16,6 @@ public enum PlayerState
 
 public class PlayerMovement : MonoBehaviour
 {
-    private PlayerInputActions playerInput;
     private CharacterController controller;
 
     [Header("Movement settings")]
@@ -54,6 +53,12 @@ public class PlayerMovement : MonoBehaviour
     /// <summary>Input de movimento cru deste frame (x = lado, y = frente).</summary>
     public Vector2 MoveInput => moveInput;
 
+    /// <summary>
+    /// Tecla de corrida segurada agora. Diferente de <see cref="CurrentState"/> ser
+    /// Running: continua verdadeiro no ar, onde o estado vira Jumping.
+    /// </summary>
+    public bool SprintHeld => sprintHeld;
+
     public PlayerState CurrentState { get; private set; } = PlayerState.Idle;
 
     public event Action<PlayerState> StateChanged;
@@ -61,27 +66,32 @@ public class PlayerMovement : MonoBehaviour
     private void Awake()
     {
 
-        playerInput = new PlayerInputActions();
         controller = GetComponent<CharacterController>();
 
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
-
-        playerInput.Player.Jump.performed += ctx => Jump();
 
         lastFootstepPosition = transform.position;
     }
 
     private void OnEnable()
     {
+        PlayerInputProvider.Acquire();
 
-        playerInput.Player.Enable();
+        // O asset de input é compartilhado e vive além desta instância, então a inscrição
+        // sai no OnDisable — um lambda no Awake continuaria chamando Jump() de um player
+        // já destruído depois de trocar de cena.
+        PlayerInputProvider.Player.Jump.performed += OnJumpPerformed;
     }
 
     private void OnDisable()
     {
-        playerInput.Player.Disable();
+        PlayerInputProvider.Player.Jump.performed -= OnJumpPerformed;
+
+        PlayerInputProvider.Release();
     }
+
+    private void OnJumpPerformed(InputAction.CallbackContext context) => Jump();
 
     private void Update()
     {
@@ -96,8 +106,8 @@ public class PlayerMovement : MonoBehaviour
             velocity.y = -2f;
         }
 
-        moveInput = playerInput.Player.Move.ReadValue<Vector2>();
-        sprintHeld = playerInput.Player.Sprint.IsPressed();
+        moveInput = PlayerInputProvider.Player.Move.ReadValue<Vector2>();
+        sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed();
 
         UpdateState();
 
