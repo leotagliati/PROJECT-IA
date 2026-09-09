@@ -9,7 +9,9 @@ namespace Assets.Scripts.Graph
     /// ORÇAMENTO (faça a conta antes de treinar, é o que determina o comportamento):
     ///   total_positivo ~= Σ orçamentos x _regionCoverageReward
     ///                     + Σ orçamentos x _regionEntryReward
-    ///                     + arestas x _newEdgeReward
+    ///                     + Σ orçamentos x _regionCompletionReward
+    ///                     + arestas_entre_primários x _newEdgeReward
+    ///                     + caminho_percorrido_em_metros x _frontierApproachReward
     ///                     + _fullCoverageReward
     /// Repare no que SUMIU da conta: o número de nós. Cobrir uma região paga o orçamento dela,
     /// tenha ela 3 ou 30 nós (ver NavRegion) — então adensar a malha para descrever melhor uma
@@ -33,7 +35,11 @@ namespace Assets.Scripts.Graph
         // explode em corredor).
         //
         // O valor tem que ser lido junto com _maxEpisodeSteps, porque o que importa é o TETO:
-        //   0.0005 x 4000 steps = -2.0 por episódio, a mesma ordem da existencial.
+        //   0.00025 x 8000 steps = -2.0 por episódio, a mesma ordem da existencial.
+        // A existencial é diluída e vale -2 em qualquer duração; estas não são. Ao mudar a
+        // duração do episódio, reescale as duas para manter o teto:
+        //   4000 steps -> parede 0.0005,  estagnação 0.001
+        //   8000 steps -> parede 0.00025, estagnação 0.0005
         //
         // Era 0.002, copiado do seeker. Lá o número está certo porque os episódios dele duram
         // ~150 steps (custo total ~0.3, irrelevante); aqui duram 4000, e o mesmo número virava
@@ -41,14 +47,14 @@ namespace Assets.Scripts.Graph
         // mapa. Num labirinto, onde raspar parede é a condição normal de andar em corredor,
         // isso ensina a não entrar em corredor nenhum. Ao trocar de agente, reconfira o teto,
         // não o valor por step.
-        [SerializeField] private float _wallContactPenalty = 0.0005f;
+        [SerializeField] private float _wallContactPenalty = 0.00025f;
 
         // Antídoto para o agente que entala numa quina ou orbita um nó já visitado. Só entra
         // depois de _stagnationSteps sem NÓ NOVO — não sem movimento: andar em círculo por uma
         // sala inteira já explorada é exatamente o comportamento que queremos encarecer.
-        // Mesma leitura por TETO: 0.001 x (4000 - 1250) = -2.75 por episódio no pior caso, o
+        // Mesma leitura por TETO: 0.0005 x (8000 - 1250) = -3.4 por episódio no pior caso, o
         // que a mantém como um empurrão contra entalar, e não como a maior força do sistema.
-        [SerializeField] private float _stagnationPenalty = 0.001f;
+        [SerializeField] private float _stagnationPenalty = 0.0005f;
 
         // Em steps de FÍSICA (o DecisionRequester da cena usa TakeActionsBetweenDecisions, então
         // OnActionReceived roda todo FixedUpdate). 1250 steps = 25 s a 0.02 de timestep.
@@ -84,6 +90,16 @@ namespace Assets.Scripts.Graph
         // cobertura torna os dois indiferentes, e varrer a sala em que já se está é sempre mais
         // barato que arriscar uma porta.
         [SerializeField] private float _regionEntryReward = 0.5f;
+
+        // Bônus por CONCLUIR uma região: todos os pontos de vantagem dela visitados. Com nó
+        // primário significando "daqui eu vejo a sala", isto paga por ter visto o cômodo
+        // inteiro — não por ter passado pela porta.
+        //
+        // Existe separado da entrada porque entrar e terminar são conquistas diferentes: com só
+        // um dos dois, espiar cinco portas rende igual a varrer cinco salas, e espiar é muito
+        // mais barato. É o mesmo raciocínio do _regionEntryReward em relação à cobertura, um
+        // degrau acima.
+        [SerializeField] private float _regionCompletionReward = 0.5f;
 
         // Prêmio por cobrir a fração-alvo do grafo (a lição define o alvo). Encerra o episódio.
         [SerializeField] private float _fullCoverageReward = 5f;
@@ -149,6 +165,7 @@ namespace Assets.Scripts.Graph
                 reward += _newEdgeReward;
 
             reward += _regionEntryReward * context.NewRegionBudget;
+            reward += _regionCompletionReward * context.CompletedRegionBudget;
 
             if (context.ChangedNode && !context.EnteredNewNode && _revisitPenalty > 0f)
                 reward -= _revisitPenalty / Mathf.Max(1, context.CurrentNodeVisitCount);

@@ -1,8 +1,31 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Assets.Scripts.Graph
 {
+    /// <summary>
+    /// Forma da área de chegada de um nó. Vale para o grafo inteiro: é a regra que transforma
+    /// posição contínua em índice discreto, e ter duas formas convivendo no mesmo mapa tornaria
+    /// impossível calibrar espaçamento olhando o gizmo.
+    /// </summary>
+    public enum NodeShape
+    {
+        /// <summary>
+        /// Disco. Isotrópico: a chegada acontece à mesma distância venha o agente de onde vier.
+        /// É o que faz sentido para PRIMÁRIO, onde a área certifica presença num ponto.
+        /// </summary>
+        Circle,
+
+        /// <summary>
+        /// Quadrado alinhado aos eixos, de lado 2 x raio. LADRILHA: uma cadeia de quadrados
+        /// cobre um corredor inteiro sem as folgas em forma de lente que sobram entre discos
+        /// tangentes. É o que faz sentido para uma malha de guia, onde o objetivo é não deixar
+        /// buraco em que o agente fique sem âncora.
+        /// </summary>
+        Square,
+    }
+
     /// <summary>
     /// Consolida os <see cref="NavNode"/> de UMA arena num grafo consultável: índices,
     /// adjacência, áreas e busca em largura. É estrutura do mapa, não estado de agente — o que
@@ -26,14 +49,31 @@ namespace Assets.Scripts.Graph
         // única região implícita, então este valor é dividido entre TODOS eles.
         [SerializeField] private float _defaultRegionBudget = 1f;
 
-        // Raio de chegada de TODOS os nós do mapa (cada NavNode pode sobrescrever). Calibre uma
-        // vez, aqui:
-        //   - grande demais: raios de nós vizinhos se sobrepõem, o agente ganha visita sem
-        //     percorrer o caminho e a troca de nó vira ruído;
+        // Forma da área de chegada, para o mapa inteiro. No quadrado os dois raios abaixo deixam
+        // de ser raio e passam a ser MEIA-ARESTA: trocar a forma sem mexer nos números aumenta a
+        // área em ~27% e estica o alcance da diagonal em 41%. Reveja o espaçamento ao trocar.
+        [SerializeField] private NodeShape _nodeShape = NodeShape.Circle;
+
+        // UM RAIO PADRÃO POR PAPEL, porque os dois têm fórmulas de calibração opostas. Deixar os
+        // dois no mesmo campo obrigaria a corrigir um deles nó a nó, no override — e replicar um
+        // valor por nó é a forma mais rápida de dois nós discordarem sobre ele (o mesmo motivo
+        // pelo qual o orçamento mora na NavRegion e não em cada NavNode).
+        //
+        // PRIMÁRIO — certifica presença, então quer ficar APERTADO:
+        //   - grande demais: o raio do vizinho encosta no dele, a chegada acontece no meio do
+        //     caminho e "visitado" deixa de significar "estive lá";
         //   - pequeno demais: ele passa reto e a visita nunca é registrada.
-        // Ponto de partida: metade da MENOR distância entre dois nós ligados, e nunca menor que
-        // o raio do corpo do agente.
-        [SerializeField] private float _defaultNodeRadius = 1.2f;
+        // Ponto de partida: metade da MENOR aresta entre dois primários, nunca menor que o raio
+        // do corpo do agente. O aviso do bake mede exatamente isso.
+        [FormerlySerializedAs("_defaultNodeRadius")]
+        [SerializeField] private float _defaultPrimaryRadius = 1.8f;
+
+        // AUXILIAR — o papel dele é PEGAR o agente, então quer ficar GENEROSO. Discos se
+        // sobrepondo ao longo da cadeia é o desenho pretendido: é o que garante que o agente
+        // nunca fique sem âncora no meio de um corredor. Por isso o aviso de sobreposição do
+        // bake ignora arestas que envolvem auxiliar — aqui não há nada a proteger.
+        // Ponto de partida: um pouco acima do espaçamento da cadeia dividido por dois.
+        [SerializeField] private float _defaultAuxiliaryRadius = 3f;
 
         [Header("-----Checagem de parede-----")]
         [SerializeField] private LayerMask _wallLayer;
@@ -44,7 +84,11 @@ namespace Assets.Scripts.Graph
         // Raio da sonda: da ordem do raio do agente. Com 0 a checagem é uma linha, e uma aresta
         // que passa raspando na quina de uma parede é aprovada — o agente então tenta segui-la
         // e entala. Com folga, a aresta só é válida se o CORPO dele passa.
-        [SerializeField] private float _linkClearance = 0.3f;
+        //
+        // A regra é METADE DA LARGURA DO AGENTE. Com o corpo em 1.7 de largura, 0.85. O valor
+        // antigo (0.3) aprovava passagens por onde ele não cabe, e o sintoma era ele tentar
+        // seguir a aresta e travar na quina — indistinguível, de fora, de "a política é ruim".
+        [SerializeField] private float _linkClearance = 0.85f;
 
         [Header("-----Auto-ligação-----")]
         // Usado só pelo menu de contexto "Auto-ligar por linha de visão".
@@ -53,9 +97,24 @@ namespace Assets.Scripts.Graph
         [Header("-----Gizmos-----")]
         [SerializeField] private bool _drawGizmos = true;
 
-        // Discos de chegada de todos os nós. É o gizmo para calibrar o Default Node Radius:
-        // dois discos encostando significa que a chegada acontece no meio do caminho.
+        // Discos de chegada de todos os nós. É o gizmo para calibrar os raios padrão:
+        // dois discos de PRIMÁRIO encostando significa que a chegada acontece no meio do caminho.
         [SerializeField] private bool _drawNodeRadii = true;
+
+        // Cor do disco por PAPEL. São dois canais visuais diferentes de propósito:
+        //   o PONTO do nó continua na cor da REGIÃO (quem desenha é o NavNode),
+        //   o DISCO diz o papel — e o disco é o que se lê olhando o mapa de cima, porque é
+        //   dezenas de vezes maior que o ponto.
+        // Assim as duas informações cabem na mesma figura sem disputarem o mesmo canal.
+        //
+        // Evite verde, laranja, amarelo, magenta e branco: essas cinco já significam outra coisa
+        // nos gizmos de Play (visitado, revisitado, âncora, fronteira, aresta percorrida). Uma
+        // cor com dois significados é pior que nenhuma cor, porque você calibra olhando pra ela.
+        [SerializeField] private Color _primaryRadiusColor = new Color(0.25f, 0.75f, 0.95f, 0.55f);
+
+        // Bem apagado: a malha é cenário. Se ela competir visualmente com os primários, você
+        // perde de vista justamente os poucos nós que decidem a recompensa.
+        [SerializeField] private Color _auxiliaryRadiusColor = new Color(0.55f, 0.60f, 0.72f, 0.22f);
 
         // Colore as arestas conforme atravessam parede ou não. É um spherecast por aresta por
         // frame de editor: desligue se a cena ficar pesada.
@@ -78,13 +137,43 @@ namespace Assets.Scripts.Graph
 
         public LayerMask WallLayer => _wallLayer;
 
-        public float DefaultNodeRadius => _defaultNodeRadius;
+        public NodeShape Shape => _nodeShape;
 
-        /// <summary>Raio efetivo de um nó: o override dele, ou o padrão do grafo.</summary>
-        public float NodeRadius(int index)
+        /// <summary>
+        /// Distância PLANAR na métrica da forma escolhida — euclidiana no círculo, Chebyshev
+        /// (o maior dos dois eixos) no quadrado. Uma função só, usada pela detecção de chegada,
+        /// pelo desempate do nó mais próximo e pela validação de áreas sobrepostas: assim trocar
+        /// a forma no Inspector muda os três de uma vez, e nenhum deles pode discordar do gizmo.
+        /// </summary>
+        private float AreaDistance(Vector3 a, Vector3 b)
         {
-            float over = _nodes[index].RadiusOverride;
-            return over > 0f ? over : _defaultNodeRadius;
+            float dx = Mathf.Abs(a.x - b.x);
+            float dz = Mathf.Abs(a.z - b.z);
+
+            return _nodeShape == NodeShape.Square
+                ? Mathf.Max(dx, dz)
+                : new Vector2(dx, dz).magnitude;
+        }
+
+        public float DefaultPrimaryRadius => _defaultPrimaryRadius;
+
+        public float DefaultAuxiliaryRadius => _defaultAuxiliaryRadius;
+
+        /// <summary>
+        /// Raio efetivo de um nó: o override dele, ou o padrão DO PAPEL dele. O override fica
+        /// para a exceção que a geometria exige — um saguão onde o nó deve cobrir mais chão, um
+        /// doorway apertado onde o raio invadiria a sala vizinha — e não para corrigir em massa
+        /// o valor de um papel inteiro; isso se faz aqui, num lugar só.
+        /// </summary>
+        public float NodeRadius(int index) => RadiusOf(_nodes[index]);
+
+        private float RadiusOf(NavNode node)
+        {
+            float over = node.RadiusOverride;
+            if (over > 0f)
+                return over;
+
+            return node.IsPrimary ? _defaultPrimaryRadius : _defaultAuxiliaryRadius;
         }
 
         public int NodeCount => _nodes.Count;
@@ -216,6 +305,12 @@ namespace Assets.Scripts.Graph
 
         public bool IsNodeEnabled(int index) => _nodes[index].IsEnabled;
 
+        /// <summary>
+        /// Nó primário (ponto de vantagem) ou auxiliar (guia)? Cobertura, conclusão de região,
+        /// alvo de fronteira e recompensa de aresta são todos privilégio do primário.
+        /// </summary>
+        public bool IsNodePrimary(int index) => _nodes[index].IsPrimary;
+
         public int[] GetNeighbors(int index) => _adjacency[index];
 
         public int RegionSlotOf(int index) => _regionSlotOfNode[index];
@@ -234,6 +329,27 @@ namespace Assets.Scripts.Graph
             return region != null ? region.ExplorationBudget : _defaultRegionBudget;
         }
 
+        /// <summary>
+        /// Só os primários ativos. É o denominador da cobertura geométrica: a malha auxiliar não
+        /// pode diluir "quanto do mapa eu já vi" — adensar a guia faria a barra de progresso
+        /// andar mais devagar sem o mapa ter ficado maior.
+        /// </summary>
+        public int EnabledPrimaryCount()
+        {
+            int count = 0;
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                if (_nodes[i].IsEnabled && _nodes[i].IsPrimary)
+                    count++;
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Todos os nós ativos, primários e auxiliares. Usado pela checagem de conectividade do
+        /// bake, onde o que importa é alcançabilidade — e um auxiliar isolado também é um bug.
+        /// </summary>
         public int EnabledNodeCount()
         {
             int count = 0;
@@ -247,13 +363,15 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Nó ativo mais próximo cujo raio de chegada contém a posição. Devolve -1 quando o
-        /// agente está no meio do nada — o que é normal e não é erro: entre dois nós ele
-        /// simplesmente não está em nenhum.
+        /// Nó ativo cuja área de chegada contém a posição; havendo mais de um, o mais central.
+        /// Devolve -1 quando o agente está no meio do nada — o que é normal e não é erro: entre
+        /// dois nós ele simplesmente não está em nenhum.
         ///
-        /// A distância é PLANAR (X/Z). O mapa tem um andar só, e medir em 3D faria a altura do
-        /// nó em relação ao agente comer parte do raio — um nó desenhado no chão registraria
-        /// visita numa área menor que a do gizmo, sem nada indicando o porquê.
+        /// A distância é PLANAR (X/Z) e vem de <see cref="AreaDistance"/>, então a forma
+        /// escolhida no Inspector decide a área: disco no círculo, quadrado no Chebyshev. O
+        /// mapa tem um andar só, e medir em 3D faria a altura do nó em relação ao agente comer
+        /// parte da área — um nó desenhado no chão registraria visita numa área menor que a do
+        /// gizmo, sem nada indicando o porquê.
         /// </summary>
         public int FindNodeAt(Vector3 position)
         {
@@ -266,8 +384,7 @@ namespace Assets.Scripts.Graph
                 if (!node.IsEnabled)
                     continue;
 
-                Vector3 delta = node.Position - position;
-                float distance = new Vector2(delta.x, delta.z).magnitude;
+                float distance = AreaDistance(node.Position, position);
 
                 if (distance <= NodeRadius(i) && distance < bestDistance)
                 {
@@ -277,6 +394,51 @@ namespace Assets.Scripts.Graph
             }
 
             return best;
+        }
+
+        /// <summary>
+        /// Nó ativo mais próximo ALCANÇÁVEL EM LINHA RETA, ignorando raio de chegada. Serve para
+        /// o agente saber onde a malha está quando ele se afastou dela — sem isso a única
+        /// referência que ele tem é a âncora, que é um nó que ele já deixou para trás e pode
+        /// estar atrás dele.
+        ///
+        /// A checagem de linha livre NÃO é opcional: o nó geometricamente mais próximo pode
+        /// estar do outro lado de uma parede, e apontar para ele ensinaria o agente a andar
+        /// contra o concreto. Quando nenhum nó tem linha livre (o agente entalou numa quina,
+        /// por exemplo), cai no mais próximo puro — uma referência ruim ainda é melhor que
+        /// nenhuma, e a alternativa seria a observação piscar entre "tem alvo" e "não tem".
+        /// </summary>
+        public int FindNearestReachableNode(Vector3 position)
+        {
+            int nearestClear = -1;
+            int nearestAny = -1;
+            float bestClear = float.MaxValue;
+            float bestAny = float.MaxValue;
+
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                NavNode node = _nodes[i];
+                if (!node.IsEnabled)
+                    continue;
+
+                Vector3 delta = node.Position - position;
+                float distance = new Vector2(delta.x, delta.z).magnitude;
+
+                if (distance < bestAny)
+                {
+                    bestAny = distance;
+                    nearestAny = i;
+                }
+
+                // Só paga o custo do SphereCast enquanto ele pode mudar a resposta.
+                if (distance < bestClear && IsSegmentClear(position, node.Position))
+                {
+                    bestClear = distance;
+                    nearestClear = i;
+                }
+            }
+
+            return nearestClear >= 0 ? nearestClear : nearestAny;
         }
 
         /// <summary>
@@ -311,7 +473,11 @@ namespace Assets.Scripts.Graph
             {
                 int current = _bfsQueue[head++];
 
-                if (current != from && !visited[current])
+                // O ALVO tem que ser primário — um nó de malha não vale nada, e apontar a
+                // fronteira para ele mandaria o agente "explorar" um pedaço de corredor que não
+                // paga e não conta para cobertura. O CAMINHO continua atravessando auxiliares
+                // normalmente: eles entram na expansão logo abaixo, sem filtro.
+                if (current != from && !visited[current] && _nodes[current].IsPrimary)
                 {
                     target = current;
                     graphDistance = _bfsDepth[current];
@@ -407,8 +573,17 @@ namespace Assets.Scripts.Graph
                     if (j <= i)
                         continue;
 
-                    Vector3 delta = _nodes[j].Position - _nodes[i].Position;
-                    float length = new Vector2(delta.x, delta.z).magnitude;
+                    // Só entre PRIMÁRIOS. O aviso existe para proteger o significado de
+                    // "cheguei", e isso só importa onde a chegada paga alguma coisa. Numa malha
+                    // auxiliar os discos se tocando é o desenho pretendido — é assim que ela
+                    // pega o agente sem buracos — e avisar aqui encheria o Console de ruído a
+                    // cada elo da cadeia, escondendo os avisos que importam.
+                    if (!_nodes[i].IsPrimary || !_nodes[j].IsPrimary)
+                        continue;
+
+                    // Na métrica da forma: dois quadrados se tocam quando a distância de
+                    // Chebyshev iguala a soma das meia-arestas, não quando a euclidiana iguala.
+                    float length = AreaDistance(_nodes[i].Position, _nodes[j].Position);
                     float sum = NodeRadius(i) + NodeRadius(j);
 
                     if (sum <= length)
@@ -429,12 +604,66 @@ namespace Assets.Scripts.Graph
             {
                 Debug.LogWarning(
                     $"{name}: {overlapping} aresta(s) mais curta(s) que a soma dos raios dos seus nós. " +
-                    $"Pior caso: '{worstA.name}' <-> '{worstB.name}'. Reduza o Default Node Radius " +
+                    $"Pior caso: '{worstA.name}' <-> '{worstB.name}'. Reduza o Default Primary Radius " +
                     "(ou afaste os nós) — a chegada está sendo registrada antes da travessia.", this);
             }
 
-            // Um grafo desconexo faz a cobertura total ser inatingível a partir de metade dos
-            // spawns, e o episódio nunca termina em sucesso. Vale detectar na autoria.
+            ValidateShadowedPrimaries();
+            ValidateConnectivity();
+        }
+
+        /// <summary>
+        /// AUXILIAR EM CIMA DE PRIMÁRIO. FindNodeAt devolve o nó mais próximo do CENTRO, não o
+        /// primário: onde as duas áreas se cruzam, quem ganha é quem tem o centro mais perto.
+        ///
+        /// Áreas se cruzando é normal e desejado — a malha existe justamente para levar até o
+        /// primário, então ela tem que chegar perto. O que quebra é o centro do auxiliar ficar
+        /// EM CIMA do centro do primário: aí a região em que o primário ganha encolhe até um
+        /// sliver, e com o agente andando 0.1 m por step de física ele passa por cima sem
+        /// registrar. Nos centros exatamente coincidentes o desempate vira a ordem da lista —
+        /// silencioso e arbitrário — e o primário pode ficar INALCANÇÁVEL: a cobertura-alvo
+        /// nunca é atingida e nenhum episódio termina em sucesso.
+        ///
+        /// Não é a mesma checagem do laço acima: aquela só olha pares LIGADOS e ignora
+        /// auxiliares de propósito (a cadeia deve mesmo ter áreas sobrepostas). Esta olha todos
+        /// os pares, porque um auxiliar não precisa estar ligado ao primário para eclipsá-lo.
+        /// </summary>
+        private void ValidateShadowedPrimaries()
+        {
+            for (int p = 0; p < _nodes.Count; p++)
+            {
+                if (!_nodes[p].IsEnabled || !_nodes[p].IsPrimary)
+                    continue;
+
+                // Metade do raio: deixa a região de vitória do primário com pelo menos um quarto
+                // do raio dele, que a 0.1 m por step são vários steps de margem.
+                float minSeparation = NodeRadius(p) * 0.5f;
+
+                for (int a = 0; a < _nodes.Count; a++)
+                {
+                    if (a == p || !_nodes[a].IsEnabled || _nodes[a].IsPrimary)
+                        continue;
+
+                    float separation = AreaDistance(_nodes[p].Position, _nodes[a].Position);
+                    if (separation >= minSeparation)
+                        continue;
+
+                    Debug.LogError(
+                        $"{name}: o auxiliar '{_nodes[a].name}' está a {separation:0.00} do primário " +
+                        $"'{_nodes[p].name}' (mínimo {minSeparation:0.00}). Ele eclipsa o primário: a chegada " +
+                        "vai ser registrada no auxiliar, que não paga nem conta para a cobertura. " +
+                        "Afaste o auxiliar ou apague-o — o primário já serve de âncora ali.",
+                        _nodes[p]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Um grafo desconexo faz a cobertura total ser inatingível a partir de metade dos
+        /// spawns, e o episódio nunca termina em sucesso. Vale detectar na autoria.
+        /// </summary>
+        private void ValidateConnectivity()
+        {
             var reachable = new bool[_nodes.Count];
             int start = -1;
             for (int i = 0; i < _nodes.Count && start < 0; i++)
@@ -588,8 +817,8 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Roda fora do Play também, então usa o override direto em vez de NodeRadius(i): antes
-        // do bake os índices ainda não existem.
+        // Roda fora do Play também, então resolve o raio pelo NÓ (RadiusOf) em vez de por índice
+        // (NodeRadius): antes do bake os índices ainda não existem.
         private void DrawNodeRadii()
         {
             foreach (NavNode node in _nodes)
@@ -598,18 +827,19 @@ namespace Assets.Scripts.Graph
                     continue;
 
                 bool hasOverride = node.RadiusOverride > 0f;
-                float radius = hasOverride ? node.RadiusOverride : _defaultNodeRadius;
+                float radius = RadiusOf(node);
 
+                // Três estados, cada um dizendo uma coisa diferente:
                 if (!node.IsEnabled)
                     Gizmos.color = new Color(0.4f, 0.4f, 0.4f, 0.4f);
                 else if (hasOverride)
-                    // Amarelo: um raio diferente do resto do mapa é uma decisão, e decisão tem
+                    // Um raio fora do padrão do papel é uma decisão de autoria, e decisão tem
                     // que ser visível sem abrir o Inspector.
                     Gizmos.color = new Color(1f, 0.85f, 0.15f, 0.9f);
                 else
-                    Gizmos.color = new Color(node.RegionColor.r, node.RegionColor.g, node.RegionColor.b, 0.55f);
+                    Gizmos.color = node.IsPrimary ? _primaryRadiusColor : _auxiliaryRadiusColor;
 
-                GraphGizmos.DrawGroundCircle(node.Position, radius);
+                GraphGizmos.DrawGroundArea(_nodeShape, node.Position, radius);
             }
         }
     }

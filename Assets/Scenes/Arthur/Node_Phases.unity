@@ -878,7 +878,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 8
   _linkProbeHeight: 0.5
-  _linkClearance: 0.3
+  _linkClearance: 0.85
   _autoLinkMaxDistance: 21
   _drawGizmos: 1
   _drawNodeRadii: 1

@@ -4,6 +4,30 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
+    /// O papel do nó. A separação existe porque um tipo só estava fazendo dois trabalhos com
+    /// requisitos opostos: a MEMÓRIA quer poucos nós, cada um com significado, e a NAVEGAÇÃO
+    /// quer muitos, formando uma malha que ensina os caminhos. Com um tipo só, adensar a malha
+    /// para o agente não se perder mexia junto no que "explorado" significa.
+    /// </summary>
+    public enum NodeKind
+    {
+        /// <summary>
+        /// PONTO DE VANTAGEM: parado aqui, a visão do agente cobre a sala/corredor. É ele que
+        /// paga cobertura, conta para a conclusão da região e pode ser alvo da fronteira.
+        /// Poucos por área (1 a 3) e com raio apertado, porque nele "visitado" precisa
+        /// significar "estive lá e vi daqui".
+        /// </summary>
+        Primary,
+
+        /// <summary>
+        /// GUIA: não vale nada, não conta para cobertura, não é alvo de nada. Existe só para o
+        /// agente ter uma âncora por perto e um caminho a seguir entre dois primários. Raio
+        /// generoso de propósito — o papel dele é PEGAR o agente, não certificar presença.
+        /// </summary>
+        Auxiliary,
+    }
+
+    /// <summary>
     /// Um ponto de interesse do mapa, posicionado À MÃO na cena (doorway, canto de sala,
     /// bifurcação de corredor). Guarda só o que é do nó: onde ele está, com quem ele conversa,
     /// se está ativo e a que área pertence. Nenhuma lógica de agente, recompensa ou busca mora
@@ -16,6 +40,11 @@ namespace Assets.Scripts.Graph
     [DisallowMultipleComponent]
     public class NavNode : MonoBehaviour
     {
+        [Header("-----Papel-----")]
+        // Default Primary de propósito: é o que os nós que já existem na cena eram antes deste
+        // campo existir, então um nó desserializado sem o campo continua valendo o que valia.
+        [SerializeField] private NodeKind _kind = NodeKind.Primary;
+
         [Header("-----Ligações-----")]
         // Preenchido na mão. O NavGraph espelha as ligações no bake (A->B implica B->A), então
         // basta declarar cada aresta de um lado só.
@@ -41,13 +70,13 @@ namespace Assets.Scripts.Graph
         // travessia troque de região em algum ponto.
         [SerializeField] private NavRegion _region;
 
-        // Raio de chegada SÓ DESTE NÓ. Deixe em 0 (o normal) para usar o valor único do NavGraph
-        // — o raio é o mecanismo que transforma posição contínua em índice discreto, e ele não
-        // pode sumir, mas quase nunca precisa variar de nó para nó.
+        // Raio de chegada SÓ DESTE NÓ. Deixe em 0 (o normal): o NavGraph tem um padrão por PAPEL
+        // (apertado para primário, generoso para auxiliar), e é lá que se calibra o mapa inteiro.
         //
-        // Use override nos casos em que a geometria manda: um saguão enorme onde o nó deve
-        // cobrir mais chão, ou um doorway apertado onde um raio grande invadiria a sala vizinha
-        // e daria visita de graça sem o agente ter cruzado a porta.
+        // Este campo é para a EXCEÇÃO que a geometria exige — um saguão enorme onde o nó deve
+        // cobrir mais chão, ou um doorway apertado onde o raio invadiria a sala vizinha e daria
+        // visita de graça sem o agente ter cruzado a porta. Se você se pegar preenchendo isto em
+        // muitos nós do mesmo papel, o valor errado é o padrão do grafo, não o de cada nó.
         [SerializeField] private float _radiusOverride;
 
         // Atribuído pelo NavGraph no bake, não serializado: o índice é a posição no array de
@@ -56,6 +85,14 @@ namespace Assets.Scripts.Graph
         private int _index = -1;
 
         public int Index => _index;
+
+        public NodeKind Kind => _kind;
+
+        /// <summary>
+        /// Atalho do teste que aparece em todo lugar: cobertura, conclusão de região, alvo da
+        /// fronteira e recompensa de aresta são todos privilégio de nó primário.
+        /// </summary>
+        public bool IsPrimary => _kind == NodeKind.Primary;
 
         public Vector3 Position => transform.position;
 
@@ -99,7 +136,20 @@ namespace Assets.Scripts.Graph
         // está na lista do grafo. É o sintoma de ter esquecido de rodar "Coletar nós filhos".
         private void OnDrawGizmos()
         {
-            Gizmos.color = _isEnabled ? RegionColor : new Color(0.35f, 0.35f, 0.35f, 1f);
+            Color color = _isEnabled ? RegionColor : new Color(0.35f, 0.35f, 0.35f, 1f);
+
+            // Auxiliar desenha menor e apagado: numa malha densa, ponto cheio em cima de ponto
+            // cheio deixa de dar para ver quais são os poucos nós que realmente valem alguma
+            // coisa — que é a informação que você procura quando olha o mapa de cima.
+            if (_kind == NodeKind.Auxiliary)
+            {
+                color.a *= 0.45f;
+                Gizmos.color = color;
+                Gizmos.DrawSphere(Position, 0.09f);
+                return;
+            }
+
+            Gizmos.color = color;
             Gizmos.DrawSphere(Position, 0.18f);
         }
 

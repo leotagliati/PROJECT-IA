@@ -28,6 +28,14 @@ namespace Assets.Scripts.Graph
         /// <summary>Soma dos orçamentos das regiões inéditas alcançadas neste intervalo.</summary>
         public readonly float NewRegionBudget;
 
+        /// <summary>
+        /// Soma dos orçamentos das regiões CONCLUÍDAS neste intervalo (todos os pontos de
+        /// vantagem visitados). Separado de <see cref="NewRegionBudget"/> de propósito: entrar
+        /// numa sala e ter visto a sala inteira são conquistas diferentes e devem ter preços
+        /// diferentes — pagar só a entrada torna espiar a porta tão bom quanto varrer o cômodo.
+        /// </summary>
+        public readonly float CompletedRegionBudget;
+
         /// <summary>Trocou de nó neste step, visitado ou não.</summary>
         public readonly bool ChangedNode;
 
@@ -80,6 +88,7 @@ namespace Assets.Scripts.Graph
             float newNodeValue,
             bool traversedNewEdge,
             float newRegionBudget,
+            float completedRegionBudget,
             bool changedNode,
             int currentNodeVisitCount,
             int frontierDistanceDelta,
@@ -95,6 +104,7 @@ namespace Assets.Scripts.Graph
             NewNodeValue = newNodeValue;
             TraversedNewEdge = traversedNewEdge;
             NewRegionBudget = newRegionBudget;
+            CompletedRegionBudget = completedRegionBudget;
             ChangedNode = changedNode;
             CurrentNodeVisitCount = currentNodeVisitCount;
             FrontierDistanceDelta = frontierDistanceDelta;

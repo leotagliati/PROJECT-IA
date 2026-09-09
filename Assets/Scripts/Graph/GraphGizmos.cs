@@ -13,6 +13,52 @@ namespace Assets.Scripts.Graph
     public static class GraphGizmos
     {
         /// <summary>
+        /// Contorno da área de chegada, na forma que o grafo usa. Todo desenho de área passa por
+        /// aqui para que mudar a forma no NavGraph mude o gizmo junto — a regra e o desenho dela
+        /// não podem divergir.
+        /// </summary>
+        public static void DrawGroundArea(NodeShape shape, Vector3 center, float radius, float height = 0.05f, int segments = 32)
+        {
+            if (shape == NodeShape.Square)
+                DrawGroundSquare(center, radius, height);
+            else
+                DrawGroundCircle(center, radius, height, segments);
+        }
+
+        /// <summary>Versão preenchida (aproximada) da área, na forma do grafo.</summary>
+        public static void DrawGroundAreaFilled(NodeShape shape, Vector3 center, float radius, int rings = 3, float height = 0.05f, int segments = 20)
+        {
+            if (radius <= 0f || rings < 1)
+                return;
+
+            for (int ring = rings; ring > 0; ring--)
+                DrawGroundArea(shape, center, radius * ring / rings, height, segments);
+        }
+
+        /// <summary>
+        /// Quadrado alinhado aos eixos, de lado 2 x <paramref name="radius"/>. O mesmo número
+        /// que serve de raio no círculo vira MEIA-ARESTA aqui — então trocar a forma sem mexer
+        /// no número aumenta a área em ~27% e estica o alcance da diagonal em 41%.
+        /// </summary>
+        public static void DrawGroundSquare(Vector3 center, float radius, float height = 0.05f)
+        {
+            if (radius <= 0f)
+                return;
+
+            Vector3 o = new(center.x, center.y + height, center.z);
+
+            Vector3 a = o + new Vector3(-radius, 0f, -radius);
+            Vector3 b = o + new Vector3(radius, 0f, -radius);
+            Vector3 c = o + new Vector3(radius, 0f, radius);
+            Vector3 d = o + new Vector3(-radius, 0f, radius);
+
+            Gizmos.DrawLine(a, b);
+            Gizmos.DrawLine(b, c);
+            Gizmos.DrawLine(c, d);
+            Gizmos.DrawLine(d, a);
+        }
+
+        /// <summary>
         /// Círculo no plano do chão. A altura é um empurrãozinho para cima para não brigar em
         /// z-fighting com o piso quando o nó está em y = 0.
         /// </summary>

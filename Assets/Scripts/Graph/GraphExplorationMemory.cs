@@ -29,15 +29,17 @@ namespace Assets.Scripts.Graph
         // desenha a estrutura do mapa (nós, raios, ligações) é o NavGraph, e ele desenha sempre.
         //
         // Legenda:
-        //   disco verde       nó já visitado neste episódio
-        //   disco alaranjado  nó revisitado — quanto mais quente, mais vezes o agente voltou
-        //   contorno cinza    nó que ainda falta
+        //   disco verde       PRIMÁRIO já visitado neste episódio
+        //   disco alaranjado  primário revisitado — quanto mais quente, mais vezes ele voltou
+        //   contorno cinza    primário que ainda falta
+        //   traço fino        auxiliar (guia), esverdeado se já passou por ele
         //   linha branca      aresta já percorrida (não paga de novo neste episódio)
         //   disco amarelo     nó âncora atual
         //   esfera magenta    alvo da fronteira, com a linha até o próximo passo
         [SerializeField] private bool _drawGizmos = true;
         [SerializeField] private bool _drawVisitedNodes = true;
         [SerializeField] private bool _drawPendingNodes = true;
+        [SerializeField] private bool _drawAuxiliaryNodes = true;
         [SerializeField] private bool _drawTraversedEdges = true;
         [SerializeField] private bool _drawFrontier = true;
 
@@ -92,6 +94,16 @@ namespace Assets.Scripts.Graph
         /// <summary>Soma dos orçamentos das regiões inéditas alcançadas neste intervalo.</summary>
         public float EnteredNewRegionBudget { get; private set; }
 
+        /// <summary>
+        /// Soma dos orçamentos das regiões CONCLUÍDAS neste intervalo — todos os pontos de
+        /// vantagem da região visitados. Com nó primário significando "daqui eu vejo a sala",
+        /// concluir uma região é ter visto o cômodo inteiro.
+        ///
+        /// Acumulativa como as outras: entre duas decisões o agente pode fechar mais de uma
+        /// região (um doorway que completa a sala e o corredor no mesmo intervalo).
+        /// </summary>
+        public float CompletedRegionBudget { get; private set; }
+
         /// <summary>Percorreu uma aresta do grafo que ainda não tinha sido percorrida.</summary>
         public bool TraversedNewEdge { get; private set; }
 
@@ -104,9 +116,12 @@ namespace Assets.Scripts.Graph
         public int StepsSinceNewNode { get; private set; }
 
         /// <summary>
-        /// Fração dos NÓS ativos já visitados. Medida geométrica pura: quanto do mapa foi
-        /// fisicamente coberto, sem opinião sobre o valor de cada parte. Regiões descritas com
-        /// muitos nós pesam mais aqui, simplesmente por serem maiores no chão.
+        /// Fração dos nós PRIMÁRIOS ativos já visitados. Medida geométrica pura: quanto do mapa
+        /// foi fisicamente coberto, sem opinião sobre o valor de cada parte. Regiões descritas
+        /// com muitos pontos de vantagem pesam mais aqui, por serem maiores no chão.
+        ///
+        /// A malha auxiliar fica fora: adensar a guia faria esta barra andar mais devagar sem o
+        /// mapa ter ficado maior.
         /// </summary>
         public float VisitedFraction => _enabledNodeCount > 0 ? (float)_visitedNodeCount / _enabledNodeCount : 1f;
 
@@ -170,7 +185,7 @@ namespace Assets.Scripts.Graph
             System.Array.Clear(_regionVisitedCount, 0, _regionVisitedCount.Length);
             _traversedEdges.Clear();
 
-            _enabledNodeCount = _graph.EnabledNodeCount();
+            _enabledNodeCount = _graph.EnabledPrimaryCount();
             _visitedNodeCount = 0;
             _collectedBudget = 0f;
 
@@ -192,10 +207,14 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// A divisão do orçamento: cada nó ativo de uma região passa a valer
-        /// orçamento / nós_ativos_da_região. Cobrir a região inteira paga exatamente o
+        /// A divisão do orçamento: cada nó PRIMÁRIO ativo de uma região passa a valer
+        /// orçamento / primários_ativos_da_região. Cobrir a região inteira paga exatamente o
         /// orçamento, independente de ela ter sido descrita com 3 ou com 30 nós — que é o
         /// ponto: a densidade da sua autoria deixa de ser função de recompensa.
+        ///
+        /// Auxiliares ficam fora da conta inteira. É isso que torna a malha de navegação
+        /// GRÁTIS: você adensa o quanto quiser para o agente não se perder, e nem o valor de um
+        /// nó, nem o denominador da cobertura, nem o critério de conclusão da região se mexem.
         /// </summary>
         private void RecomputeRegionValues()
         {
@@ -203,7 +222,7 @@ namespace Assets.Scripts.Graph
 
             for (int i = 0; i < _graph.NodeCount; i++)
             {
-                if (_graph.IsNodeEnabled(i))
+                if (_graph.IsNodeEnabled(i) && _graph.IsNodePrimary(i))
                     _regionEnabledCount[_graph.RegionSlotOf(i)]++;
             }
 
@@ -260,6 +279,7 @@ namespace Assets.Scripts.Graph
             EnteredNewNodeValue = 0f;
             EnteredNewRegion = false;
             EnteredNewRegionBudget = 0f;
+            CompletedRegionBudget = 0f;
             TraversedNewEdge = false;
             ChangedNode = false;
         }
@@ -272,7 +292,16 @@ namespace Assets.Scripts.Graph
             // dois nós rende na PRIMEIRA travessia e nada depois, então oscilar passa a custar
             // só a pressão existencial. Uma recompensa por travessia sem essa memória é a forma
             // mais fácil de o agente descobrir uma máquina de fazer pontos parado no lugar.
-            if (PreviousNodeIndex >= 0 && IsAdjacent(PreviousNodeIndex, node))
+            //
+            // Só entre PRIMÁRIOS: o _newEdgeReward é um valor plano, não escalado por orçamento,
+            // então uma malha auxiliar densa multiplicaria a contagem de arestas e com ela a
+            // renda do episódio — percorrer a guia passaria a pagar mais que cobrir o mapa.
+            // Quem dá gradiente durante a travessia é o _frontierApproachReward, que é por metro
+            // e não depende de quantos nós existem no caminho.
+            if (PreviousNodeIndex >= 0
+                && _graph.IsNodePrimary(PreviousNodeIndex)
+                && _graph.IsNodePrimary(node)
+                && IsAdjacent(PreviousNodeIndex, node))
             {
                 long key = EdgeKey(PreviousNodeIndex, node);
                 TraversedNewEdge |= _traversedEdges.Add(key);
@@ -282,27 +311,43 @@ namespace Assets.Scripts.Graph
             _visitCount[node]++;
             CurrentNodeVisitCount = _visitCount[node];
 
-            if (!_visited[node])
+            if (_visited[node])
+                return;
+
+            // Marcado como visitado sempre, inclusive auxiliar: é o que faz o gizmo mostrar por
+            // onde ele passou e o que impede a fronteira de reprocessá-lo. O que muda é o resto.
+            _visited[node] = true;
+
+            // Auxiliar não paga, não conta e não fecha região. Ele já fez o trabalho dele —
+            // servir de âncora e de caminho. Sair daqui é o que mantém a malha grátis.
+            if (!_graph.IsNodePrimary(node))
+                return;
+
+            _visitedNodeCount++;
+            EnteredNewNode = true;
+
+            int slot = _graph.RegionSlotOf(node);
+
+            // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
+            // nó, e cada um tem que pagar o seu.
+            EnteredNewNodeValue += _regionNodeValue[slot];
+            _collectedBudget += _regionNodeValue[slot];
+            _regionVisitedCount[slot]++;
+
+            if (!_regionVisited[slot])
             {
-                _visited[node] = true;
-                _visitedNodeCount++;
-                EnteredNewNode = true;
-
-                int slot = _graph.RegionSlotOf(node);
-
-                // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
-                // nó, e cada um tem que pagar o seu.
-                EnteredNewNodeValue += _regionNodeValue[slot];
-                _collectedBudget += _regionNodeValue[slot];
-                _regionVisitedCount[slot]++;
-
-                if (!_regionVisited[slot])
-                {
-                    _regionVisited[slot] = true;
-                    EnteredNewRegion = true;
-                    EnteredNewRegionBudget += _graph.RegionBudget(slot);
-                }
+                _regionVisited[slot] = true;
+                EnteredNewRegion = true;
+                EnteredNewRegionBudget += _graph.RegionBudget(slot);
             }
+
+            // Região fechada: todos os pontos de vantagem dela foram visitados. Com nó primário
+            // significando "daqui eu vejo a sala", isto quer dizer literalmente "vi esta sala
+            // inteira" — e é por isso que o evento é da REGIÃO e não de um nó. Um "nó de
+            // conclusão" colocado dentro da sala poderia ser tocado sem a sala ter sido coberta:
+            // pagaria por encostar num ponto, não por ter visto o lugar.
+            if (_regionVisitedCount[slot] >= _regionEnabledCount[slot])
+                CompletedRegionBudget += _graph.RegionBudget(slot);
         }
 
         private void UpdateFrontier()
@@ -345,7 +390,7 @@ namespace Assets.Scripts.Graph
             if (!_drawGizmos || _graph == null || _visited == null || !Application.isPlaying)
                 return;
 
-            if (_drawVisitedNodes || _drawPendingNodes)
+            if (_drawVisitedNodes || _drawPendingNodes || _drawAuxiliaryNodes)
                 DrawNodeMemory();
 
             if (_drawTraversedEdges)
@@ -356,7 +401,8 @@ namespace Assets.Scripts.Graph
             if (CurrentNodeIndex >= 0)
             {
                 Gizmos.color = Color.yellow;
-                GraphGizmos.DrawGroundCircle(
+                GraphGizmos.DrawGroundArea(
+                    _graph.Shape,
                     _graph.NodePosition(CurrentNodeIndex),
                     _graph.NodeRadius(CurrentNodeIndex),
                     height: 0.12f);
@@ -385,6 +431,21 @@ namespace Assets.Scripts.Graph
                 Vector3 position = _graph.NodePosition(i);
                 float radius = _graph.NodeRadius(i);
 
+                // Auxiliar: só um traço fino do disco, visitado ou não. Ele é cenário para a
+                // leitura que interessa — quais PONTOS DE VANTAGEM já foram cobertos. Pintar a
+                // malha inteira de verde afogaria essa informação numa tela de verde.
+                if (!_graph.IsNodePrimary(i))
+                {
+                    if (!_drawAuxiliaryNodes)
+                        continue;
+
+                    Color aux = _visited[i] ? VisitedColor : PendingColor;
+                    aux.a *= 0.4f;
+                    Gizmos.color = aux;
+                    GraphGizmos.DrawGroundArea(_graph.Shape, position, radius, height: 0.03f, segments: 14);
+                    continue;
+                }
+
                 if (!_visited[i])
                 {
                     // O que falta, só de contorno: o pendente precisa ser localizável sem
@@ -392,7 +453,7 @@ namespace Assets.Scripts.Graph
                     if (_drawPendingNodes)
                     {
                         Gizmos.color = PendingColor;
-                        GraphGizmos.DrawGroundCircle(position, radius, height: 0.04f);
+                        GraphGizmos.DrawGroundArea(_graph.Shape, position, radius, height: 0.04f);
                     }
 
                     continue;
@@ -407,7 +468,7 @@ namespace Assets.Scripts.Graph
                 float heat = Mathf.Clamp01((_visitCount[i] - 1f) / Mathf.Max(1, _heatSaturationVisits));
 
                 Gizmos.color = Color.Lerp(VisitedColor, RevisitedColor, heat);
-                GraphGizmos.DrawGroundDisc(position, radius, height: 0.06f);
+                GraphGizmos.DrawGroundAreaFilled(_graph.Shape, position, radius, height: 0.06f);
                 Gizmos.DrawSphere(position, 0.3f);
             }
         }

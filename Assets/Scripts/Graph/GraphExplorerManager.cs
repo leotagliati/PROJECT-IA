@@ -47,8 +47,24 @@ namespace Assets.Scripts.Graph
         // Por vizinho: direção X, direção Z, distância normalizada, visitado, slot válido.
         private const int FloatsPerNeighbor = 5;
 
-        // 1 (está num nó) + 3 (vetor até o nó atual) + 2 (coberturas) + 4 (fronteira).
-        private const int GlobalObservations = 10;
+        // LAYOUT DAS OBSERVAÇÕES GLOBAIS (21):
+        //   [0]      está dentro do raio de algum nó
+        //   [1..3]   direção + distância ao nó âncora
+        //   [4..6]   direção + distância ao nó mais próximo COM LINHA LIVRE
+        //   [7..8]   cobertura total e da região atual
+        //   [9..11]  direção + distância ao próximo passo da fronteira
+        //   [12]     distância em ARESTAS até a fronteira
+        //   [13..15] RESERVADO — alerta: ativo, distância em arestas, delta quente/frio
+        //   [16..20] RESERVADO — visão: vendo, já viu, direção + distância à última posição
+        //
+        // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
+        // toda mudança neste número invalida os .onnx treinados: reservar custa 8 entradas numa
+        // rede de 128 unidades e economiza uma retreinada inteira do zero.
+        private const int GlobalObservations = 21;
+
+        // Quantos zeros os blocos ainda não implementados emitem. Somem quando a busca entrar.
+        private const int ReservedAlertObservations = 3;
+        private const int ReservedVisionObservations = 5;
 
         [Header("-----Systems-----")]
         [SerializeField] private GraphExplorationMemory _memory;
@@ -87,10 +103,16 @@ namespace Assets.Scripts.Graph
         // (os mais distantes) cortados — o aviso no Play te diz se está acontecendo. 6 cobre
         // com folga cruzamentos de corredor; salas muito auto-ligadas passam disso e é sinal de
         // que faltou podar ligações redundantes na autoria.
-        [SerializeField] private int _neighborSlots = 6;
+        //
+        // 8, e não 6: a malha auxiliar sobe o grau dos nós, e um nó que estoura os slots perde
+        // vizinhos em silêncio. Os 2 slots extras custam 10 entradas e evitam uma segunda
+        // retreinada no dia em que um cruzamento ganhar mais uma saída.
+        [SerializeField] private int _neighborSlots = 8;
 
-        // Normalizador da distância em METROS até um nó. Da ordem da maior aresta do mapa.
-        [SerializeField] private float _maxNodeDistance = 15f;
+        // Normalizador da distância em METROS até um nó. Da ordem da MAIOR aresta do mapa —
+        // acima dele toda distância satura em 1.0 e a observação morre. Com 16 num mapa cuja
+        // maior aresta é 34, um terço das arestas chegava à rede como o mesmo número.
+        [SerializeField] private float _maxNodeDistance = 35f;
 
         // Normalizador da distância em ARESTAS até a fronteira. Da ordem do diâmetro do grafo.
         [SerializeField] private int _maxGraphDistance = 20;
@@ -101,7 +123,12 @@ namespace Assets.Scripts.Graph
         // FixedUpdate e é ele quem incrementa o contador. 4000 steps = 80 s a 0.02 de timestep,
         // ou 800 decisões com Decision Period 5 — que é o número que aparece no
         // "Environment/Episode Length" do TensorBoard.
-        [SerializeField] private int _maxEpisodeSteps = 4000;
+        //
+        // ATENÇÃO ao mexer aqui: a pressão existencial é diluída (_existentialPenalty / este
+        // valor) e não muda, mas o contato com parede e a estagnação são cobrados POR STEP, e o
+        // teto deles é (valor_por_step x steps). Dobrar a duração dobra as duas penalidades.
+        // Ver a tabela no cabeçalho do GraphRewardSystem antes de alterar.
+        [SerializeField] private int _maxEpisodeSteps = 8000;
 
         private Vector3 _initialLocalPosition;
         private Quaternion _initialLocalRotation;
@@ -216,6 +243,17 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(_memory.IsAtNode);
             AddDirectionAndDistance(sensor, position, current >= 0 ? _graph.NodePosition(current) : position, current >= 0);
 
+            // ---- Nó mais próximo alcançável (3) ----
+            // A âncora responde "de onde eu vim"; isto responde "onde a malha está AGORA". Sem
+            // ele, o agente que se afastou do grafo só recebe a direção de um nó que já ficou
+            // para trás — e é exatamente essa a situação em que ele se perdia.
+            //
+            // Roda uma vez por DECISÃO (não por step de física): com Decision Period 5 são ~10
+            // consultas por segundo por agente, e o SphereCast dentro dela só dispara enquanto
+            // pode melhorar a resposta.
+            int nearest = _graph.FindNearestReachableNode(position);
+            AddDirectionAndDistance(sensor, position, nearest >= 0 ? _graph.NodePosition(nearest) : position, nearest >= 0);
+
             // ---- Cobertura (2) ----
             // O quanto falta explorar, no geral e na região atual. É o que permite à política
             // decidir entre "esta sala ainda tem coisa" e "hora de procurar a porta".
@@ -235,6 +273,13 @@ namespace Assets.Scripts.Graph
             // Distância em ARESTAS até o alvo: diz se a fronteira é "logo ali" ou "do outro lado
             // do mapa", informação que a direção sozinha não carrega.
             sensor.AddObservation(showFrontier ? Mathf.Clamp01((float)_memory.FrontierDistance / _maxGraphDistance) : 0f);
+
+            // ---- Reservado: alerta (3) e visão (5) ----
+            // Zeros até a branch de busca. Ficam ANTES dos vizinhos para que o bloco de vizinhos
+            // continue no fim do vetor: assim, mudar _neighborSlots no futuro não desloca o
+            // significado de nenhuma posição anterior.
+            for (int i = 0; i < ReservedAlertObservations + ReservedVisionObservations; i++)
+                sensor.AddObservation(0f);
 
             // ---- Vizinhos (5 x _neighborSlots) ----
             FillNeighborBuffer(current);
@@ -403,6 +448,7 @@ namespace Assets.Scripts.Graph
                 _memory.EnteredNewNodeValue,
                 _memory.TraversedNewEdge,
                 _memory.EnteredNewRegionBudget,
+                _memory.CompletedRegionBudget,
                 _memory.ChangedNode,
                 _memory.CurrentNodeVisitCount,
                 delta,

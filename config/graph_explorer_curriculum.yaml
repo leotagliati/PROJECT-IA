@@ -35,7 +35,7 @@ behaviors:
       # trabalho de forma explicita, interpretavel e ajustavel no Inspector. Manter os dois
       # tornaria impossivel saber qual dos sinais causou qual comportamento.
     keep_checkpoints: 5
-    max_steps: 2000000
+    max_steps: 6000000
     time_horizon: 128     # o dobro do seeker: as recompensas aqui sao mais esparsas no tempo.
     summary_freq: 20000
 
@@ -44,6 +44,26 @@ environment_parameters:
   # o curriculo de cada parametro de forma independente. Os completion_criteria dos dois sao
   # identicos de proposito — e a unica forma de garantir que avancem juntos. Se mexer num
   # threshold, mexa no outro.
+  #
+  # POR QUE 'reward' E NAO 'progress' (a licao que o run 05 cobrou caro):
+  # com 'progress' o threshold e fracao de max_steps, ou seja, RELOGIO. No run 05 as licoes
+  # viraram aos 500k, 980k e 1460k independentemente de desempenho — e a ultima cortou o
+  # frontier_hint de 0.5 direto para 0.0 num salto. A recompensa vinha subindo (-4.5 -> +15.1 aos
+  # 740k) e desabou para -3.0. O agente foi promovido antes de estar pronto e perdeu a muleta de
+  # uma vez.
+  #
+  # 'progress' foi a escolha certa ENQUANTO os pesos da recompensa estavam sendo ajustados (todo
+  # threshold em reward vira lixo a cada ajuste de peso). Os pesos congelaram: agora o custo se
+  # inverteu, e o criterio passa a ser desempenho.
+  #
+  # OS THRESHOLDS ABAIXO SAO ESTIMATIVA e precisam de uma passada de calibracao: eles vieram da
+  # curva do run 05, que rodava com outra funcao de recompensa (sem aproximacao por metro, sem
+  # conclusao de regiao, com episodio de 4000 e nao 8000 steps). Rode 200k steps, olhe o
+  # "Environment/Lesson Number" no TensorBoard e ajuste:
+  #   - licao nao avanca nunca  -> threshold alto demais
+  #   - avanca antes de a curva estabilizar -> threshold baixo demais
+  # Errar para MAIS e mais seguro: ficar preso numa licao facil custa tempo, ser promovido cedo
+  # custa a politica.
 
   # Fracao do grafo que encerra o episodio em sucesso (lida pelo GraphArenaController).
   # Comeca baixa: um alvo de 100% desde o inicio faz TODO episodio terminar em timeout, e o
@@ -53,33 +73,29 @@ environment_parameters:
     curriculum:
       - name: Quarter
         completion_criteria:
-          # 'progress' = fracao de max_steps, independente da escala de recompensa. Mesma
-          # escolha do curriculo do seeker, e pelo mesmo motivo: enquanto os pesos da recompensa
-          # ainda estao sendo ajustados, um threshold baseado em reward e invalidado a cada
-          # ajuste. Troque para 'reward' quando os pesos congelarem.
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.2
+          threshold: 4.0
           require_reset: true
         value: 0.3
       - name: Half
         completion_criteria:
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.45
+          threshold: 10.0
           require_reset: true
         value: 0.6
       - name: Most
         completion_criteria:
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.7
+          threshold: 16.0
           require_reset: true
         value: 0.9
       # 0.9, e nao 1.0: o ultimo no do mapa costuma custar tanto quanto os dez anteriores
@@ -97,36 +113,48 @@ environment_parameters:
   # parede) e so depois precisa aprender a DECIDIR o rumo sozinho.
   #
   # Por isso ela cai no fim: uma politica treinada com a dica ligada o tempo todo aprende a
-  # seguir a seta, e no cenario final essa seta pode nao existir. As duas ultimas licoes tiram a
+  # seguir a seta, e no cenario final essa seta pode nao existir. As ultimas licoes tiram a
   # muleta enquanto o resto do comportamento ja esta formado.
+  #
+  # A ESCADA E SUAVE (1.0 -> 0.7 -> 0.4 -> 0.2), e nao 1.0 -> 0.5 -> 0.0. No run 05 o corte de
+  # 0.5 para 0.0 tirou de uma vez os DOIS termos de fronteira — inclusive o _frontierApproachReward,
+  # que e o unico sinal denso que existe durante uma travessia. A recompensa caiu de +15.1 para
+  # -3.0. Parte disso e mecanico (a renda some junto com a muleta), mas o Episode Length ficou
+  # cravado em 799 dali em diante: ele parou de concluir episodio.
+  #
+  # Termina em 0.2 e nao em 0.0 de proposito: um fio de sinal denso mantem o gradiente vivo
+  # durante a travessia sem que a politica consiga viver so dele. Se o objetivo for provar que
+  # o comportamento sobrevive sem NENHUMA dica, faca isso numa avaliacao com frontier_hint = 0
+  # no GraphArenaController, e nao dentro do treino — assim voce mede a politica em vez de
+  # arriscar destrui-la.
   frontier_hint:
     curriculum:
       - name: Quarter
         completion_criteria:
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.2
+          threshold: 4.0
           require_reset: true
         value: 1.0
       - name: Half
         completion_criteria:
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.45
+          threshold: 10.0
           require_reset: true
-        value: 1.0
+        value: 0.7
       - name: Most
         completion_criteria:
-          measure: progress
+          measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 0.7
+          threshold: 16.0
           require_reset: true
-        value: 0.5
-      - name: MostNoHint
-        value: 0.0
+        value: 0.4
+      - name: MostFadedHint
+        value: 0.2
