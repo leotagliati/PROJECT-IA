@@ -9,9 +9,11 @@ public class CameraJuice : MonoBehaviour
     [Header("Head bob")]
     [SerializeField] private float walkBobAmount = 0.035f;
     [SerializeField] private float runBobAmount = 0.06f;
+    [SerializeField] private float crouchBobAmount = 0.018f;
 
     [SerializeField] private float walkBobFrequency = 8f;
     [SerializeField] private float runBobFrequency = 12f;
+    [SerializeField] private float crouchBobFrequency = 5f;
 
     [SerializeField] private float bobSmoothing = 8f;
 
@@ -22,6 +24,10 @@ public class CameraJuice : MonoBehaviour
     [Header("FOV")]
     [SerializeField] private float runFovKick = 8f;
     [SerializeField] private float fovSmoothing = 6f;
+
+    [Header("Crouch")]
+    [Tooltip("Quanto a câmera desce agachado por completo. Combine com a altura da cápsula.")]
+    [SerializeField] private float crouchCameraDrop = 0.45f;
 
     [Header("Aterrissagem")]
     [SerializeField] private float landDipAmount = 0.12f;
@@ -98,7 +104,11 @@ public class CameraJuice : MonoBehaviour
         float bobY = Mathf.Sin(bobTimer * 2f) * currentBobAmount;  
         float bobX = Mathf.Cos(bobTimer) * currentBobAmount * 0.5f; 
 
-        cameraTransform.localPosition = baseLocalPosition + new Vector3(bobX, bobY + dipOffset, 0f);
+        // A descida do agachamento já vem suavizada do PlayerMovement (é a própria
+        // transição da cápsula), então a câmera acompanha a altura do corpo sem defasar.
+        float crouchDrop = crouchCameraDrop * movement.CrouchAmount;
+
+        cameraTransform.localPosition = baseLocalPosition + new Vector3(bobX, bobY + dipOffset - crouchDrop, 0f);
 
         cameraTransform.localRotation *= Quaternion.Euler(0f, 0f, currentTilt);
     }
@@ -118,6 +128,11 @@ public class CameraJuice : MonoBehaviour
             case PlayerState.Running:
                 targetAmount = runBobAmount;
                 targetFrequency = runBobFrequency;
+                break;
+
+            case PlayerState.CrouchWalking:
+                targetAmount = crouchBobAmount;
+                targetFrequency = crouchBobFrequency;
                 break;
 
             default:
