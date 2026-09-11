@@ -30,8 +30,14 @@ behaviors:
     summary_freq: 20000
 
 environment_parameters:
-  # Lido pelo SeekerArenaController.ApplyCurriculum(), que liga/desliga o objeto Maze
-  # no comeco de cada episodio. 0.0 = sala aberta, 1.0 = labirinto.
+  # Lido pelo SeekerArenaController.ApplyCurriculum() no comeco de cada episodio, como
+  # PROBABILIDADE de o objeto Maze estar ligado — sorteada por arena, nao uma flag global.
+  # 0.0 = sempre sala aberta, 0.5 = metade das arenas com labirinto, 1.0 = sempre labirinto.
+  #
+  # A licao intermediaria existe porque as duas habilidades sao treinadas pelo MESMO cerebro:
+  # nao da para fundir os pesos de dois runs separados depois. Misturar os layouts dentro do
+  # mesmo batch e o que mantem a perseguicao em sala aberta viva no gradiente enquanto a
+  # navegacao em labirinto e aprendida.
   maze_enabled:
     curriculum:
       - name: OpenRoom
@@ -43,18 +49,43 @@ environment_parameters:
           measure: progress
           behavior: Seeker
           signal_smoothing: true
-          # Segura a promocao ate a politica estabilizar. Com episodios de ~170 steps,
-          # 800 episodios equivalem a ~140k steps — ponto em que o Std of Reward do
-          # seeker8 ja tinha caido de 28 para ~1.0.
-          min_lesson_length: 800
+          # Segura a promocao ate a politica estabilizar. E um PISO: quem deve mandar na
+          # promocao e o threshold de progress abaixo, nao este numero.
+          #
+          # Recalibrado para o Map_8. Com _maxEpisodeSteps = 4000 steps de fisica e
+          # DecisionPeriod = 5, um episodio rende no maximo 800 steps de treino (menos quando
+          # o hider e achado antes). O valor antigo, 800 episodios, valia ~140k steps quando
+          # o episodio tinha ~170 — aqui valeria ~640k e passaria por cima dos dois
+          # thresholds, travando o curriculo na primeira licao pelo run inteiro.
+          # 150 episodios = ~120k steps: mesma intencao, escala certa.
+          min_lesson_length: 150
           # Com measure: progress o threshold e fracao de max_steps (0 a 1), nao recompensa.
-          # 0.3 promove aos 300k de 1M, deixando 700k para a licao do labirinto — que e a
-          # parte dificil e merece o maior orcamento.
-          threshold: 0.3
+          # 0.25 promove aos 250k de 1M — o suficiente para a perseguicao basica sair do chao
+          # antes de o labirinto entrar, e o resto do orcamento vai para a parte dificil.
+          threshold: 0.25
           # Ao promover, reseta todos os ambientes de imediato em vez de esperar cada
           # arena terminar seu episodio.
           require_reset: true
         value: 0.0
+      # Metade das arenas com labirinto, metade sem. E aqui que o agente aprende a navegar
+      # sem parar de praticar perseguicao — os dois regimes de recompensa (aproximacao em
+      # peso cheio na sala, reduzido no labirinto) convivem no mesmo batch.
+      - name: Mixed
+        completion_criteria:
+          measure: progress
+          behavior: Seeker
+          signal_smoothing: true
+          # Episodios de labirinto sao mais longos que os de sala aberta, entao o mesmo numero
+          # de episodios cobre mais steps aqui do que na licao anterior.
+          min_lesson_length: 150
+          # Promove aos 550k, deixando 450k para a licao final.
+          threshold: 0.55
+          require_reset: true
+        value: 0.5
       # Ultima licao nao leva completion_criteria: nao ha para onde promover.
-      - name: Maze
-        value: 1.0
+      #
+      # 0.85, e nao 1.0, de proposito: 15% de arenas abertas ate o fim do treino custam pouco
+      # orcamento e evitam que a perseguicao em espaco aberto seja desaprendida na reta final —
+      # o mapa real tem salas, nao so corredores. Suba para 1.0 se o alvo for labirinto puro.
+      - name: MazeHeavy
+        value: 0.85

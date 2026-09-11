@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500&family=Special+Elite&display=swap">
+  <style>
+    body { margin: 0; background: #060606; }
+    a { color: #d9a441; } a:hover { color: #f0c073; }
+
+    .stage { position: absolute; inset: 0; overflow: hidden; background: #070706; }
+
+    .wall { position: absolute; left: 0; right: 0; top: 0; height: 448px;
+            background: linear-gradient(180deg, #0c0d0c 0%, #101010 60%, #131309 100%); }
+    .floor { position: absolute; left: 0; right: 0; top: 448px; bottom: 0;
+             background: linear-gradient(180deg, #0e0d0b 0%, #070706 60%, #040404 100%); }
+    .baseboard { position: absolute; left: 0; right: 0; top: 442px; height: 8px; background: #191813; }
+
+    .prop { position: absolute; background: #070706; }
+
+    .lit { position: absolute; inset: 0; animation-duration: 5.3s;
+           animation-iteration-count: infinite; animation-timing-function: steps(1, end); }
+    @keyframes flick {
+      0%, 2% { opacity: 1; }
+      3% { opacity: .5; }
+      4% { opacity: .95; }
+      6% { opacity: .28; }
+      8% { opacity: 1; }
+      39% { opacity: 1; }
+      40% { opacity: .62; }
+      41% { opacity: 1; }
+      70% { opacity: .4; }
+      71% { opacity: .9; }
+      72% { opacity: 1; }
+      87% { opacity: .78; }
+      88% { opacity: 1; }
+      100% { opacity: 1; }
+    }
+
+    .rim { position: absolute; background: rgba(226,181,104,.5); }
+
+    .grain { position: absolute; inset: -50%; pointer-events: none; mix-blend-mode: overlay;
+             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+             animation: drift .5s steps(2, end) infinite; }
+    @keyframes drift { 0% { transform: translate(0,0); } 50% { transform: translate(-7px,4px); } 100% { transform: translate(5px,-6px); } }
+
+    .dither { position: absolute; inset: 0; pointer-events: none; opacity: .16;
+              background-image: repeating-conic-gradient(#000 0% 25%, transparent 0% 50%); background-size: 3px 3px; }
+    .scan { position: absolute; inset: 0; pointer-events: none; opacity: .3;
+            background: repeating-linear-gradient(180deg, rgba(0,0,0,.55) 0px, rgba(0,0,0,.55) 1px, transparent 1px, transparent 3px); }
+    .vignette { position: absolute; inset: 0; pointer-events: none;
+                background: radial-gradient(ellipse 70% 62% at 50% 46%, transparent 0%, rgba(0,0,0,.58) 66%, rgba(0,0,0,.95) 100%); }
+
+    .title { font-family: 'Special Elite', 'Courier New', monospace; color: #cfc9bd; }
+    .menu { font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; }
+  </style>
+</helmet>
+
+<div class="stage" style="width: 1280px; height: 720px;">
+
+  <div class="wall"></div>
+  <div class="baseboard"></div>
+  <div class="floor"></div>
+
+  <!-- corredor: a luz vem da sala seguinte, não de uma lâmpada em cena -->
+  <div class="prop" style="left: 548px; top: 152px; width: 184px; height: 296px; background: #000;"></div>
+
+  <div class="prop" style="left: 168px; top: 288px; width: 268px; height: 160px;"></div>
+  <div class="prop" style="left: 196px; top: 246px; width: 96px; height: 44px;"></div>
+  <div class="prop" style="left: 844px; top: 300px; width: 146px; height: 148px;"></div>
+  <div class="prop" style="left: 866px; top: 236px; width: 98px; height: 64px;"></div>
+  <div class="prop" style="left: 1012px; top: 340px; width: 128px; height: 108px;"></div>
+  <div class="prop" style="left: 448px; top: 396px; width: 84px; height: 52px;"></div>
+
+  <div class="lit" style="animation-name: {{flickerName}};">
+    <div style="position: absolute; left: 548px; top: 152px; width: 184px; height: 296px;
+                background: linear-gradient(180deg, rgba(217,164,65,.42) 0%, rgba(217,164,65,.22) 60%, rgba(217,164,65,.08) 100%);"></div>
+    <div style="position: absolute; left: 548px; top: 148px; width: 184px; height: 300px;
+                box-shadow: 0 0 70px 26px rgba(217,164,65,.2);"></div>
+    <!-- derrame no chão em direção à câmera -->
+    <div style="position: absolute; left: 300px; top: 448px; width: 680px; height: 200px;
+                clip-path: polygon(37% 0%, 63% 0%, 100% 100%, 0% 100%);
+                background: linear-gradient(180deg, rgba(217,164,65,.26) 0%, rgba(217,164,65,.07) 55%, rgba(217,164,65,0) 100%);"></div>
+
+    <div class="rim" style="left: 434px; top: 288px; width: 2px; height: 160px; opacity: .5;"></div>
+    <div class="rim" style="left: 168px; top: 288px; width: 268px; height: 1px; opacity: .18;"></div>
+    <div class="rim" style="left: 843px; top: 300px; width: 2px; height: 148px; opacity: .5;"></div>
+    <div class="rim" style="left: 844px; top: 300px; width: 146px; height: 1px; opacity: .2;"></div>
+    <div class="rim" style="left: 865px; top: 236px; width: 2px; height: 64px; opacity: .38;"></div>
+    <div class="rim" style="left: 448px; top: 396px; width: 84px; height: 1px; opacity: .3;"></div>
+    <div class="rim" style="left: 544px; top: 148px; width: 4px; height: 300px; opacity: .55;"></div>
+    <div class="rim" style="left: 732px; top: 148px; width: 4px; height: 300px; opacity: .55;"></div>
+  </div>
+
+  <!-- ---- interface ------------------------------------------------- -->
+
+  <div class="title" style="position: absolute; left: 0; right: 0; top: 92px; text-align: center;
+              font-size: 58px; letter-spacing: .3em; color: #d7cfc1; text-indent: .3em;">PROJECT-IA</div>
+  <div class="menu" style="position: absolute; left: 0; right: 0; top: 168px; text-align: center;
+              font-size: 13px; font-weight: 300; letter-spacing: .55em; color: #6b675e; text-indent: .55em; text-transform: uppercase;">Você não está sozinho aqui</div>
+
+  <div class="menu" style="position: absolute; left: 0; right: 0; bottom: 84px; display: flex; flex-direction: column; gap: 20px; align-items: center;">
+    <div style="display: flex; align-items: center; gap: 20px;">
+      <div style="width: 22px; height: 1px; background: #d9a441;"></div>
+      <div style="font-size: 26px; font-weight: 400; letter-spacing: .34em; text-transform: uppercase; color: #e8dcc4; text-indent: .34em;">Continuar</div>
+      <div style="width: 22px; height: 1px; background: #d9a441;"></div>
+    </div>
+    <div style="font-size: 26px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7b766c; text-indent: .34em;">Novo jogo</div>
+    <div style="font-size: 26px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7b766c; text-indent: .34em;">Opções</div>
+    <div style="font-size: 26px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7b766c; text-indent: .34em;">Sair</div>
+  </div>
+
+  <div class="title" style="position: absolute; right: 40px; bottom: 30px; font-size: 12px; letter-spacing: .3em; color: #423f39;">v0.1 [BUILD INTERNA]</div>
+
+  <div class="dither"></div>
+  <div class="scan"></div>
+  <div class="grain" style="opacity: {{grain}};"></div>
+  <div class="vignette"></div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"flicker":{"editor":"boolean","default":true},"grain":{"editor":"range","default":0.42,"min":0,"max":1,"step":0.02},"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      flickerName: this.props.flicker === false ? 'none' : 'flick',
+      grain: this.props.grain ?? 0.42
+    };
+  }
+}
+</script>
+</body>
+</html>

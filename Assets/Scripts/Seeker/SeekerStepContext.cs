@@ -9,7 +9,14 @@ namespace Assets.Scripts.Seeker
     /// </summary>
     public readonly struct SeekerStepContext
     {
-        public readonly Vector3 PreMovePosition;
+        /// <summary>
+        /// Posição no início do step ANTERIOR. O par com CurrentPosition tem que atravessar a
+        /// fronteira do step: Rigidbody.MovePosition só chega ao transform depois da simulação,
+        /// então medir deslocamento dentro de um mesmo step dá sempre zero.
+        /// </summary>
+        public readonly Vector3 PreviousStepPosition;
+
+        /// <summary>Posição agora, já com o movimento pedido no step anterior simulado.</summary>
         public readonly Vector3 CurrentPosition;
         public readonly bool IsSeeingHider;
         public readonly bool HasSeenHider;
@@ -47,7 +54,7 @@ namespace Assets.Scripts.Seeker
         public readonly float WallProximityScale;
 
         public SeekerStepContext(
-            Vector3 preMovePosition,
+            Vector3 previousStepPosition,
             Vector3 currentPosition,
             bool isSeeingHider,
             bool hasSeenHider,
@@ -61,7 +68,7 @@ namespace Assets.Scripts.Seeker
         {
             IsTouchingWall = isTouchingWall;
             EnteredNewCell = enteredNewCell;
-            PreMovePosition = preMovePosition;
+            PreviousStepPosition = previousStepPosition;
             CurrentPosition = currentPosition;
             IsSeeingHider = isSeeingHider;
             HasSeenHider = hasSeenHider;

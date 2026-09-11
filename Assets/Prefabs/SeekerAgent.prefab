@@ -44,8 +44,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 40d54282a8fbcca43b4326e1ade467ca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _arenaSize: 10.4
-  _cellSize: 0.8
+  _arenaSize: 106
+  _cellSize: 2
   _windowRadius: 2
 --- !u!1 &578036348230745126
 GameObject:
@@ -61,7 +61,6 @@ GameObject:
   - component: {fileID: 5419974756313205085}
   - component: {fileID: 572788143576534877}
   - component: {fileID: 7686348265000432108}
-  - component: {fileID: 3826134330585851163}
   m_Layer: 0
   m_Name: SeekerAgent
   m_TagString: Untagged
@@ -79,13 +78,14 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -0.17033522, y: 0.277, z: -0.19634095}
-  m_LocalScale: {x: 0.34840128, y: 0.33684552, z: 0.3436937}
+  m_LocalScale: {x: 1.7, y: 3.63, z: 1.7}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1772856882328885764}
   - {fileID: 6826935874050121370}
   - {fileID: 1732916299684617384}
   - {fileID: 2929709087153765115}
+  - {fileID: 1434218154954957342}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &5933273504992383281
@@ -188,8 +188,8 @@ MonoBehaviour:
   _rewardSystem: {fileID: 0}
   _explorationMemory: {fileID: 0}
   _arenaController: {fileID: 0}
-  _maxEpisodeSteps: 1000
-  _maxHiderDistance: 20
+  _maxEpisodeSteps: 4000
+  _maxHiderDistance: 125
 --- !u!114 &7686348265000432108
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -205,22 +205,6 @@ MonoBehaviour:
   DecisionPeriod: 5
   DecisionStep: 0
   TakeActionsBetweenDecisions: 1
---- !u!114 &3826134330585851163
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 578036348230745126}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 88b6042bc9a5d4aa58d931eae49442e5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  agentParameters:
-    maxStep: 0
-  hasUpgradedFromAgentParameters: 1
-  MaxStep: 500
 --- !u!1 &2670993543641738545
 GameObject:
   m_ObjectHideFlags: 0
@@ -480,7 +464,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _rigidbody: {fileID: 0}
-  _moveSpeed: 2
+  _moveSpeed: 5
   _turnSpeed: 720
 --- !u!1 &3055854575949163188
 GameObject:
@@ -654,6 +638,58 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &5954747103405744954
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1434218154954957342}
+  - component: {fileID: 7420544586369674986}
+  m_Layer: 0
+  m_Name: RewardSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1434218154954957342
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5954747103405744954}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4965023623266010248}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7420544586369674986
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5954747103405744954}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 289cbf5638526bb44b35706014225c7d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _existentialPenalty: 2
+  _wallProximityPenalty: 0.01
+  _wallDangerThreshold: 0.6
+  _wallContactPenalty: 0.002
+  _hiderSightReward: 0.1
+  _hiderApproachReward: 0.3
+  _hiderFoundReward: 5
+  _newCellReward: 0.002
 --- !u!1 &6074784137925372296
 GameObject:
   m_ObjectHideFlags: 0
@@ -875,14 +911,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a999c10e4e0059843afaec9742f0b532, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _detectionRange: 5
+  _detectionRange: 20
   _wallLayer:
     serializedVersion: 2
     m_Bits: 8
-  _originHeightOffset: 0.1
-  _visionRange: 10
+  _originHeightOffset: -1.25
+  _visionRange: 80
   _visionAngle: 90
-  _rayCount: 7
+  _rayCount: 30
   _hiderTag: Goal
   _isSeeingHider: 0
   _arrivalThreshold: 0.5
