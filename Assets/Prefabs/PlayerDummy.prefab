@@ -16,6 +16,7 @@ GameObject:
   - component: {fileID: 3947188273615540912}
   - component: {fileID: 3312891736075415501}
   - component: {fileID: 3171679303800502958}
+  - component: {fileID: 4483920617358264193}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -113,10 +114,18 @@ MonoBehaviour:
   jumpHeight: 1.5
   gravity: -9.81
   groundedGraceTime: 0.1
+  crouchHeight: 0.5
+  crouchSpeedMultiplier: 0.45
+  crouchTransitionTime: 0.14
+  standCheckMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
   animator: {fileID: 8811738717715037470}
   footstepSoundId: footstep
   stepDistance: 2
   runStepDistance: 1.2
+  crouchStepDistance: 3
+  crouchStepVolume: 0.35
   footstepHeightOffset: 0
 --- !u!114 &8136329723317198858
 MonoBehaviour:
@@ -147,13 +156,16 @@ MonoBehaviour:
   targetCamera: {fileID: 6399354207596021297}
   walkBobAmount: 0.035
   runBobAmount: 0.06
+  crouchBobAmount: 0.018
   walkBobFrequency: 8
   runBobFrequency: 12
+  crouchBobFrequency: 5
   bobSmoothing: 8
   strafeTilt: 1.6
   tiltSmoothing: 6
   runFovKick: 8
   fovSmoothing: 6
+  crouchCameraDrop: 0.45
   landDipAmount: 0.12
   landDipRecover: 0.18
 --- !u!114 &3312891736075415501
@@ -213,14 +225,23 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   targetCamera: {fileID: 0}
   movement: {fileID: 0}
-  peekAngle: 135
-  allowFullBack: 1
-  fullBackAngle: 180
-  peekRoll: 2.5
-  enterSmoothTime: 0.11
-  exitSmoothTime: 0.16
-  requireMovement: 0
-  blockWhileJumping: 0
+  lookBackAngle: 135
+  lookBackRoll: 2.5
+  lookBackEnterTime: 0.11
+  lookBackExitTime: 0.16
+  leanDistance: 0.45
+  leanRoll: 12
+  leanYaw: 6
+  leanEnterTime: 0.13
+  leanExitTime: 0.18
+  probeLeanCollision: 1
+  leanCollisionMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  leanProbeRadius: 0.15
+  leanSkin: 0.08
+  movementThreshold: 0.1
+  modeSwitchDelay: 0.2
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0
@@ -433,17 +454,17 @@ Light:
   m_Enabled: 1
   serializedVersion: 11
   m_Type: 0
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 0.6650944, g: 0.81195015, b: 1, a: 1}
   m_Intensity: 10.74
-  m_Range: 25.58
-  m_SpotAngle: 69.77778
-  m_InnerSpotAngle: 21.80208
+  m_Range: 156.2
+  m_SpotAngle: 82.2
+  m_InnerSpotAngle: 68.7
   m_CookieSize: 10
   m_Shadows:
-    m_Type: 0
+    m_Type: 2
     m_Resolution: -1
     m_CustomResolution: -1
-    m_Strength: 1
+    m_Strength: 0.85
     m_Bias: 0.05
     m_NormalBias: 0.4
     m_NearPlane: 0.2
@@ -468,7 +489,7 @@ Light:
   m_Cookie: {fileID: 0}
   m_DrawHalo: 0
   m_Flare: {fileID: 0}
-  m_RenderMode: 0
+  m_RenderMode: 1
   m_CullingMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -1055,3 +1076,16 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 014a06cf43dd3164493650a9af5c7dea, type: 3}
   m_PrefabInstance: {fileID: 1816392616031859203}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &4483920617358264193
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 603cdeff980ce11429081c4749ba8612, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  keyCount: 0
