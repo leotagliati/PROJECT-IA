@@ -123,21 +123,12 @@ public class PlayerMovement : MonoBehaviour
     private void OnEnable()
     {
         PlayerInputProvider.Acquire();
-
-        // O asset de input é compartilhado e vive além desta instância, então a inscrição
-        // sai no OnDisable — um lambda no Awake continuaria chamando Jump() de um player
-        // já destruído depois de trocar de cena.
-        PlayerInputProvider.Player.Jump.performed += OnJumpPerformed;
     }
 
     private void OnDisable()
     {
-        PlayerInputProvider.Player.Jump.performed -= OnJumpPerformed;
-
         PlayerInputProvider.Release();
     }
-
-    private void OnJumpPerformed(InputAction.CallbackContext context) => Jump();
 
     private void Update()
     {
@@ -154,8 +145,6 @@ public class PlayerMovement : MonoBehaviour
 
         moveInput = PlayerInputProvider.Player.Move.ReadValue<Vector2>();
 
-        // Antes do sprint: agachar tem prioridade e cancela a corrida no mesmo frame,
-        // senão o estado oscilaria entre Running e CrouchWalking com Shift+Ctrl juntos.
         UpdateCrouch();
 
         sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed() && !isCrouching;
@@ -185,8 +174,6 @@ public class PlayerMovement : MonoBehaviour
 
         crouchAmount = Mathf.SmoothDamp(crouchAmount, target, ref crouchVelocity, crouchTransitionTime);
 
-        // SmoothDamp chega perto mas nunca no valor exato: encosta e para, senão a
-        // cápsula ficaria sendo reescrita todo frame por causa de um resto de 0.001.
         if (Mathf.Abs(crouchAmount - target) < 0.001f)
         {
             crouchAmount = target;
@@ -382,13 +369,5 @@ public class PlayerMovement : MonoBehaviour
             return;
 
         AudioProvider.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
-    }
-
-    private void Jump()
-    {
-        if (isGrounded && !isCrouching)
-        {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
     }
 }
