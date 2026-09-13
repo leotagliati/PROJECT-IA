@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -18,6 +19,12 @@ public class InteractionController : MonoBehaviour
     private IInteractable currentInteractable;
 
     public IInteractable CurrentInteractable => currentInteractable;
+
+    /// <summary>
+    /// Disparado só quando o alvo na mira troca (null = saiu de todos). Quem mostra prompt
+    /// assina isso em vez de comparar CurrentInteractable todo frame.
+    /// </summary>
+    public event Action<IInteractable> TargetChanged;
 
     void Awake()
     {
@@ -44,7 +51,7 @@ public class InteractionController : MonoBehaviour
         PlayerInputProvider.Player.Interact.performed -= OnInteractPerformed;
         PlayerInputProvider.Release();
         SetHighlightTarget(null);
-        currentInteractable = null;
+        SetInteractable(null);
     }
 
     void Update()
@@ -74,8 +81,20 @@ public class InteractionController : MonoBehaviour
                 break;
         }
 
-        currentInteractable = interactable;
+        SetInteractable(interactable);
         SetHighlightTarget(highlight);
+    }
+
+    private void SetInteractable(IInteractable target)
+    {
+        // ReferenceEquals, e não ==: o alvo é interface, e o == sobrecarregado do
+        // UnityEngine.Object não entra por esse tipo. Objeto destruído enquanto está na mira
+        // vira um raycast que já não o acha, então a troca para null acontece naturalmente.
+        if (ReferenceEquals(currentInteractable, target))
+            return;
+
+        currentInteractable = target;
+        TargetChanged?.Invoke(target);
     }
 
     private void SetHighlightTarget(HighlightTarget target)

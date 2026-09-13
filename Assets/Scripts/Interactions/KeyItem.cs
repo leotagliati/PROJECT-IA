@@ -2,8 +2,12 @@ using UnityEngine;
 
 public class KeyItem : MonoBehaviour, IInteractable
 {
+    [SerializeField] private string prompt = "Pegar chave";
+
+    public string Prompt => prompt;
+
     public void Interact()
-    {        
+    {
         // Procura o inventário do jogador na cena
         PlayerInventory playerInventory = FindFirstObjectByType<PlayerInventory>();
 
