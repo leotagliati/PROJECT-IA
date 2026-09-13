@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 8053606787518452161}
   - component: {fileID: 4626521580424763308}
   - component: {fileID: 1407025851101870248}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Wal_Corner.005 (32)
   m_TagString: Untagged
   m_Icon: {fileID: 0}

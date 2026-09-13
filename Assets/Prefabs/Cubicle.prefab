@@ -10,7 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 8272123504814428384}
   - component: {fileID: 523686055640707783}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Cubicle
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -68,7 +68,7 @@ GameObject:
   - component: {fileID: 2892984417908009124}
   - component: {fileID: 6159363194523263202}
   - component: {fileID: 1413819761770958794}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: computer_monitor
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -155,7 +155,7 @@ GameObject:
   - component: {fileID: 343255689818761901}
   - component: {fileID: 7356910406795112444}
   - component: {fileID: 5679085647953634107}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: computer_tower
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -242,7 +242,7 @@ GameObject:
   - component: {fileID: 3708392250635832726}
   - component: {fileID: 332402500038976780}
   - component: {fileID: 931613131320861763}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: divider_wood (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -349,7 +349,7 @@ GameObject:
   - component: {fileID: 4006029106474100825}
   - component: {fileID: 6390765599597004200}
   - component: {fileID: 835433060921994683}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: computer_mouse
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -436,7 +436,7 @@ GameObject:
   - component: {fileID: 3678689480779291418}
   - component: {fileID: 9079694996306992143}
   - component: {fileID: 8229585102446219611}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: divider_wood (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -546,7 +546,7 @@ GameObject:
   - component: {fileID: 3271896589261971325}
   - component: {fileID: 5840206199160805965}
   - component: {fileID: 4115612770395749788}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Cube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -742,7 +742,7 @@ GameObject:
   - component: {fileID: 3757226291863657869}
   - component: {fileID: 7081664831992084366}
   - component: {fileID: 8050789754002434095}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: divider_wood (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -849,7 +849,7 @@ GameObject:
   - component: {fileID: 6134305420017753507}
   - component: {fileID: 9129132611796090803}
   - component: {fileID: 6847506165132583061}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: desk1_alt
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -935,7 +935,7 @@ GameObject:
   - component: {fileID: 2099212544470363709}
   - component: {fileID: 4209960310001633607}
   - component: {fileID: 3324383245580895693}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: computer_keyboard
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1019,7 +1019,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2666056378457161332}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Desk (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1058,7 +1058,7 @@ GameObject:
   - component: {fileID: 1030006340617791276}
   - component: {fileID: 3041074767886133704}
   - component: {fileID: 5752313638377658647}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: office_chair_grey
   m_TagString: Untagged
   m_Icon: {fileID: 0}
