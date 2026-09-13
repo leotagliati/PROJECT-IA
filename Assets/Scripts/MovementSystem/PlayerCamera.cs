@@ -10,6 +10,9 @@ public class PlayerCamera : MonoBehaviour
     private Vector2 lookInput;
     private float xRotation = 0f;
 
+    /// <summary>Pitch atual em graus. Positivo = olhando para baixo (convenção do Euler X do Unity).</summary>
+    public float Pitch => xRotation;
+
     private void OnEnable()
     {
         PlayerInputProvider.Acquire();

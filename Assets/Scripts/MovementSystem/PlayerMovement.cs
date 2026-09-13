@@ -43,6 +43,10 @@ public class PlayerMovement : MonoBehaviour
     [Header("Animation")]
     [SerializeField] private Animator animator;
 
+    [Tooltip("Suavização do parâmetro moveSpeed do blend tree, em segundos. Sem isso o blend " +
+             "salta de idle para corrida em um frame e a mistura de poses fica visível.")]
+    [SerializeField] private float animBlendDampTime = 0.1f;
+
     [Header("Footsteps")]
     [SerializeField] private string footstepSoundId = "footstep";
 
@@ -57,8 +61,11 @@ public class PlayerMovement : MonoBehaviour
 
     [SerializeField] private float footstepHeightOffset = 0f;
 
-    private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
-    private static readonly int IsRunningHash = Animator.StringToHash("isRunning");
+    // Blend tree 1D: 0 = idle, 1 = walk, 2 = run. Os thresholds vivem no PlayerAC.controller.
+    private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
+    private const float AnimIdle = 0f;
+    private const float AnimWalk = 1f;
+    private const float AnimRun = 2f;
 
     private Vector2 moveInput;
     private bool sprintHeld;
@@ -162,6 +169,7 @@ public class PlayerMovement : MonoBehaviour
         controller.Move(velocity * Time.deltaTime);
 
         UpdateFootsteps();
+        UpdateAnimator();
     }
 
     private void UpdateCrouch()
@@ -250,7 +258,6 @@ public class PlayerMovement : MonoBehaviour
         CurrentState = next;
 
         OnStateExit(previous);
-        OnStateEnter(next);
 
         StateChanged?.Invoke(next);
     }
@@ -266,32 +273,40 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void OnStateEnter(PlayerState state)
-    {
-        if (animator == null)
-            return;
+    // ----------------------------------------------------------------- animação
 
-        switch (state)
+    /// <summary>Valor alvo de moveSpeed no blend tree para o estado atual.</summary>
+    private float GetAnimMoveSpeed()
+    {
+        switch (CurrentState)
         {
             // Sem clipe de agachado no controller ainda, então CrouchWalking reaproveita a
             // caminhada e Crouching, a parada. Quando existir a animação, é aqui que entra.
             case PlayerState.Walking:
             case PlayerState.CrouchWalking:
-                animator.SetBool(IsWalkingHash, true);
-                animator.SetBool(IsRunningHash, false);
-                break;
+                return AnimWalk;
 
             case PlayerState.Running:
-                animator.SetBool(IsWalkingHash, false);
-                animator.SetBool(IsRunningHash, true);
-                break;
+                return AnimRun;
 
-            case PlayerState.Idle:
-            case PlayerState.Crouching:
-                animator.SetBool(IsWalkingHash, false);
-                animator.SetBool(IsRunningHash, false);
-                break;
+            // No ar mantém o valor que já estava: não há clipe de pulo, e cair para idle
+            // faria o personagem "congelar" no meio do passo enquanto ainda se desloca.
+            case PlayerState.Jumping:
+                return animator.GetFloat(MoveSpeedHash);
+
+            default:
+                return AnimIdle;
         }
+    }
+
+    private void UpdateAnimator()
+    {
+        if (animator == null)
+            return;
+
+        // Todo frame, e não só na troca de estado: o SetFloat com damp só converge ao alvo
+        // se for chamado continuamente com deltaTime.
+        animator.SetFloat(MoveSpeedHash, GetAnimMoveSpeed(), animBlendDampTime, Time.deltaTime);
     }
 
     /// <summary>Velocidade horizontal do estado atual.</summary>

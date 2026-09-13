@@ -143,9 +143,12 @@ determinístico durante o treino.
   action map só liga quando o primeiro usuário aparece. Ao regerar o `.cs`, não edite o
   arquivo gerado.
 - **Ordem de execução da câmera** — vários componentes escrevem na mesma transform, e a
-  ordem é declarada com `[DefaultExecutionOrder]`: `ShoulderPeek` (50) → `Flashlight` (100)
-  → `AtmosphericParticles` (120), todos depois de `CameraJuice`, que ainda ajusta a câmera
-  no `LateUpdate`. Se um efeito de câmera "some", quase sempre é ordem de execução.
+  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, dobra o `spine.002`
+  com o pitch e **escreve posição e rotação da câmera** a partir do osso `Neck`) →
+  `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
+  `ShoulderPeek` (50) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
+  efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
   `StateChanged`) é a fonte de verdade para "está andando/correndo/pulando". Quem precisa
   reagir (áudio, IA, UI) lê isso em vez de recalcular por conta própria.
