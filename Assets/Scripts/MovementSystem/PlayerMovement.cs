@@ -381,14 +381,11 @@ public class PlayerMovement : MonoBehaviour
         if (string.IsNullOrEmpty(soundId))
             return;
 
-        // PlayAt e não PlayFollowing: o passo fica onde o pé bateu, não anda junto com o player.
-        AudioSystem.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
+        AudioProvider.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
     }
 
     private void Jump()
     {
-        // Agachado não pula: sair da cápsula baixa no meio do salto abriria a chance de
-        // atravessar o teto que obrigou a agachar.
         if (isGrounded && !isCrouching)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);

@@ -7,6 +7,9 @@ public class DoorLock : MonoBehaviour, IInteractable
 
     [SerializeField] private string noKeyMessage = "Requer uma chave";
 
+    [Header("Áudio")]
+    [SerializeField] private string openSoundId = "padlock_open";
+
     public bool IsUnlocked { get; private set; }
 
     public string Prompt => IsUnlocked ? null : prompt;
@@ -38,8 +41,10 @@ public class DoorLock : MonoBehaviour, IInteractable
 
         IsUnlocked = true;
 
-        // Avisa antes de desativar: quem assina pode querer ler a transform do cadeado
-        // (spawnar partícula ali, por exemplo) enquanto ele ainda está ativo.
+        // Som e evento antes de desativar: a posição do cadeado ainda é válida aqui, e quem
+        // assina pode querer ler a transform dele (spawnar partícula ali, por exemplo).
+        // Fica no Unlock, e não no Interact, para abertura por script também soar.
+        AudioProvider.PlayAt(openSoundId, transform.position);
         Unlocked?.Invoke(this);
 
         gameObject.SetActive(false);

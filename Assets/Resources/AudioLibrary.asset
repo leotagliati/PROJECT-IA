@@ -1,0 +1,51 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 039277249c2f49bfb30e3c0724b55676, type: 3}
+  m_Name: AudioLibrary
+  m_EditorClassIdentifier: 
+  _poolSize: 16
+  _defaultHeight: 1
+  _minDistance: 1
+  _maxDistance: 25
+  _rolloff: 1
+  _mixerGroup: {fileID: 0}
+  _sounds:
+  - Id: footstep
+    Clips:
+    - {fileID: 8300000, guid: efb8486b2e1b94c41a0538880bfff833, type: 3}
+    Volume: 0.208
+    PitchJitter: 0.222
+    MaxDistance: 10
+  - Id: lockedDoor
+    Clips:
+    - {fileID: 8300000, guid: 7d71ed67ce7d3fc45b1ae8666ba9b463, type: 3}
+    Volume: 0.208
+    PitchJitter: 0.222
+    MaxDistance: 5
+  - Id: flashlight_on
+    Clips:
+    - {fileID: 8300000, guid: f157c7da08b8e82468a97707f22fcfbc, type: 3}
+    Volume: 0.208
+    PitchJitter: 0.222
+    MaxDistance: 5
+  - Id: flashlight_off
+    Clips:
+    - {fileID: 8300000, guid: 2290820b2e72c78418cc7d8062ef4d67, type: 3}
+    Volume: 0.208
+    PitchJitter: 0.222
+    MaxDistance: 5
+  - Id: padlock_open
+    Clips:
+    - {fileID: 8300000, guid: 52d711629fce4af45b391c3b4f1010de, type: 3}
+    Volume: 0.208
+    PitchJitter: 0.222
+    MaxDistance: 5

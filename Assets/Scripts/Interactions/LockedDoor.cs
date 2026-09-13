@@ -17,6 +17,10 @@ public class LockedDoor : MonoBehaviour, IInteractable
     [Tooltip("Mensagem ao tentar abrir com cadeado. {0} = cadeados restantes.")]
     [SerializeField] private string lockedMessageFormat = "Ainda há {0} cadeado(s)";
 
+    [Header("Áudio")]
+    [Tooltip("Toca quando o jogador tenta abrir com cadeado. Vazio = sem som.")]
+    [SerializeField] private string lockedSoundId = "lockedDoor";
+
     private bool isOpen;
 
     public int RemainingLocks => locks.Count;
@@ -52,7 +56,13 @@ public class LockedDoor : MonoBehaviour, IInteractable
             return InteractionResult.Success;
 
         if (!IsUnlocked)
+        {
+            // A porta chacoalha na tentativa, não ao olhar: é feedback da ação recusada.
+            if (!string.IsNullOrEmpty(lockedSoundId))
+                AudioProvider.PlayAt(lockedSoundId, transform.position);
+
             return InteractionResult.Fail(ErrorMessage);
+        }
 
         OpenDoor();
         return InteractionResult.Success;

@@ -152,10 +152,12 @@ determinístico durante o treino.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
   `StateChanged`) é a fonte de verdade para "está andando/correndo/pulando". Quem precisa
   reagir (áudio, IA, UI) lê isso em vez de recalcular por conta própria.
-- **Áudio**: `AudioSystem` é um pool fixo de AudioSources 3D com API estática
-  (`AudioSystem.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
-  Clipes são cadastrados no Inspector por id string, com jitter de pitch. Um único objeto
-  na cena.
+- **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
+  (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
+  Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela
+  de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
+  `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
+  `Stop` de handle cujo slot já foi roubado é no-op.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
