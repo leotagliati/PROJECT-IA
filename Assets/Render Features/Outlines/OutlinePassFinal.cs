@@ -57,13 +57,15 @@ namespace Xenon
             var resourceData = frameData.Get<UniversalResourceData>();
             var outlineData = frameData.Get<OutlineRenderFeature.OutlineData>();
 
-            using var builder = renderGraph.AddRasterRenderPass<PassData>("OutlinePass_Final", out var passData, new ProfilingSampler("OutlinePass_Final"));
-
+            // Sair depois de abrir o builder deixa um pass sem render function no grafo, e o
+            // RenderGraph lança exceção por isso. As checagens têm que vir antes.
             if (!outlineData.FilterTextureHandle.IsValid())
                 return;
 
             if (_blitMaterial == null)
                 return;
+
+            using var builder = renderGraph.AddRasterRenderPass<PassData>("OutlinePass_Final", out var passData, new ProfilingSampler("OutlinePass_Final"));
 
             passData.Material = _blitMaterial;
             passData.FilterTextureHandle = outlineData.FilterTextureHandle;
