@@ -6,19 +6,17 @@ public class KeyItem : MonoBehaviour, IInteractable
 
     public string Prompt => prompt;
 
-    public void Interact()
-    {
-        // Procura o inventário do jogador na cena
-        PlayerInventory playerInventory = FindFirstObjectByType<PlayerInventory>();
+    public string ErrorMessage => null; // Não há erro possível ao pegar a chave
 
-        if (playerInventory != null)
-        {
-            playerInventory.AddKey(1);
-            Destroy(gameObject);
-        }
-        else
-        {
-            Debug.LogWarning("PlayerInventory não foi encontrado na cena!");
-        }
+
+    public InteractionResult Interact(InteractionController interactor)
+    {
+        if (interactor.Inventory == null)
+            return InteractionResult.Fail("Sem inventário");
+
+        interactor.Inventory.AddKey(1);
+        Destroy(gameObject);
+
+        return InteractionResult.Success;
     }
 }

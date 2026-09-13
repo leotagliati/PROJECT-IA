@@ -1,59 +1,72 @@
+using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Porta que abre quando não sobra nenhum <see cref="DoorLock"/> fechado. Os cadeados são
+/// quem lida com chave e inventário; a porta só os conta, via evento, e recusa a interação
+/// enquanto houver algum. A lista é a única fonte de verdade — não há contador separado.
+/// </summary>
 public class LockedDoor : MonoBehaviour, IInteractable
 {
-    [SerializeField] private int requiredKeys = 3;
+    [Tooltip("Cadeados desta porta. Vazio = porta destrancada.")]
+    [SerializeField] private List<DoorLock> locks = new List<DoorLock>();
 
     [Header("Prompt")]
     [SerializeField] private string openPrompt = "Abrir porta";
 
-    [Tooltip("{0} vira o número de chaves necessárias.")]
-    [SerializeField] private string lockedPromptFormat = "Trancada — precisa de {0} chaves";
+    [Tooltip("Mensagem ao tentar abrir com cadeado. {0} = cadeados restantes.")]
+    [SerializeField] private string lockedMessageFormat = "Ainda há {0} cadeado(s)";
 
-    private PlayerInventory cachedPlayerInventory;
+    private bool isOpen;
 
-    // Montada uma vez: o Prompt é lido todo frame enquanto a porta está na mira, e
-    // string.Format ali alocaria a cada leitura.
-    private string lockedPrompt;
+    public int RemainingLocks => locks.Count;
 
-    /// <summary>Muda com o inventário, então a UI relê enquanto a porta está na mira.</summary>
-    public string Prompt => HasEnoughKeys() ? openPrompt : lockedPrompt;
+    public bool IsUnlocked => locks.Count == 0;
+
+    // O prompt é sempre o verbo ("Abrir porta"); o porquê de não dar vai no ErrorMessage.
+    public string Prompt => isOpen ? null : openPrompt;
+
+    public string ErrorMessage => IsUnlocked ? null : string.Format(lockedMessageFormat, locks.Count);
 
     void Awake()
     {
-        cachedPlayerInventory = FindFirstObjectByType<PlayerInventory>();
-        lockedPrompt = string.Format(lockedPromptFormat, requiredKeys);
+        // Slot vazio no Inspector e cadeado já aberto na cena não contam como tranca.
+        locks.RemoveAll(l => l == null || l.IsUnlocked);
     }
 
-    public void Interact()
+    void OnEnable()
     {
-        if (!ResolveInventory()) return;
-
-        if (cachedPlayerInventory.TryUseKey(requiredKeys))
-        {
-            OpenDoor();
-        }
-        else
-        {
-            Debug.Log($"Not enough keys! You need {requiredKeys} keys!");
-        }
+        foreach (DoorLock doorLock in locks)
+            doorLock.Unlocked += HandleLockUnlocked;
     }
 
-    private bool HasEnoughKeys()
+    void OnDisable()
     {
-        return ResolveInventory() && cachedPlayerInventory.KeyCount >= requiredKeys;
+        foreach (DoorLock doorLock in locks)
+            doorLock.Unlocked -= HandleLockUnlocked;
     }
 
-    private bool ResolveInventory()
+    public InteractionResult Interact(InteractionController interactor)
     {
-        if (cachedPlayerInventory == null)
-            cachedPlayerInventory = FindFirstObjectByType<PlayerInventory>();
+        if (isOpen)
+            return InteractionResult.Success;
 
-        return cachedPlayerInventory != null;
+        if (!IsUnlocked)
+            return InteractionResult.Fail(ErrorMessage);
+
+        OpenDoor();
+        return InteractionResult.Success;
+    }
+
+    private void HandleLockUnlocked(DoorLock doorLock)
+    {
+        doorLock.Unlocked -= HandleLockUnlocked;
+        locks.Remove(doorLock);
     }
 
     private void OpenDoor()
     {
-        Debug.Log($"Door opened succesfully!");
+        isOpen = true;
+        Debug.Log("Door opened succesfully!");
     }
 }

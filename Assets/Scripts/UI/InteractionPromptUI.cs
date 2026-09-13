@@ -3,15 +3,15 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Texto embaixo da mira com a ação disponível: "[LMB] Pegar chave".
+/// Texto embaixo da mira com a ação disponível ("[LMB] Destrancar cadeado") e, quando a
+/// ação é recusada, o motivo no lugar dela por alguns instantes ("Requer uma chave").
 ///
-/// É só view. Quem decide o alvo é o InteractionController (assinado via TargetChanged), quem
-/// descreve a ação é o próprio IInteractable (Prompt), e a tecla vem do binding atual do
+/// É só view. Quem decide o alvo é o InteractionController (TargetChanged), quem descreve a
+/// ação e o motivo da falha é o próprio IInteractable, e a tecla vem do binding atual do
 /// Input System — trocar o botão no .inputactions troca o texto sem tocar aqui.
 ///
-/// O Prompt é relido todo frame enquanto há alvo porque ele pode mudar sem o alvo trocar
-/// (a porta destranca quando o inventário enche). A comparação é de string; a montagem do
-/// texto final só acontece quando o prompt de fato muda.
+/// O Prompt é relido todo frame enquanto há alvo porque ele pode mudar sem o alvo trocar.
+/// A comparação é de string; a montagem do texto final só acontece quando o prompt muda.
 /// </summary>
 [RequireComponent(typeof(CanvasGroup))]
 public class InteractionPromptUI : MonoBehaviour
@@ -22,12 +22,18 @@ public class InteractionPromptUI : MonoBehaviour
 
     [SerializeField] private TMP_Text label;
 
-    [Header("Texto")]
+    [Header("Prompt")]
     [Tooltip("{0} = tecla, {1} = ação.")]
     [SerializeField] private string format = "[{0}] {1}";
 
     [Tooltip("Grupo de binding usado para descobrir a tecla (nome do control scheme no .inputactions).")]
     [SerializeField] private string bindingGroup = "Keyboard&Mouse";
+
+    [Header("Falha")]
+    [Tooltip("Por quanto tempo o motivo da falha substitui o prompt.")]
+    [SerializeField] private float failureDuration = 1.5f;
+
+    [SerializeField] private Color failureColor = new Color(1f, 0.45f, 0.4f);
 
     [Header("Fade")]
     [SerializeField] private float fadeTime = 0.08f;
@@ -37,6 +43,8 @@ public class InteractionPromptUI : MonoBehaviour
     private string keyLabel;
     private string shownPrompt;
     private float fadeVelocity;
+    private float failureUntil;
+    private bool showingFailure;
 
     private void Awake()
     {
@@ -53,6 +61,7 @@ public class InteractionPromptUI : MonoBehaviour
         {
             Debug.LogError($"{nameof(InteractionPromptUI)}: controller ou label não encontrados.", this);
             enabled = false;
+            return;
         }
     }
 
@@ -63,12 +72,16 @@ public class InteractionPromptUI : MonoBehaviour
             .GetBindingDisplayString(InputBinding.MaskByGroup(bindingGroup));
 
         controller.TargetChanged += HandleTargetChanged;
+        controller.InteractionFailed += HandleInteractionFailed;
         HandleTargetChanged(controller.CurrentInteractable);
     }
 
     private void OnDisable()
     {
         controller.TargetChanged -= HandleTargetChanged;
+        controller.InteractionFailed -= HandleInteractionFailed;
+
+        EndFailure();
         HandleTargetChanged(null);
         group.alpha = 0f;
     }
@@ -79,13 +92,27 @@ public class InteractionPromptUI : MonoBehaviour
         RefreshPrompt();
     }
 
+    private void HandleInteractionFailed(string message)
+    {
+        if (string.IsNullOrEmpty(message))
+            return;
+
+        showingFailure = true;
+        failureUntil = Time.time + failureDuration;
+
+        label.text = message;
+    }
+
     private void Update()
     {
+        if (showingFailure && Time.time >= failureUntil)
+            EndFailure();
+
         if (target != null)
             RefreshPrompt();
 
-        float targetAlpha = string.IsNullOrEmpty(shownPrompt) ? 0f : 1f;
-        group.alpha = Mathf.SmoothDamp(group.alpha, targetAlpha, ref fadeVelocity, fadeTime);
+        bool visible = showingFailure || !string.IsNullOrEmpty(shownPrompt);
+        group.alpha = Mathf.SmoothDamp(group.alpha, visible ? 1f : 0f, ref fadeVelocity, fadeTime);
     }
 
     private void RefreshPrompt()
@@ -97,7 +124,23 @@ public class InteractionPromptUI : MonoBehaviour
 
         shownPrompt = prompt;
 
-        if (!string.IsNullOrEmpty(prompt))
-            label.text = string.Format(format, keyLabel, prompt);
+        if (!showingFailure)
+            ApplyPrompt();
+    }
+
+    private void EndFailure()
+    {
+        if (!showingFailure)
+            return;
+
+        showingFailure = false;
+        ApplyPrompt();
+    }
+
+    private void ApplyPrompt()
+    {
+        // Prompt vazio deixa o texto anterior no lugar: é ele que aparece durante o fade out.
+        if (!string.IsNullOrEmpty(shownPrompt))
+            label.text = string.Format(format, keyLabel, shownPrompt);
     }
 }

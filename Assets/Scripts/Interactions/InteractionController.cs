@@ -20,16 +20,24 @@ public class InteractionController : MonoBehaviour
 
     public IInteractable CurrentInteractable => currentInteractable;
 
-    /// <summary>
-    /// Disparado só quando o alvo na mira troca (null = saiu de todos). Quem mostra prompt
-    /// assina isso em vez de comparar CurrentInteractable todo frame.
-    /// </summary>
     public event Action<IInteractable> TargetChanged;
+
+    public event Action<string> InteractionFailed;
+
+    /// <summary>
+    /// Inventário do jogador dono deste controller. Interagíveis leem daqui em vez de
+    /// procurar na cena — em multiplayer local ou teste com dois players, é o do jogador
+    /// certo. Pode ser null: nem toda cena de teste tem inventário.
+    /// </summary>
+    public PlayerInventory Inventory { get; private set; }
 
     void Awake()
     {
         cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
+
+        // O controller mora na câmera e o inventário na raiz do player: sobe a hierarquia.
+        Inventory = GetComponentInParent<PlayerInventory>();
 
         if (blockingMask.value == 0)
             blockingMask = LayerMask.GetMask("Wall");
@@ -113,7 +121,13 @@ public class InteractionController : MonoBehaviour
 
     private void OnInteractPerformed(InputAction.CallbackContext ctx)
     {
-        currentInteractable?.Interact();
+        if (currentInteractable == null)
+            return;
+
+        InteractionResult result = currentInteractable.Interact(this);
+
+        if (!result.Succeeded)
+            InteractionFailed?.Invoke(result.Message);
     }
 
     private sealed class HitDistanceComparer : IComparer<RaycastHit>
