@@ -27,7 +27,7 @@ MonoBehaviour:
     MaxDistance: 10
   - Id: lockedDoor
     Clips:
-    - {fileID: 8300000, guid: 7d71ed67ce7d3fc45b1ae8666ba9b463, type: 3}
+    - {fileID: 8300000, guid: 46450872b468ca345be853e095664d0c, type: 3}
     Volume: 0.208
     PitchJitter: 0.222
     MaxDistance: 5
