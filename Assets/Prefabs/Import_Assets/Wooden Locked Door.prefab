@@ -58,7 +58,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: -14.924512, y: 1.0522664, z: -4.3090744}
-  m_LocalScale: {x: 2.5, y: 2.5, z: 2.5}
+  m_LocalScale: {x: 3, y: 3, z: 3}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 5342771716857835973}
@@ -282,6 +282,7 @@ MonoBehaviour:
   - {fileID: 3095400261236778172}
   openPrompt: Abrir porta
   lockedMessageFormat: Trancado
+  lockedSoundId: lockedDoor
 --- !u!1 &6513396311130550019
 GameObject:
   m_ObjectHideFlags: 0
@@ -507,6 +508,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar
   noKeyMessage: Requer chave azul
+  openSoundId: padlock_open
 --- !u!1001 &6899603565416695673
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -641,6 +643,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave verde
+  openSoundId: padlock_open
 --- !u!4 &6362154290191212690 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 2f32d0c7b47b79042aa2ce6067fac58e, type: 3}
@@ -785,3 +788,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave vermelha
+  openSoundId: padlock_open
