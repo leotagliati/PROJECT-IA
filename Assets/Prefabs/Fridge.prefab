@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 2583738654996409540}
   - component: {fileID: 1849007419086088893}
   - component: {fileID: 8021258877326974634}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: fridge_close
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -120,7 +120,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8115750438485814219}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Fridge
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -156,7 +156,7 @@ GameObject:
   - component: {fileID: 839331722264677572}
   - component: {fileID: 4894906657284629882}
   - component: {fileID: 2575240231727772966}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: fridge_door
   m_TagString: Untagged
   m_Icon: {fileID: 0}

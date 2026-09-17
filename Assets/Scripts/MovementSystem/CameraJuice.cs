@@ -6,6 +6,9 @@ public class CameraJuice : MonoBehaviour
     [Header("Referências")]
     [SerializeField] private Camera targetCamera;
 
+    [Tooltip("Opcional. Quando presente e ativo, a base da câmera vem do pescoço do modelo em vez da posição fixa do prefab.")]
+    [SerializeField] private SpineLook spineLook;
+
     [Header("Head bob")]
     [SerializeField] private float walkBobAmount = 0.035f;
     [SerializeField] private float runBobAmount = 0.06f;
@@ -55,6 +58,9 @@ public class CameraJuice : MonoBehaviour
 
         if (targetCamera == null)
             targetCamera = GetComponentInChildren<Camera>();
+
+        if (spineLook == null)
+            spineLook = GetComponent<SpineLook>();
     }
 
     private void OnEnable()
@@ -108,7 +114,14 @@ public class CameraJuice : MonoBehaviour
         // transição da cápsula), então a câmera acompanha a altura do corpo sem defasar.
         float crouchDrop = crouchCameraDrop * movement.CrouchAmount;
 
-        cameraTransform.localPosition = baseLocalPosition + new Vector3(bobX, bobY + dipOffset - crouchDrop, 0f);
+        // Com SpineLook, a base é o pescoço do modelo (já escrita neste frame, ele roda
+        // antes); sem ele, a posição fixa do prefab. Reatribuir inteiro, e não somar, é o
+        // que impede bob/dip de acumular frame a frame.
+        Vector3 basePosition = spineLook != null && spineLook.isActiveAndEnabled
+            ? spineLook.AnchorLocalPosition
+            : baseLocalPosition;
+
+        cameraTransform.localPosition = basePosition + new Vector3(bobX, bobY + dipOffset - crouchDrop, 0f);
 
         cameraTransform.localRotation *= Quaternion.Euler(0f, 0f, currentTilt);
     }

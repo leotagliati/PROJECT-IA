@@ -1,83 +1,137 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class InteractionController : MonoBehaviour
 {
     [SerializeField] private float raycastDistance = 10f;
-    [SerializeField] private string outlineLayerName = "Outline";
 
-    private int outlineLayer;
+    [SerializeField] private LayerMask blockingMask;
+
+    [SerializeField] private QueryTriggerInteraction triggerInteraction = QueryTriggerInteraction.Ignore;
+
+    private readonly RaycastHit[] hits = new RaycastHit[16];
+    private static readonly IComparer<RaycastHit> byDistance = new HitDistanceComparer();
+
     private Camera cam;
-    private InputSystem_Actions playerInput;
-
-    // Estados separados: visual vs funcionalidade
     private HighlightTarget currentHighlightTarget;
     private IInteractable currentInteractable;
+
+    public IInteractable CurrentInteractable => currentInteractable;
+
+    public event Action<IInteractable> TargetChanged;
+
+    public event Action<string> InteractionFailed;
+
+    /// <summary>
+    /// Inventário do jogador dono deste controller. Interagíveis leem daqui em vez de
+    /// procurar na cena — em multiplayer local ou teste com dois players, é o do jogador
+    /// certo. Pode ser null: nem toda cena de teste tem inventário.
+    /// </summary>
+    public PlayerInventory Inventory { get; private set; }
 
     void Awake()
     {
         cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
 
-        playerInput = new InputSystem_Actions();
-        playerInput.Player.Interact.performed += ctx => OnInteractPressed();
+        // O controller mora na câmera e o inventário na raiz do player: sobe a hierarquia.
+        Inventory = GetComponentInParent<PlayerInventory>();
+
+        if (blockingMask.value == 0)
+            blockingMask = LayerMask.GetMask("Wall");
     }
 
-    void OnEnable() => playerInput.Player.Enable();
-    void OnDisable() => playerInput.Player.Disable();
-
-    void Start()
+    void Reset()
     {
-        outlineLayer = LayerMask.NameToLayer(outlineLayerName);
+        blockingMask = LayerMask.GetMask("Wall");
+    }
+
+    void OnEnable()
+    {
+        PlayerInputProvider.Acquire();
+        PlayerInputProvider.Player.Interact.performed += OnInteractPerformed;
+    }
+
+    void OnDisable()
+    {
+        PlayerInputProvider.Player.Interact.performed -= OnInteractPerformed;
+        PlayerInputProvider.Release();
+        SetHighlightTarget(null);
+        SetInteractable(null);
     }
 
     void Update()
     {
-        PerformRaycast();
-    }
+        Ray ray = new Ray(cam.transform.position, cam.transform.forward);
 
-    void PerformRaycast()
-    {
-        Ray ray = cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+        HighlightTarget highlight = null;
+        IInteractable interactable = null;
 
-        if (Physics.Raycast(ray, out RaycastHit hit, raycastDistance))
+        int count = Physics.RaycastNonAlloc(ray, hits, raycastDistance, ~0, triggerInteraction);
+        System.Array.Sort(hits, 0, count, byDistance);
+
+        for (int i = 0; i < count; i++)
         {
-            // Lógica da interação
-            currentInteractable = hit.collider.GetComponentInParent<IInteractable>();
+            Collider col = hits[i].collider;
 
-            // Lógica do contorno
-            if (hit.collider.TryGetComponent(out HighlightTarget target) && target.CanHighlight())
-            {
-                if (currentHighlightTarget != target)
-                {
-                    ClearHighlight();
-                    target.gameObject.layer = outlineLayer;
-                    currentHighlightTarget = target;
-                }
-                return;
-            }
-        }
-        else
-        {
-            currentInteractable = null;
+            interactable = col.GetComponentInParent<IInteractable>();
+            highlight = col.GetComponentInParent<HighlightTarget>();
+
+            if (highlight != null && !highlight.CanHighlight())
+                highlight = null;
+
+            if (interactable != null || highlight != null)
+                break;
+
+            if ((blockingMask.value & (1 << col.gameObject.layer)) != 0)
+                break;
         }
 
-        ClearHighlight();
+        SetInteractable(interactable);
+        SetHighlightTarget(highlight);
     }
 
-    void ClearHighlight()
+    private void SetInteractable(IInteractable target)
     {
+        // ReferenceEquals, e não ==: o alvo é interface, e o == sobrecarregado do
+        // UnityEngine.Object não entra por esse tipo. Objeto destruído enquanto está na mira
+        // vira um raycast que já não o acha, então a troca para null acontece naturalmente.
+        if (ReferenceEquals(currentInteractable, target))
+            return;
+
+        currentInteractable = target;
+        TargetChanged?.Invoke(target);
+    }
+
+    private void SetHighlightTarget(HighlightTarget target)
+    {
+        if (currentHighlightTarget == target)
+            return;
+
         if (currentHighlightTarget != null)
-        {
-            currentHighlightTarget.gameObject.layer = currentHighlightTarget.originalLayer;
-            currentHighlightTarget = null;
-        }
+            currentHighlightTarget.SetHighlighted(false);
+
+        currentHighlightTarget = target;
+
+        if (currentHighlightTarget != null)
+            currentHighlightTarget.SetHighlighted(true);
     }
 
-    private void OnInteractPressed()
+    private void OnInteractPerformed(InputAction.CallbackContext ctx)
     {
-        if (currentInteractable != null)
-        {
-            currentInteractable.Interact();
-        }
+        if (currentInteractable == null)
+            return;
+
+        InteractionResult result = currentInteractable.Interact(this);
+
+        if (!result.Succeeded)
+            InteractionFailed?.Invoke(result.Message);
+    }
+
+    private sealed class HitDistanceComparer : IComparer<RaycastHit>
+    {
+        public int Compare(RaycastHit a, RaycastHit b) => a.distance.CompareTo(b.distance);
     }
 }

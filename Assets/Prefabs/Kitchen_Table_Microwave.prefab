@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 4980835354409406343}
   - component: {fileID: 6955018171396952551}
   - component: {fileID: 5114901951002991830}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Kitchen_Table_Microwave
   m_TagString: Untagged
   m_Icon: {fileID: 0}

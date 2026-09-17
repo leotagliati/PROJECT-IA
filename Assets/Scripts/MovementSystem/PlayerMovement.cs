@@ -43,6 +43,10 @@ public class PlayerMovement : MonoBehaviour
     [Header("Animation")]
     [SerializeField] private Animator animator;
 
+    [Tooltip("Suavização do parâmetro moveSpeed do blend tree, em segundos. Sem isso o blend " +
+             "salta de idle para corrida em um frame e a mistura de poses fica visível.")]
+    [SerializeField] private float animBlendDampTime = 0.1f;
+
     [Header("Footsteps")]
     [SerializeField] private string footstepSoundId = "footstep";
 
@@ -57,8 +61,11 @@ public class PlayerMovement : MonoBehaviour
 
     [SerializeField] private float footstepHeightOffset = 0f;
 
-    private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
-    private static readonly int IsRunningHash = Animator.StringToHash("isRunning");
+    // Blend tree 1D: 0 = idle, 1 = walk, 2 = run. Os thresholds vivem no PlayerAC.controller.
+    private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
+    private const float AnimIdle = 0f;
+    private const float AnimWalk = 1f;
+    private const float AnimRun = 2f;
 
     private Vector2 moveInput;
     private bool sprintHeld;
@@ -116,21 +123,12 @@ public class PlayerMovement : MonoBehaviour
     private void OnEnable()
     {
         PlayerInputProvider.Acquire();
-
-        // O asset de input é compartilhado e vive além desta instância, então a inscrição
-        // sai no OnDisable — um lambda no Awake continuaria chamando Jump() de um player
-        // já destruído depois de trocar de cena.
-        PlayerInputProvider.Player.Jump.performed += OnJumpPerformed;
     }
 
     private void OnDisable()
     {
-        PlayerInputProvider.Player.Jump.performed -= OnJumpPerformed;
-
         PlayerInputProvider.Release();
     }
-
-    private void OnJumpPerformed(InputAction.CallbackContext context) => Jump();
 
     private void Update()
     {
@@ -147,8 +145,6 @@ public class PlayerMovement : MonoBehaviour
 
         moveInput = PlayerInputProvider.Player.Move.ReadValue<Vector2>();
 
-        // Antes do sprint: agachar tem prioridade e cancela a corrida no mesmo frame,
-        // senão o estado oscilaria entre Running e CrouchWalking com Shift+Ctrl juntos.
         UpdateCrouch();
 
         sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed() && !isCrouching;
@@ -162,6 +158,7 @@ public class PlayerMovement : MonoBehaviour
         controller.Move(velocity * Time.deltaTime);
 
         UpdateFootsteps();
+        UpdateAnimator();
     }
 
     private void UpdateCrouch()
@@ -177,8 +174,6 @@ public class PlayerMovement : MonoBehaviour
 
         crouchAmount = Mathf.SmoothDamp(crouchAmount, target, ref crouchVelocity, crouchTransitionTime);
 
-        // SmoothDamp chega perto mas nunca no valor exato: encosta e para, senão a
-        // cápsula ficaria sendo reescrita todo frame por causa de um resto de 0.001.
         if (Mathf.Abs(crouchAmount - target) < 0.001f)
         {
             crouchAmount = target;
@@ -250,7 +245,6 @@ public class PlayerMovement : MonoBehaviour
         CurrentState = next;
 
         OnStateExit(previous);
-        OnStateEnter(next);
 
         StateChanged?.Invoke(next);
     }
@@ -266,32 +260,40 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void OnStateEnter(PlayerState state)
-    {
-        if (animator == null)
-            return;
+    // ----------------------------------------------------------------- animação
 
-        switch (state)
+    /// <summary>Valor alvo de moveSpeed no blend tree para o estado atual.</summary>
+    private float GetAnimMoveSpeed()
+    {
+        switch (CurrentState)
         {
             // Sem clipe de agachado no controller ainda, então CrouchWalking reaproveita a
             // caminhada e Crouching, a parada. Quando existir a animação, é aqui que entra.
             case PlayerState.Walking:
             case PlayerState.CrouchWalking:
-                animator.SetBool(IsWalkingHash, true);
-                animator.SetBool(IsRunningHash, false);
-                break;
+                return AnimWalk;
 
             case PlayerState.Running:
-                animator.SetBool(IsWalkingHash, false);
-                animator.SetBool(IsRunningHash, true);
-                break;
+                return AnimRun;
 
-            case PlayerState.Idle:
-            case PlayerState.Crouching:
-                animator.SetBool(IsWalkingHash, false);
-                animator.SetBool(IsRunningHash, false);
-                break;
+            // No ar mantém o valor que já estava: não há clipe de pulo, e cair para idle
+            // faria o personagem "congelar" no meio do passo enquanto ainda se desloca.
+            case PlayerState.Jumping:
+                return animator.GetFloat(MoveSpeedHash);
+
+            default:
+                return AnimIdle;
         }
+    }
+
+    private void UpdateAnimator()
+    {
+        if (animator == null)
+            return;
+
+        // Todo frame, e não só na troca de estado: o SetFloat com damp só converge ao alvo
+        // se for chamado continuamente com deltaTime.
+        animator.SetFloat(MoveSpeedHash, GetAnimMoveSpeed(), animBlendDampTime, Time.deltaTime);
     }
 
     /// <summary>Velocidade horizontal do estado atual.</summary>
@@ -366,17 +368,6 @@ public class PlayerMovement : MonoBehaviour
         if (string.IsNullOrEmpty(soundId))
             return;
 
-        // PlayAt e não PlayFollowing: o passo fica onde o pé bateu, não anda junto com o player.
-        AudioSystem.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
-    }
-
-    private void Jump()
-    {
-        // Agachado não pula: sair da cápsula baixa no meio do salto abriria a chance de
-        // atravessar o teto que obrigou a agachar.
-        if (isGrounded && !isCrouching)
-        {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
+        AudioProvider.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
     }
 }

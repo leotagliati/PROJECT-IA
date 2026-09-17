@@ -1,35 +1,82 @@
+using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Porta que abre quando não sobra nenhum <see cref="DoorLock"/> fechado. Os cadeados são
+/// quem lida com chave e inventário; a porta só os conta, via evento, e recusa a interação
+/// enquanto houver algum. A lista é a única fonte de verdade — não há contador separado.
+/// </summary>
 public class LockedDoor : MonoBehaviour, IInteractable
 {
-    [SerializeField] private int requiredKeys = 3;
+    [Tooltip("Cadeados desta porta. Vazio = porta destrancada.")]
+    [SerializeField] private List<DoorLock> locks = new List<DoorLock>();
 
-    private PlayerInventory cachedPlayerInventory;
+    [Header("Prompt")]
+    [SerializeField] private string openPrompt = "Abrir porta";
+
+    [Tooltip("Mensagem ao tentar abrir com cadeado. {0} = cadeados restantes.")]
+    [SerializeField] private string lockedMessageFormat = "Ainda há {0} cadeado(s)";
+
+    [Header("Áudio")]
+    [Tooltip("Toca quando o jogador tenta abrir com cadeado. Vazio = sem som.")]
+    [SerializeField] private string lockedSoundId = "lockedDoor";
+
+    private bool isOpen;
+
+    public int RemainingLocks => locks.Count;
+
+    public bool IsUnlocked => locks.Count == 0;
+
+    // O prompt é sempre o verbo ("Abrir porta"); o porquê de não dar vai no ErrorMessage.
+    public string Prompt => isOpen ? null : openPrompt;
+
+    public string ErrorMessage => IsUnlocked ? null : string.Format(lockedMessageFormat, locks.Count);
 
     void Awake()
     {
-        cachedPlayerInventory = FindFirstObjectByType<PlayerInventory>();
+        // Slot vazio no Inspector e cadeado já aberto na cena não contam como tranca.
+        locks.RemoveAll(l => l == null || l.IsUnlocked);
     }
 
-    public void Interact()
+    void OnEnable()
     {
-        if (cachedPlayerInventory == null)
-            cachedPlayerInventory = FindFirstObjectByType<PlayerInventory>();
+        foreach (DoorLock doorLock in locks)
+            doorLock.Unlocked += HandleLockUnlocked;
+    }
 
-        if (cachedPlayerInventory == null) return;
+    void OnDisable()
+    {
+        foreach (DoorLock doorLock in locks)
+            doorLock.Unlocked -= HandleLockUnlocked;
+    }
 
-        if (cachedPlayerInventory.TryUseKey(requiredKeys))
+    public InteractionResult Interact(InteractionController interactor)
+    {
+        if (isOpen)
+            return InteractionResult.Success;
+
+        if (!IsUnlocked)
         {
-            OpenDoor();
+            // A porta chacoalha na tentativa, não ao olhar: é feedback da ação recusada.
+            if (!string.IsNullOrEmpty(lockedSoundId))
+                AudioProvider.PlayAt(lockedSoundId, transform.position);
+
+            return InteractionResult.Fail(ErrorMessage);
         }
-        else
-        {
-            Debug.Log($"Not enough keys! You need {requiredKeys} keys!");
-        }
+
+        OpenDoor();
+        return InteractionResult.Success;
+    }
+
+    private void HandleLockUnlocked(DoorLock doorLock)
+    {
+        doorLock.Unlocked -= HandleLockUnlocked;
+        locks.Remove(doorLock);
     }
 
     private void OpenDoor()
     {
-        Debug.Log($"Door opened succesfully!");
+        isOpen = true;
+        Debug.Log("Door opened succesfully!");
     }
 }

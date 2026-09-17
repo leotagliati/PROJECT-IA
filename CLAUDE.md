@@ -143,16 +143,21 @@ determinístico durante o treino.
   action map só liga quando o primeiro usuário aparece. Ao regerar o `.cs`, não edite o
   arquivo gerado.
 - **Ordem de execução da câmera** — vários componentes escrevem na mesma transform, e a
-  ordem é declarada com `[DefaultExecutionOrder]`: `ShoulderPeek` (50) → `Flashlight` (100)
-  → `AtmosphericParticles` (120), todos depois de `CameraJuice`, que ainda ajusta a câmera
-  no `LateUpdate`. Se um efeito de câmera "some", quase sempre é ordem de execução.
+  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, dobra o `spine.002`
+  com o pitch e **escreve posição e rotação da câmera** a partir do osso `Neck`) →
+  `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
+  `ShoulderPeek` (50) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
+  efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
   `StateChanged`) é a fonte de verdade para "está andando/correndo/pulando". Quem precisa
   reagir (áudio, IA, UI) lê isso em vez de recalcular por conta própria.
-- **Áudio**: `AudioSystem` é um pool fixo de AudioSources 3D com API estática
-  (`AudioSystem.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
-  Clipes são cadastrados no Inspector por id string, com jitter de pitch. Um único objeto
-  na cena.
+- **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
+  (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
+  Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela
+  de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
+  `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
+  `Stop` de handle cujo slot já foi roubado é no-op.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.

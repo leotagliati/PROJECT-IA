@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 8289584476000716553}
   - component: {fileID: 165833009978366061}
   - component: {fileID: 6570304163864305927}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Metal_Cabinet
   m_TagString: Untagged
   m_Icon: {fileID: 0}

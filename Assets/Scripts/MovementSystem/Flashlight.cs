@@ -85,6 +85,10 @@ public class Flashlight : MonoBehaviour
     [SerializeField] private float turnOnSpeed = 14f;
     [SerializeField] private float turnOffSpeed = 22f;
 
+    [Header("Áudio")]
+    [SerializeField] private string turnOnSoundId = "flashlight_on";
+    [SerializeField] private string turnOffSoundId = "flashlight_off";
+
     private Transform cameraTransform;
     private Transform lightTransform;
 
@@ -257,10 +261,18 @@ public class Flashlight : MonoBehaviour
 
     public void SetOn(bool on)
     {
+        // Só a troca de estado clica: SetOn(true) com a lanterna já acesa é no-op, senão
+        // qualquer script que "garante ligada" todo frame viraria metralhadora.
+        if (isOn == on)
+            return;
+
         isOn = on;
 
         if (isOn && spotLight != null)
             spotLight.enabled = true;
+
+        // Segue o player, não a luz: a Light é solta na cena e persegue a câmera com atraso.
+        AudioProvider.PlayFollowing(isOn ? turnOnSoundId : turnOffSoundId, transform);
     }
 
     private void LateUpdate()
