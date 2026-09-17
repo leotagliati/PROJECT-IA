@@ -40,10 +40,10 @@ behaviors:
     summary_freq: 20000
 
 environment_parameters:
-  # ATENCAO: os dois parametros abaixo formam UMA licao conceitual cada, mas o ML-Agents avalia
-  # o curriculo de cada parametro de forma independente. Os completion_criteria dos dois sao
+  # ATENCAO: os tres parametros abaixo formam UMA licao conceitual cada, mas o ML-Agents avalia
+  # o curriculo de cada parametro de forma independente. Os completion_criteria dos tres sao
   # identicos de proposito — e a unica forma de garantir que avancem juntos. Se mexer num
-  # threshold, mexa no outro.
+  # threshold, mexa nos outros dois.
   #
   # POR QUE 'reward' E NAO 'progress' (a licao que o run 05 cobrou caro):
   # com 'progress' o threshold e fracao de max_steps, ou seja, RELOGIO. No run 05 as licoes
@@ -158,3 +158,53 @@ environment_parameters:
         value: 0.4
       - name: MostFadedHint
         value: 0.2
+
+  # DURACAO da dica dentro de cada episodio, em steps de FISICA (lida pelo GraphArenaController).
+  # 0 = o episodio inteiro. Depois do limite a dica vai a ZERO de verdade — observacao, shaping e
+  # gizmo — e o agente termina o episodio sozinho.
+  #
+  # E o segundo eixo da muleta. O frontier_hint acima diz QUANTO confiar na seta; este diz POR
+  # QUANTO TEMPO ela existe. A vantagem de cortar a duracao em vez da forca: a politica ve os dois
+  # regimes (com e sem seta) dentro do MESMO episodio, entao a transicao acontece num estado que
+  # ela ja conhece — no run 05, cortar a forca para 0.0 entre duas licoes tirou a muleta de uma vez
+  # e a recompensa caiu de +15.1 para -3.0.
+  #
+  # Unidade: com _maxEpisodeSteps = 8000 e timestep 0.02, 8000 steps = 160 s de episodio.
+  #   6000 = a seta some nos ultimos 40 s (o agente ja esta longe do spawn, fecha o mapa sozinho)
+  #   4000 = metade do episodio com seta, metade sem
+  #   2000 = so os primeiros 40 s: o bastante para sair da sala inicial e pegar um rumo
+  # As duas primeiras licoes ficam em 0 (sem limite): la o agente ainda esta aprendendo a
+  # NAVEGAR, e tirar a seta antes disso so adicionaria ruido. Os valores sao ponto de partida —
+  # se o Episode Length subir e a recompensa cair na licao em que o limite entra, o corte foi
+  # cedo demais; suba o numero.
+  frontier_hint_steps:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 4.0
+          require_reset: true
+        value: 0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 16.0
+          require_reset: true
+        value: 4000
+      - name: MostShortHint
+        value: 2000

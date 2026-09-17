@@ -162,6 +162,22 @@ namespace Assets.Scripts.Graph
             ? _memory.VisitedBudgetFraction
             : _memory.VisitedFraction;
 
+        // Peso EFETIVO da dica neste step: a força da lição enquanto a dica dura, zero depois.
+        // É o único ponto que combina força e duração — observação, shaping e gizmo leem daqui,
+        // porque os três são a mesma muleta e têm que sumir juntos. _elapsedSteps é em steps de
+        // física, a mesma unidade do limite.
+        private float CurrentFrontierHint
+        {
+            get
+            {
+                int limit = _arenaController.FrontierHintSteps;
+                if (limit > 0 && _elapsedSteps >= limit)
+                    return 0f;
+
+                return _arenaController.FrontierHintScale;
+            }
+        }
+
         public override void Initialize()
         {
             // Checagem explícita, e não ??=: o operador de null-coalescing ignora o "fake null"
@@ -221,6 +237,8 @@ namespace Assets.Scripts.Graph
             _hadFrontierAtLastDecision = _memory.HasFrontier;
             _frontierDistanceAtLastDecision = _memory.FrontierDistance;
             RememberFrontierApproach();
+
+            _memory.FrontierHintVisible = CurrentFrontierHint > 0f;
         }
 
         // A memória é amostrada a cada step de FÍSICA. Com Decision Period > 1 o agente percorre
@@ -261,8 +279,11 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(_memory.CurrentRegionVisitedFraction);
 
             // ---- Fronteira (4) ----
-            float hint = _arenaController.FrontierHintScale;
+            float hint = CurrentFrontierHint;
             bool showFrontier = _memory.HasFrontier && hint > 0f && _memory.FrontierNextStep >= 0;
+
+            // O gizmo acompanha o que a rede recebe: seta no desenho = seta na observação.
+            _memory.FrontierHintVisible = hint > 0f;
 
             AddDirectionAndDistance(
                 sensor,
@@ -457,7 +478,7 @@ namespace Assets.Scripts.Graph
                 approachComparable,
                 _memory.StepsSinceNewNode,
                 _touchingWall,
-                _arenaController.FrontierHintScale);
+                CurrentFrontierHint);
         }
 
         /// <summary>

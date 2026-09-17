@@ -35,7 +35,8 @@ namespace Assets.Scripts.Graph
         //   traço fino        auxiliar (guia), esverdeado se já passou por ele
         //   linha branca      aresta já percorrida (não paga de novo neste episódio)
         //   disco amarelo     nó âncora atual
-        //   esfera magenta    alvo da fronteira, com a linha até o próximo passo
+        //   esfera magenta    alvo da fronteira, com a linha até o próximo passo — só enquanto a
+        //                     dica está sendo entregue ao agente (força > 0 e dentro da duração)
         [SerializeField] private bool _drawGizmos = true;
         [SerializeField] private bool _drawVisitedNodes = true;
         [SerializeField] private bool _drawPendingNodes = true;
@@ -158,6 +159,15 @@ namespace Assets.Scripts.Graph
         public int FrontierNextStep { get; private set; } = -1;
 
         public int FrontierDistance { get; private set; }
+
+        /// <summary>
+        /// Se a dica de fronteira está sendo ENTREGUE ao agente agora (força > 0 e dentro da
+        /// duração da lição). Só o gizmo lê isto: a fronteira continua sendo calculada — é
+        /// estado do episódio e o BFS é barato — mas desenhar a seta quando a rede não a recebe
+        /// faria você calibrar olhando uma dica que o agente não tem. Quem escreve é o manager,
+        /// que é quem conhece força e duração.
+        /// </summary>
+        public bool FrontierHintVisible { get; set; } = true;
 
         public void Configure(NavGraph graph)
         {
@@ -408,7 +418,7 @@ namespace Assets.Scripts.Graph
                     height: 0.12f);
             }
 
-            if (_drawFrontier && HasFrontier)
+            if (_drawFrontier && HasFrontier && FrontierHintVisible)
             {
                 Gizmos.color = Color.magenta;
                 Gizmos.DrawWireSphere(_graph.NodePosition(FrontierTarget), 0.45f);
