@@ -26,6 +26,8 @@ namespace Assets.Scripts.Seeker
 
         public bool IsSeeingHider => _isSeeingHider;
 
+        public bool VisionEnabled { get; set; } = true;
+
         public bool HasSeenHider => _hasSeenHider;
 
         public Vector3 LastKnownHiderPosition => _lastKnownHiderPosition;
@@ -92,6 +94,8 @@ namespace Assets.Scripts.Seeker
         private void ScanForHider()
         {
             _isSeeingHider = false;
+            if (!VisionEnabled)
+                return;
 
             Vector3 origin = transform.position + Vector3.up * _originHeightOffset;
             float bestDistance = float.MaxValue;
