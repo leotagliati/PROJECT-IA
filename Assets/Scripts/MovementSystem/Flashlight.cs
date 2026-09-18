@@ -119,6 +119,8 @@ public class Flashlight : MonoBehaviour
     /// <summary>Estado atual da lanterna. Áudio e IA podem olhar isso.</summary>
     public bool IsOn => isOn;
 
+    public bool InputLocked { get; set; }
+
     private void Awake()
     {
         if (targetCamera == null)
@@ -253,7 +255,7 @@ public class Flashlight : MonoBehaviour
 
     private void Update()
     {
-        if (PlayerInputProvider.Player.Flashlight.WasPressedThisFrame())
+        if (!InputLocked && PlayerInputProvider.Player.Flashlight.WasPressedThisFrame())
             Toggle();
     }
 

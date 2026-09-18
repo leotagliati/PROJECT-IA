@@ -76,6 +76,12 @@ public class SeekerManager : Agent
         if (_animationSystem == null)
             _animationSystem = GetComponentInChildren<SeekerAnimationSystem>();
 
+        // O sistema de animação não tem Awake de propósito: ele precisa saber se há comunicador
+        // Python conectado, e isso só é confiável depois que a Academy subiu — ou seja, aqui.
+        // Sem esta chamada ele fica inativo e todo Tick vira no-op, sem aviso nenhum.
+        if (_animationSystem != null)
+            _animationSystem.Initialize();
+
         // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
         // usar coordenadas de mundo faria as arenas compartilharem células.
         if (_explorationMemory != null && _arenaController != null)
@@ -107,7 +113,11 @@ public class SeekerManager : Agent
         _perceptionSystem.VisionEnabled = _hunting;
 
         if (state == GameState.Won || state == GameState.Lost)
+        {
             _episodeEnding = true;
+            if (_animationSystem != null)
+                _animationSystem.Tick(Vector3.zero, false);
+        }
     }
 
     public override void OnEpisodeBegin()
