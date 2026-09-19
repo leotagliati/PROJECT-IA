@@ -36,7 +36,6 @@ public class SeekerManager : Agent
     [SerializeField] private SeekerStaticVisual _staticVisual;
 
     [Header("-----Settings-----")]
-    [Tooltip("Game: sem fim de episódio; caça só em GameState.Playing e encostar no Goal avisa o GameManager.")]
     [SerializeField] private SeekerMode _mode = SeekerMode.Training;
     [SerializeField] private int _maxEpisodeSteps = 5000;
     [SerializeField] private float _maxHiderDistance = 20f;
@@ -79,17 +78,12 @@ public class SeekerManager : Agent
         if (_animationSystem == null)
             _animationSystem = GetComponentInChildren<SeekerAnimationSystem>();
 
-        // O sistema de animação não tem Awake de propósito: ele precisa saber se há comunicador
-        // Python conectado, e isso só é confiável depois que a Academy subiu — ou seja, aqui.
-        // Sem esta chamada ele fica inativo e todo Tick vira no-op, sem aviso nenhum.
         if (_animationSystem != null)
             _animationSystem.Initialize();
 
-        // O estado de perseguição vem antes dos consumidores: áudio e visual leem o Blend dele.
         if (_chaseState == null)
             _chaseState = GetComponentInChildren<SeekerChaseState>();
 
-        // Mesmo motivo da animação: só depois da Academy dá para saber se é treino e ficar mudo.
         if (_audioSystem == null)
             _audioSystem = GetComponentInChildren<SeekerAudioSystem>();
 

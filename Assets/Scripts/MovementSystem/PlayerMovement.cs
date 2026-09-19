@@ -128,10 +128,7 @@ public class PlayerMovement : MonoBehaviour
     private void OnDisable()
     {
         PlayerInputProvider.Release();
-
-        // Sem o Update, o SetFloat com damp para de convergir e o blend tree congela no último
-        // valor — o corpo fica correndo no lugar enquanto o player está travado (ex.: pego pelo
-        // seeker). Zera sem damp porque não vai haver frame seguinte para terminar a transição.
+        
         if (animator != null)
             animator.SetFloat(MoveSpeedHash, AnimIdle);
     }

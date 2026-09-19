@@ -30,5 +30,11 @@ namespace Assets.Scripts.Seeker
             float speed = 1f / (chasing ? _fadeIn : _fadeOut);
             _blend = Mathf.MoveTowards(_blend, chasing ? 1f : 0f, Time.deltaTime * speed);
         }
+
+        public void ResetEpisode()
+        {
+            _lastSeenTime = float.NegativeInfinity;
+            _blend = 0f;
+        }
     }
 }
