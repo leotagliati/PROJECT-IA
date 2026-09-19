@@ -24,8 +24,8 @@ Existem dois agentes aqui:
    mão nas salas e corredores, como um mapa de metrô. Cada sala tem um "valor" de exploração. O agente ganha
    pontos ao chegar em pontos novos, entrar em salas novas e terminar de ver uma sala; perde pontos por encostar
    em paredes, ficar parado ou demorar. Um "currículo" torna a tarefa gradualmente mais difícil: no começo ele
-   precisa cobrir 30% do mapa e recebe uma seta apontando o lugar não visitado mais próximo; no fim precisa
-   cobrir 90% e a seta quase some.
+   precisa cobrir 30% do mapa e recebe uma seta apontando um lugar não visitado próximo; no fim precisa
+   cobrir 90% sem seta nenhuma, e o valor de cada ponto muda um pouco a cada tentativa.
 
 O que está em cada lugar: o código C# dos agentes fica em `Assets/Scripts/`, as cenas de treino em
 `Assets/Scenes/Arthur/`, as regras de treino (hiperparâmetros e currículo) em `config/`, e os cérebros treinados
@@ -127,7 +127,8 @@ nomes de menus são em **português** — mantenha assim.
 ```
 Assets/
   Scripts/
-    Graph/          GraphExplorer: NavGraph, NavNode, GraphExplorerManager,
+    Graph/          GraphExplorer: NavGraph, NavNode, GraphExplorerManager, GraphPingSystem, GraphHider,
+                    GraphHiderPerception,
                     GraphExplorationMemory, GraphRewardSystem, GraphStepContext, GraphArenaController, GraphGizmos
     Seeker/         Seeker: SeekerManager, SeekerPerceptionSystem, SeekerExplorationMemory, SeekerRewardSystem,
                     SeekerStepContext, SeekerArenaController, SeekerMovementSystem (reusado pelo GraphExplorer)
@@ -180,22 +181,37 @@ Regras derivadas disso:
 - **NavGraph** — um por arena. Bake idempotente (`EnsureBaked`), adjacência, BFS de fronteira (não-visitado mais
   próximo), validação de ligações contra a layer `Wall` com SphereCast (`_linkClearance` = metade da largura do
   agente). Menus de contexto: **Coletar nós filhos**, **Auto-ligar por linha de visão**, **Validar ligações**.
-- **Observações (61 floats)** = 21 globais + 8 slots de vizinho × 5. Layout documentado em
-  `GraphExplorerManager.cs` (cabeçalho). Blocos [13..20] são **reservados** (emitem zero) para a futura branch de
-  busca/visão — existem para não invalidar os `.onnx` quando ela entrar. Vizinhos ordenados por ângulo no mundo
-  (ordem estável = slot com significado geométrico).
+- **Observações (69 floats)** = 21 globais + 8 slots de vizinho × 6 (direção, distância, visitado, **peso** do
+  vizinho relativo ao nó mais valioso do episódio, válido). Layout documentado em
+  `GraphExplorerManager.cs` (cabeçalho). Bloco [13..15] = **ping** (ativo, distância em arestas, quente/frio);
+  [16..20] = **visão** (vendo, já viu, direção + distância à última posição vista). Vizinhos ordenados por ângulo
+  no mundo (ordem estável = slot com significado geométrico).
+- **Visão** (`GraphHiderPerception`, um por agente): cone `_viewAngle` 100° / `_viewDistance` 15 m + raycast contra
+  `Wall` (só parede bloqueia). Paga `_hiderSpottedReward` 0.5 ao avistar (cooldown `_respotCooldownSteps` 250) e
+  `_hiderApproachReward` 0.05/m enquanto vê (só comparável se via nas duas decisões). Sempre ligada. Sem captura.
+- **Ping** (`GraphPingSystem`, um por agente): a cada `ping_interval` steps de física (×U[0.5,1.5]) um primário
+  aleatório a ≥ 2 arestas "toca" por 3000 steps; o agente vê ativo/distância/quente-frio, **sem direção**, e é
+  pago por aresta de aproximação (0.1), chegada (+2) e expiração (−0.5). Não escala com a lição (é objetivo, não
+  muleta). Farol rosa no gizmo. Distância via `NavGraph.TryFindPathTo`.
+- **Hider** (`GraphHider`, um por arena, **scriptado** — só o seeker treina): anda de nó em nó pelo grafo; ao
+  chegar num primário deixa `PendingArrival`, que o `GraphPingSystem` consome e transforma em ping (o rastro).
+  Com hider ligado o ping aleatório fica desligado. `hider_mode` no currículo: 0 nenhum / 1 parado / 2 anda /
+  3 foge (maximiza distância em arestas ao seeker quando ele chega a `_fleeRadius`). Nasce ≥ 6 arestas do seeker.
+  O seeker nunca recebe a posição dele. Não use o `HiderAgent.cs` antigo com o grafo (anda em cardinais, sem nós).
 - **Ações**: 2 contínuas (X, Z) no referencial do mundo, mesmo referencial das observações de direção.
 - **Fronteira**: direção + distância em arestas até um não-visitado próximo, escalada por `frontier_hint` do
   currículo. O alvo é **sorteado entre os `_frontierCandidates` (3) mais próximos** e fica fixo até ser visitado
   (`GraphExplorationMemory`) — com 1 ele volta a ser determinístico e a política decora rotas. Observação, shaping
   e gizmo roxo são escalados **juntos** (são a mesma muleta) via `GraphExplorerManager.CurrentFrontierHint`. Dois
-  eixos no currículo: `frontier_hint` (força, cai até 0.2) e `frontier_hint_steps` (duração por episódio em steps
-  de física; 0 = episódio inteiro; depois do limite a dica vai a zero e o agente termina sozinho). Para avaliar sem
-  dica nenhuma, use `frontier_hint = 0` no `GraphArenaController`, não no treino.
+  eixos no currículo: `frontier_hint` (força: 1.0 → 0.7 → 0.4 → 0.2 → **0.0** na 5ª lição `NoHint`, onde o run
+  longo passa a maior parte do tempo) e `frontier_hint_steps` (duração por episódio em steps de física; 0 =
+  episódio inteiro; depois do limite a dica vai a zero e o agente termina sozinho).
 - **Anti-decoreba** (variação por episódio, para a política aprender a regra e não a rota):
   `GraphArenaController._spawnAtRandomNode` (nasce em qualquer nó ativo, não nos `_spawnPoints`) e
   `previsited_fraction` do currículo (fração dos primários que já nasce marcada como visitada; sai do denominador
-  da cobertura, aparece como visitada para o agente e para a BFS; disco azul-escuro no gizmo).
+  da cobertura, aparece como visitada para o agente e para a BFS; disco azul-escuro no gizmo) e `weight_jitter`
+  (peso de cada nó × U[1−j, 1+j] por episódio, `GraphExplorationMemory.DrawEpisodeWeights`; a soma esperada não
+  muda, então os thresholds não mudam — e o peso está na observação, senão seria só ruído).
 - **Gizmos**: NavGraph desenha estrutura (sempre); GraphExplorationMemory desenha estado (só em Play; legenda no
   cabeçalho do arquivo). Evite reutilizar verde/laranja/amarelo/magenta/branco em gizmos novos.
 
@@ -243,10 +259,13 @@ Comandos completos na seção **Treinar: comandos no Anaconda PowerShell**, no t
 - Qualquer mudança no layout/tamanho das observações (`_neighborSlots`, `GlobalObservations`, ordem dos blocos)
   **invalida todos os `.onnx`** e exige ajustar `VectorObservationSize` no prefab. Use os blocos reservados antes de
   crescer o vetor.
-- No currículo do GraphExplorer, `coverage_target`, `frontier_hint`, `frontier_hint_steps` e `previsited_fraction`
-  têm `completion_criteria` **idênticos de propósito** (o ML-Agents avalia cada parâmetro sozinho). Mexeu num
-  threshold, mexa nos outros três. Os thresholds em `reward` são estimativa (conta no YAML) e **não crescem de
-  lição em lição**: os pré-visitados tiram renda enquanto a cobertura-alvo sobe.
+- No currículo do GraphExplorer, `coverage_target`, `frontier_hint`, `frontier_hint_steps`, `previsited_fraction`,
+  `weight_jitter`, `ping_interval`, `hider_mode` e `hider_speed` têm `completion_criteria` **idênticos de
+  propósito** (o ML-Agents avalia cada parâmetro sozinho) — 5 lições, thresholds 8.5 / 10.5 / 8.0 / 7.5. Mexeu num
+  threshold, mexa nos outros sete. `config/graph_overnight.yaml` é a versão por **relógio** (`progress`, 8M) para
+  rodar sem supervisão; `config/graph_hider_test.yaml` é só para ver o hider/ping/visão funcionando. Os thresholds
+  em `reward` são estimativa (conta no YAML) e **não crescem de lição em lição**: os pré-visitados tiram renda
+  enquanto a cobertura-alvo sobe. `max_steps` = 30M (~30 h) — as lições avançam por desempenho, o resto é refino.
 - `_newEdgeReward` só paga aresta **entre dois primários**. No mapa atual do `NodeTraining.prefab` não existe
   nenhuma (todo primário se liga via auxiliares), então o termo está morto ali.
 - `_frontierApproachReward` tem um teto por mapa (`chegada / aresta_mediana`) — refaça a conta em mapa novo.

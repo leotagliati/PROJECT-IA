@@ -8,20 +8,25 @@
 # generoso nas primeiras etapas, que sao as que formam a base. Os checkpoints a cada 500k
 # permitem, de manha, voltar para o .onnx de qualquer etapa.
 #
+# A SETA ROXA FICA LIGADA (1.0) EM TODAS AS ETAPAS. Decisao de 20/09: o fade nao funciona —
+# baixar a forca so multiplica a observacao por um numero, a rede reescala os pesos e nunca e
+# obrigada a olhar os vizinhos; quando a seta some ela nao tem gradiente para aprender outro
+# mapeamento. Aqui a seta e tratada como conhecimento do mapa (grafo + memoria propria — nao e
+# onipotencia). A versao SEM seta (valor por saida + dropout de episodios) fica para outra
+# branch, para a pergunta do TCC.
+#
 # AS ETAPAS (fracao de max_steps em que cada uma TERMINA -> steps aproximados):
-#   E0 AndarAteNo     ate 0.06 (0.5M)  cobertura 0.3, seta 1.0 o episodio inteiro, tudo fixo,
-#                                      sem hider. Aprende: chegar num no, ler a seta, virar em porta.
-#   E1 ExplorarMais   ate 0.19 (1.5M)  cobertura 0.6, seta 0.7, pre-visitados 0.25, peso +-25%.
-#                                      Aprende: escolher saida nao visitada, preferir peso maior.
-#   E2 RastroParado   ate 0.37 (3.0M)  cobertura 0.9, seta 0.4 so ate 4000 steps, pre 0.5,
-#                                      peso +-50%, HIDER PARADO. Aprende: ler o ping (ativo,
-#                                      distancia, quente/frio) e ir ate um no que toca uma vez.
-#   E3 RastroQueAnda  ate 0.56 (4.5M)  seta 0.2 so ate 2000 steps, HIDER ANDA a 1.0 m/s.
-#                                      Aprende: seguir um ping que pula de no em no; ver o
-#                                      hider (cone 100 graus, 15 m) e se aproximar dele.
-#   E4 SemSeta        ate 0.75 (6.0M)  seta ZERO, hider a 2.2 m/s. Aprende: explorar e seguir
-#                                      rastro so com vizinhos (visitado, peso), cobertura, ping
-#                                      e visao.
+#   E0 AndarAteNo     ate 0.06 (0.5M)  cobertura 0.3, tudo fixo, sem hider. Aprende: chegar
+#                                      num no, seguir a seta, virar em porta.
+#   E1 ExplorarMais   ate 0.19 (1.5M)  cobertura 0.6, pre-visitados 0.25, peso +-25%. Aprende:
+#                                      preferir saida nao visitada e de peso maior.
+#   E2 RastroParado   ate 0.37 (3.0M)  cobertura 0.9, pre 0.5, peso +-50%, HIDER PARADO.
+#                                      Aprende: ler o ping (ativo, distancia, quente/frio) e ir
+#                                      ate um no que toca uma vez.
+#   E3 RastroQueAnda  ate 0.56 (4.5M)  HIDER ANDA a 1.0 m/s. Aprende: seguir um ping que pula de
+#                                      no em no; ver o hider (cone 100 graus, 15 m) e se aproximar.
+#   E4 RastroRapido   ate 0.75 (6.0M)  hider a 2.2 m/s. Aprende: manter o rastro de algo que
+#                                      anda quase tao rapido quanto ele.
 #   E5 Fuga           ate 1.00 (8.0M)  HIDER FOGE a 3.2 m/s (escolhe a saida que mais aumenta a
 #                                      distancia em arestas quando o seeker chega a 12 m).
 #                                      Aprende: cortar caminho em vez de so seguir o rastro.
@@ -41,6 +46,7 @@
 #
 # O QUE OLHAR DE MANHA (TensorBoard, results/):
 #   Environment/Lesson Number  deve estar em 5 (todas as etapas passaram — e relogio, vai estar).
+#   A seta continua ligada, entao o reward NAO deve cair de etapa em etapa; se cair na E5, e a fuga.
 #   Environment/Cumulative Reward  um degrau para baixo em cada troca de etapa e recuperacao
 #                              dentro dela. Degrau sem recuperacao = etapa curta demais.
 #   Environment/Episode Length  caindo dentro de cada etapa; cravado em 1600 = timeout (nao
@@ -119,7 +125,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 0.9
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -150,7 +156,7 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.19
           require_reset: true
-        value: 0.7
+        value: 1.0
       - name: E2_RastroParado
         completion_criteria:
           measure: progress
@@ -159,7 +165,7 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.37
           require_reset: true
-        value: 0.4
+        value: 1.0
       - name: E3_RastroQueAnda
         completion_criteria:
           measure: progress
@@ -168,8 +174,8 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.56
           require_reset: true
-        value: 0.2
-      - name: E4_SemSeta
+        value: 1.0
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -177,9 +183,9 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.75
           require_reset: true
-        value: 0.0
+        value: 1.0
       - name: E5_Fuga
-        value: 0.0
+        value: 1.0
 
   frontier_hint_steps:
     curriculum:
@@ -209,7 +215,7 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.37
           require_reset: true
-        value: 4000
+        value: 0
       - name: E3_RastroQueAnda
         completion_criteria:
           measure: progress
@@ -218,8 +224,8 @@ environment_parameters:
           min_lesson_length: 100
           threshold: 0.56
           require_reset: true
-        value: 2000
-      - name: E4_SemSeta
+        value: 0
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -269,7 +275,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 0.5
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -319,7 +325,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 0.5
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -369,7 +375,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 0
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -419,7 +425,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 2
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
@@ -469,7 +475,7 @@ environment_parameters:
           threshold: 0.56
           require_reset: true
         value: 1.0
-      - name: E4_SemSeta
+      - name: E4_RastroRapido
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
