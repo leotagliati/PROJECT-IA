@@ -40,6 +40,14 @@ namespace Assets.Scripts.Graph
         // entrando e saindo do cone seria uma máquina de bônus.
         [SerializeField, Min(0)] private int _respotCooldownSteps = 250;
 
+        [Header("-----Calor-----")]
+        // Calor colocado no nó mais próximo do hider ao AVISTAR e ao PERDER de vista. Maior que
+        // o de um ping (1.0): "vi" vale mais que "ouvi". Enquanto vê, a observação direta
+        // ([16..20]) basta; o calor é o que sobra quando perde.
+        [SerializeField, Min(0f)] private float _sightHeat = 2f;
+
+        public float SightHeat => _sightHeat;
+
         [Header("-----Referências-----")]
         [SerializeField] private GraphHider _hider;
 
@@ -63,6 +71,9 @@ namespace Assets.Scripts.Graph
         /// Avistou (não-vendo -> vendo, fora do cooldown) desde o último <see cref="ClearStepFlags"/>.
         /// </summary>
         public bool Spotted { get; private set; }
+
+        /// <summary>Perdeu de vista NESTE step (vendo -> não vendo). O manager põe calor onde viu.</summary>
+        public bool LostSightThisStep { get; private set; }
 
         public void Configure(NavGraph graph)
         {
@@ -93,8 +104,11 @@ namespace Assets.Scripts.Graph
         public void Tick(Transform seeker)
         {
             _step++;
+            LostSightThisStep = false;
 
             bool seeing = _hider != null && _hider.IsActive && CanSee(seeker, _hider.transform.position);
+            if (IsSeeing && !seeing)
+                LostSightThisStep = true;
 
             if (seeing)
             {

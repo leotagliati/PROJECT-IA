@@ -438,6 +438,67 @@ namespace Assets.Scripts.Graph
         /// entre dois sorteios: sem isto, cada troca de nó re-sortearia e a seta ficaria
         /// piscando entre candidatos. Falha se o alvo ficou inalcançável.
         /// </summary>
+        /// <summary>
+        /// O VALOR DE CADA SAÍDA: entrando por <paramref name="via"/> a partir de
+        /// <paramref name="from"/>, soma duas massas sobre os nós alcançáveis, cada nó
+        /// descontado por <paramref name="decay"/>^distância (via = distância 0):
+        ///   explore = peso dos nós NÃO-visitados (o que ainda há para explorar por ali);
+        ///   heat    = calor de todos os nós (onde o hider pode estar, ver GraphExplorationMemory).
+        /// A busca NÃO passa por from: o que está do outro lado do nó atual pertence a outra
+        /// saída.
+        ///
+        /// É o "o que tem atrás desta porta?" que uma pessoa que conhece o prédio responderia —
+        /// sem ninguém dizer para onde ir. O desconto faz o perto pesar mais, mas nunca zera:
+        /// num beco com tudo visitado por perto, a saída que leva ao inexplorado (ou ao calor)
+        /// ainda pontua mais que as outras. É o que substitui a seta sem entregar um caminho.
+        ///
+        /// Ciclos curtos podem contar o mesmo nó para duas saídas. Aceitável: a observação é
+        /// comparativa entre saídas, e as duas contariam o mesmo — o empate é a resposta certa.
+        /// </summary>
+        public void ScoreBeyond(int from, int via, float decay, bool[] visited, float[] heat, out float explore, out float heatSum)
+        {
+            explore = 0f;
+            heatSum = 0f;
+
+            if (via < 0 || via >= _nodes.Count || !_nodes[via].IsEnabled)
+                return;
+
+            _bfsStamp++;
+
+            int head = 0;
+            int tail = 0;
+
+            // from carimbado sem entrar na fila: é a parede que separa esta saída das outras.
+            if (from >= 0 && from < _nodes.Count)
+                _bfsStampOf[from] = _bfsStamp;
+
+            _bfsQueue[tail++] = via;
+            _bfsStampOf[via] = _bfsStamp;
+            _bfsDepth[via] = 0;
+
+            while (head < tail)
+            {
+                int current = _bfsQueue[head++];
+                float factor = Mathf.Pow(decay, _bfsDepth[current]);
+
+                if (!visited[current])
+                    explore += NodeWeight(current) * factor;
+
+                if (heat != null)
+                    heatSum += heat[current] * factor;
+
+                foreach (int neighbor in _adjacency[current])
+                {
+                    if (_bfsStampOf[neighbor] == _bfsStamp || !_nodes[neighbor].IsEnabled)
+                        continue;
+
+                    _bfsStampOf[neighbor] = _bfsStamp;
+                    _bfsDepth[neighbor] = _bfsDepth[current] + 1;
+                    _bfsQueue[tail++] = neighbor;
+                }
+            }
+        }
+
         public bool TryFindPathTo(int from, int target, out int nextStep, out int graphDistance)
         {
             nextStep = -1;

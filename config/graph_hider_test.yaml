@@ -58,3 +58,4 @@ environment_parameters:
   ping_interval: 0
   hider_mode: 2
   hider_speed: 1.0
+  frontier_dropout: 0.0

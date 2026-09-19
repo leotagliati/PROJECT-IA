@@ -479,6 +479,50 @@ environment_parameters:
   # VELOCIDADE do hider (m/s). Comeca em 1.0 e sobe ate 3.2 — sempre abaixo do seeker (5.0):
   # o seeker aprende a seguir o rastro e a VER o hider (GraphHiderPerception: cone de 100
   # graus, 15 m; +0.5 ao avistar, 0.05/m de aproximacao enquanto ve) antes de precisar correr.
+  # DROPOUT da seta: probabilidade de o episodio nascer SEM seta. E o que substitui o fade
+  # nesta branch (o fade so reescala a observacao; sortear episodios sem seta obriga a
+  # politica a ler o valor das saidas). Sobe ate 1.0: a ultima licao e inteira sem seta.
+  frontier_dropout:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0.0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0.3
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 0.6
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.9
+      - name: NoHint
+        value: 1.0
+
   hider_speed:
     curriculum:
       - name: Quarter

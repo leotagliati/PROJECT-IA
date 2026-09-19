@@ -39,12 +39,18 @@ namespace Assets.Scripts.Graph
         //   disco amarelo     nó âncora atual
         //   esfera magenta    alvo da fronteira, com a linha até o próximo passo — só enquanto a
         //                     dica está sendo entregue ao agente (força > 0 e dentro da duração)
+        //   esfera rosa       valor EXPLORAR de cada saída do nó atual (o que a rede recebe por
+        //                     vizinho): tamanho = quanto do inexplorado está por ali, relativo
+        //   esfera vermelha   valor CALOR de cada saída: onde o hider pode estar, relativo
+        //   coluna vermelha   calor de cada nó (altura = quanto); some ao pisar nele
         [SerializeField] private bool _drawGizmos = true;
         [SerializeField] private bool _drawVisitedNodes = true;
         [SerializeField] private bool _drawPendingNodes = true;
         [SerializeField] private bool _drawAuxiliaryNodes = true;
         [SerializeField] private bool _drawTraversedEdges = true;
         [SerializeField] private bool _drawFrontier = true;
+        [SerializeField] private bool _drawExitScores = true;
+        [SerializeField] private bool _drawHeat = true;
 
         // Quantas revisitas levam a cor ao topo da escala de calor.
         [SerializeField] private int _heatSaturationVisits = 5;
@@ -57,7 +63,40 @@ namespace Assets.Scripts.Graph
         // fixo até ser visitado, então a seta não pisca entre candidatos a cada troca de nó.
         [SerializeField, Min(1)] private int _frontierCandidates = 3;
 
+        [Header("-----Valor das saídas-----")]
+        // Desconto por ARESTA no valor do que está atrás de cada saída: um nó a d arestas do
+        // vizinho conta peso x decay^d. Calibre pelo DIÂMETRO do grafo em arestas. O mapa atual
+        // tem 42 (aresta mediana 7.4 m, primário mais próximo a 3 arestas): com 0.85, a 3
+        // arestas um nó vale 61%, a 10 vale 20%, a 20 vale 4% e a 42 vale 0.1%. O perto domina,
+        // mas o longe NUNCA some — num beco com tudo visitado por perto, a saída que leva ao
+        // inexplorado ainda pontua mais. Como a observação é RELATIVA à melhor saída, o valor
+        // absoluto pequeno não importa; o decay decide quanto "3 nós perto" vale contra "10 nós
+        // longe". Mapa com diâmetro ~20: 0.75 dá a mesma curva.
+        [SerializeField, Range(0.3f, 0.95f)] private float _lookaheadDecay = 0.85f;
+
+        [Header("-----Mapa de calor (hider)-----")]
+        // Calor por nó = "quanto eu acho que o hider pode estar por aqui". Fontes: passo do
+        // hider num primário (ping) e avistamento. Decai com o tempo, DIFUNDE pelas arestas (o
+        // hider se move) e zera no nó em que o seeker pisa (conferiu, não está). Não é a
+        // posição do hider: é a memória do seeker sobre o que ouviu e viu.
+        //
+        // Calor colocado por um ping. O avistamento coloca mais (ver GraphHiderPerception via
+        // AddHeat), porque "vi" vale mais que "ouvi".
+        [SerializeField, Min(0f)] private float _pingHeat = 1f;
+
+        // Meia-vida do calor em SEGUNDOS: em 20 s um ping vale metade. Da ordem do tempo que o
+        // hider leva para trocar de sala — depois disso a pista está velha mesmo.
+        [SerializeField, Min(1f)] private float _heatHalfLifeSeconds = 20f;
+
+        // Fração do calor de cada nó que escorre para os vizinhos POR SEGUNDO (dividida entre
+        // eles). É o modelo de "ele se mexe": com 0.15, em ~7 s metade do calor de um nó já
+        // está nos vizinhos. Zero = calor fica onde nasceu (hider parado).
+        [SerializeField, Range(0f, 1f)] private float _heatDiffusionPerSecond = 0.15f;
+
         private static readonly Color VisitedColor = new Color(0.15f, 0.9f, 0.3f, 0.9f);
+        private static readonly Color ExitExploreColor = new Color(1f, 0.45f, 0.8f, 0.9f);
+        private static readonly Color ExitHeatColor = new Color(1f, 0.2f, 0.2f, 0.9f);
+        private static readonly Color HeatColor = new Color(1f, 0.25f, 0.15f, 0.7f);
         private static readonly Color RevisitedColor = new Color(1f, 0.5f, 0.05f, 0.9f);
         private static readonly Color PendingColor = new Color(0.45f, 0.45f, 0.5f, 0.35f);
         private static readonly Color PrevisitedColor = new Color(0.25f, 0.3f, 0.65f, 0.5f);
@@ -95,6 +134,24 @@ namespace Assets.Scripts.Graph
         private float[] _episodeWeight;
         private float _maxEpisodeWeight;
         private bool _frontierDirty = true;
+
+        // Calor por nó e o rascunho da difusão (para não difundir calor recém-chegado no mesmo
+        // passo). A difusão roda uma vez por SEGUNDO simulado, não por step: é barata (O(E)),
+        // mas por step seria conta jogada fora.
+        private float[] _heat;
+        private float[] _heatScratch;
+        private float _heatDecayPerStep;
+        private int _stepsSinceDiffusion;
+        private int _diffusionPeriodSteps;
+
+        // Valor bruto de cada saída do nó atual, indexado pelo ÍNDICE DO NÓ vizinho, nas duas
+        // massas. Preenchido por ScoreExits uma vez por decisão; lido pela observação, pelo
+        // baseline greedy e pelo gizmo.
+        private float[] _exitExplore;
+        private float[] _exitHeat;
+        private float _bestExitExplore;
+        private float _bestExitHeat;
+        private int _scoredFromNode = -1;
 
         public int CurrentNodeIndex { get; private set; } = -1;
 
@@ -140,6 +197,12 @@ namespace Assets.Scripts.Graph
 
         public int VisitedNodeCount => _visitedNodeCount;
 
+        /// <summary>
+        /// Chegadas a nós PRIMÁRIOS neste episódio, inéditos ou não. Com
+        /// <see cref="VisitedNodeCount"/> dá a razão de revisitas — a métrica de vai-e-vem.
+        /// </summary>
+        public int PrimaryArrivalCount { get; private set; }
+
         public int EnabledNodeCount => _enabledNodeCount;
 
         public bool HasFrontier { get; private set; }
@@ -171,6 +234,15 @@ namespace Assets.Scripts.Graph
             _previsited = new bool[_graph.NodeCount];
             _shuffleBuffer = new int[_graph.NodeCount];
             _episodeWeight = new float[_graph.NodeCount];
+            _heat = new float[_graph.NodeCount];
+            _heatScratch = new float[_graph.NodeCount];
+            _exitExplore = new float[_graph.NodeCount];
+            _exitHeat = new float[_graph.NodeCount];
+
+            // decay^steps_por_meia_vida = 0.5  ->  decay = 0.5^(1/steps)
+            float stepsPerHalfLife = _heatHalfLifeSeconds / Time.fixedDeltaTime;
+            _heatDecayPerStep = Mathf.Pow(0.5f, 1f / Mathf.Max(1f, stepsPerHalfLife));
+            _diffusionPeriodSteps = Mathf.Max(1, Mathf.RoundToInt(1f / Time.fixedDeltaTime));
         }
 
         /// <summary>
@@ -194,6 +266,7 @@ namespace Assets.Scripts.Graph
             _enabledNodeCount = 0;
             _visitedNodeCount = 0;
             _collectedWeight = 0f;
+            PrimaryArrivalCount = 0;
 
             RecomputeTotalWeight();
 
@@ -204,6 +277,12 @@ namespace Assets.Scripts.Graph
             StepsSinceNewNode = 0;
 
             ClearStepFlags();
+
+            System.Array.Clear(_heat, 0, _heat.Length);
+            _stepsSinceDiffusion = 0;
+            _scoredFromNode = -1;
+            _bestExitExplore = 0f;
+            _bestExitHeat = 0f;
 
             HasFrontier = false;
             FrontierTarget = -1;
@@ -295,7 +374,129 @@ namespace Assets.Scripts.Graph
             // jogado fora, multiplicado por arena e por step de física.
             if (_frontierDirty)
                 UpdateFrontier();
+
+            TickHeat();
         }
+
+        // ---------------- Mapa de calor ----------------
+
+        /// <summary>Adiciona calor num nó (ping = _pingHeat; avistamento passa o próprio valor).</summary>
+        public void AddHeat(int node, float amount)
+        {
+            if (node >= 0 && node < _heat.Length && amount > 0f)
+                _heat[node] += amount;
+        }
+
+        public void AddPingHeat(int node) => AddHeat(node, _pingHeat);
+
+        public float HeatAt(int node) => _heat[node];
+
+        private void TickHeat()
+        {
+            // Pisar num nó zera o calor dele: olhei, não está aqui. É o que faz a busca avançar
+            // em vez de o seeker ficar orbitando a sala do último ping.
+            if (IsAtNode && CurrentNodeIndex >= 0)
+                _heat[CurrentNodeIndex] = 0f;
+
+            if (_heatDecayPerStep < 1f)
+            {
+                for (int i = 0; i < _heat.Length; i++)
+                    _heat[i] *= _heatDecayPerStep;
+            }
+
+            _stepsSinceDiffusion++;
+            if (_stepsSinceDiffusion < _diffusionPeriodSteps || _heatDiffusionPerSecond <= 0f)
+                return;
+
+            _stepsSinceDiffusion = 0;
+            System.Array.Clear(_heatScratch, 0, _heatScratch.Length);
+
+            for (int i = 0; i < _heat.Length; i++)
+            {
+                float h = _heat[i];
+                if (h <= 1e-6f || !_graph.IsNodeEnabled(i))
+                    continue;
+
+                int[] neighbors = _graph.GetNeighbors(i);
+                int enabled = 0;
+                foreach (int n in neighbors)
+                {
+                    if (_graph.IsNodeEnabled(n))
+                        enabled++;
+                }
+
+                if (enabled == 0)
+                {
+                    _heatScratch[i] += h;
+                    continue;
+                }
+
+                float leaving = h * _heatDiffusionPerSecond;
+                _heatScratch[i] += h - leaving;
+                float share = leaving / enabled;
+                foreach (int n in neighbors)
+                {
+                    if (_graph.IsNodeEnabled(n))
+                        _heatScratch[n] += share;
+                }
+            }
+
+            (_heat, _heatScratch) = (_heatScratch, _heat);
+        }
+
+        // ---------------- Valor das saídas ----------------
+
+        /// <summary>
+        /// Calcula o valor de cada saída do nó atual nas duas massas (ver
+        /// <see cref="NavGraph.ScoreBeyond"/>). Uma vez por decisão, antes de ler
+        /// <see cref="ExitExploreScore"/>/<see cref="ExitHeatScore"/>. Sem nó âncora não há
+        /// saídas: tudo fica em zero.
+        /// </summary>
+        public void ScoreExits()
+        {
+            _bestExitExplore = 0f;
+            _bestExitHeat = 0f;
+            _scoredFromNode = CurrentNodeIndex;
+
+            if (CurrentNodeIndex < 0)
+                return;
+
+            foreach (int neighbor in _graph.GetNeighbors(CurrentNodeIndex))
+            {
+                _graph.ScoreBeyond(CurrentNodeIndex, neighbor, _lookaheadDecay, _visited, _heat, out float explore, out float heat);
+                _exitExplore[neighbor] = explore;
+                _exitHeat[neighbor] = heat;
+                _bestExitExplore = Mathf.Max(_bestExitExplore, explore);
+                _bestExitHeat = Mathf.Max(_bestExitHeat, heat);
+            }
+        }
+
+        /// <summary>
+        /// Valor EXPLORAR da saída, RELATIVO à melhor saída do nó atual: 1 = a melhor (ou
+        /// empatada), 0 = nada inexplorado por ali. Relativo porque a decisão é "qual porta":
+        /// um número que vale 1.0 para a melhor porta em qualquer mapa e fase é mais fácil de
+        /// ler que uma fração que encolhe conforme o mapa é coberto. "Quanto falta no total"
+        /// já está na cobertura, uma observação global.
+        /// </summary>
+        public float ExitExploreScore(int neighbor)
+        {
+            if (_scoredFromNode != CurrentNodeIndex || _bestExitExplore <= 1e-6f)
+                return 0f;
+
+            return Mathf.Clamp01(_exitExplore[neighbor] / _bestExitExplore);
+        }
+
+        /// <summary>Valor CALOR da saída, relativo à melhor. 0 quando não há calor nenhum no mapa.</summary>
+        public float ExitHeatScore(int neighbor)
+        {
+            if (_scoredFromNode != CurrentNodeIndex || _bestExitHeat <= 1e-6f)
+                return 0f;
+
+            return Mathf.Clamp01(_exitHeat[neighbor] / _bestExitHeat);
+        }
+
+        /// <summary>Há calor em algum lugar do mapa (soma > 0)? Para o greedy decidir o que seguir.</summary>
+        public bool HasHeat => _bestExitHeat > 1e-6f;
 
         /// <summary>
         /// Zera as flags acumuladas. Chamar DEPOIS de cobrá-las na recompensa, uma vez por
@@ -335,6 +536,9 @@ namespace Assets.Scripts.Graph
             CurrentNodeIndex = node;
             _visitCount[node]++;
             CurrentNodeVisitCount = _visitCount[node];
+
+            if (_graph.IsNodePrimary(node))
+                PrimaryArrivalCount++;
 
             if (_visited[node])
                 return;
@@ -452,6 +656,12 @@ namespace Assets.Scripts.Graph
             if (_drawTraversedEdges)
                 DrawTraversedEdges();
 
+            if (_drawHeat)
+                DrawHeat();
+
+            if (_drawExitScores)
+                DrawExitScores();
+
             // O disco do nó atual, no mesmo formato do gizmo de autoria: dá para ver ao vivo se
             // o raio que você calibrou está registrando a chegada onde você achou que ia.
             if (CurrentNodeIndex >= 0)
@@ -469,6 +679,55 @@ namespace Assets.Scripts.Graph
                 Gizmos.color = Color.magenta;
                 Gizmos.DrawWireSphere(_graph.NodePosition(FrontierTarget), 0.45f);
                 Gizmos.DrawLine(transform.position, _graph.NodePosition(FrontierNextStep));
+            }
+        }
+
+        // Uma coluna vermelha em cada nó com calor, altura = calor (0..3 m). É o "mapa de
+        // calor" literal: onde o seeker acha que o hider pode estar.
+        private void DrawHeat()
+        {
+            Gizmos.color = HeatColor;
+            for (int i = 0; i < _heat.Length; i++)
+            {
+                float h = _heat[i];
+                if (h <= 0.02f)
+                    continue;
+
+                Vector3 p = _graph.NodePosition(i);
+                float height = Mathf.Min(3f, h * 1.5f);
+                Gizmos.DrawLine(p, p + Vector3.up * height);
+                Gizmos.DrawSphere(p + Vector3.up * height, 0.12f);
+            }
+        }
+
+        /// <summary>
+        /// Uma esfera em cada vizinho do nó atual, com o tamanho do valor RELATIVO daquela saída
+        /// — exatamente os números que a rede recebe no slot. Rosa = explorar, vermelha = calor
+        /// (deslocada para cima para não se sobreporem). É o gizmo para responder "por que ele
+        /// foi por ali?": a maior esfera é a saída com mais inexplorado (ou mais calor) atrás.
+        /// </summary>
+        private void DrawExitScores()
+        {
+            if (_scoredFromNode < 0 || _scoredFromNode != CurrentNodeIndex)
+                return;
+
+            foreach (int neighbor in _graph.GetNeighbors(CurrentNodeIndex))
+            {
+                Vector3 p = _graph.NodePosition(neighbor);
+
+                float explore = ExitExploreScore(neighbor);
+                if (explore > 0f)
+                {
+                    Gizmos.color = ExitExploreColor;
+                    Gizmos.DrawSphere(p + Vector3.up * 0.9f, 0.15f + 0.35f * explore);
+                }
+
+                float heat = ExitHeatScore(neighbor);
+                if (heat > 0f)
+                {
+                    Gizmos.color = ExitHeatColor;
+                    Gizmos.DrawSphere(p + Vector3.up * 1.7f, 0.15f + 0.35f * heat);
+                }
             }
         }
 

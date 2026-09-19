@@ -1,59 +1,43 @@
-# TREINO DA NOITE — 6 etapas por RELOGIO, 8M steps (~8.4 h a ~266 steps/s, 9 arenas).
+# TREINO DA NOITE — branch node-unexplored: 6 etapas por RELOGIO, 5.5M steps (~6 h a ~266
+# steps/s com 9 arenas).
 #
-# POR QUE 'progress' AQUI (e 'reward' no graph_explorer_curriculum.yaml): este config e para
-# rodar SEM supervisao e chegar ate a ultima etapa de qualquer jeito. Com criterio por reward,
-# um threshold mal estimado deixa a IA presa numa licao a noite inteira e voce acorda com nada.
-# O preco e o conhecido: promocao por relogio pode vir antes de a politica estar pronta. A
-# defesa e (1) um degrau por etapa — nunca duas coisas novas ao mesmo tempo — e (2) orcamento
-# generoso nas primeiras etapas, que sao as que formam a base. Os checkpoints a cada 500k
-# permitem, de manha, voltar para o .onnx de qualquer etapa.
+# O QUE ESTA BRANCH TESTA: o agente explora e persegue SEM a seta roxa, usando o VALOR DE CADA
+# SAIDA (por vizinho: inexplorado e calor atras da porta, descontados pela distancia) e o MAPA
+# DE CALOR (ping do hider e avistamentos viram calor que decai e difunde pelos nos).
 #
-# A SETA ROXA FICA LIGADA (1.0) EM TODAS AS ETAPAS. Decisao de 20/09: o fade nao funciona —
-# baixar a forca so multiplica a observacao por um numero, a rede reescala os pesos e nunca e
-# obrigada a olhar os vizinhos; quando a seta some ela nao tem gradiente para aprender outro
-# mapeamento. Aqui a seta e tratada como conhecimento do mapa (grafo + memoria propria — nao e
-# onipotencia). A versao SEM seta (valor por saida + dropout de episodios) fica para outra
-# branch, para a pergunta do TCC.
+# A seta NAO e enfraquecida (fade): ela e SORTEADA FORA de episodios inteiros (frontier_dropout
+# = probabilidade de o episodio nascer sem seta). Fade so reescala a observacao e a rede nunca e
+# obrigada a olhar os vizinhos; em episodios sem seta, o unico caminho para a recompensa passa
+# pelo valor das saidas — e a politica aprende os dois mapeamentos ao mesmo tempo.
+#
+# POR QUE 'progress' (relogio): rodar sem supervisao e chegar a ultima etapa de qualquer jeito.
+# Checkpoints a cada 500k permitem voltar ao .onnx de qualquer etapa.
 #
 # AS ETAPAS (fracao de max_steps em que cada uma TERMINA -> steps aproximados):
-#   E0 AndarAteNo     ate 0.06 (0.5M)  cobertura 0.3, tudo fixo, sem hider. Aprende: chegar
-#                                      num no, seguir a seta, virar em porta.
-#   E1 ExplorarMais   ate 0.19 (1.5M)  cobertura 0.6, pre-visitados 0.25, peso +-25%. Aprende:
-#                                      preferir saida nao visitada e de peso maior.
-#   E2 RastroParado   ate 0.37 (3.0M)  cobertura 0.9, pre 0.5, peso +-50%, HIDER PARADO.
-#                                      Aprende: ler o ping (ativo, distancia, quente/frio) e ir
-#                                      ate um no que toca uma vez.
-#   E3 RastroQueAnda  ate 0.56 (4.5M)  HIDER ANDA a 1.0 m/s. Aprende: seguir um ping que pula de
-#                                      no em no; ver o hider (cone 100 graus, 15 m) e se aproximar.
-#   E4 RastroRapido   ate 0.75 (6.0M)  hider a 2.2 m/s. Aprende: manter o rastro de algo que
-#                                      anda quase tao rapido quanto ele.
-#   E5 Fuga           ate 1.00 (8.0M)  HIDER FOGE a 3.2 m/s (escolhe a saida que mais aumenta a
-#                                      distancia em arestas quando o seeker chega a 12 m).
-#                                      Aprende: cortar caminho em vez de so seguir o rastro.
-#
-# VISAO (GraphHiderPerception) fica ligada sempre — e percepcao, nao muleta. Paga +0.5 ao
-# avistar (cooldown 5 s) e 0.05/m de aproximacao enquanto ve. Nas E0-E2 nao ha o que ver
-# (sem hider / hider parado longe), entao so entra em jogo a partir da E3.
-# VELOCIDADE do hider sobe 1.0 -> 2.2 -> 3.2 (seeker: 5.0): comeca lento para o seeker aprender a
-# seguir e ver antes de precisar correr.
-# Cada etapa muda UMA coisa em relacao a anterior (E2 muda a cobertura e liga o hider parado,
-# mas o hider parado e so "um ping que nao se mexe" — e o menor degrau possivel para o ping).
+#   E0 AndarAteNo     ate 0.07 (0.4M)  cobertura 0.3, seta em todo episodio, sem hider.
+#   E1 ExplorarMais   ate 0.22 (1.2M)  cobertura 0.6, pre 0.25, peso +-25%, 30% dos episodios SEM seta.
+#   E2 MetadeSemSeta  ate 0.40 (2.2M)  cobertura 0.9, pre 0.5, peso +-50%, 60% sem seta, HIDER PARADO
+#                                      (ping toca uma vez; calor no mapa).
+#   E3 RastroQueAnda  ate 0.60 (3.3M)  90% sem seta, HIDER ANDA a 1.0 m/s; ver e se aproximar paga.
+#   E4 SemSeta        ate 0.80 (4.4M)  100% sem seta, hider a 2.2 m/s. Explorar e cacar so com
+#                                      vizinhos (visitado, peso, explorar, calor), cobertura, ping e visao.
+#   E5 Fuga           ate 1.00 (5.5M)  HIDER FOGE a 3.2 m/s, 100% sem seta.
 #
 # COMO USAR:
-#   mlagents-learn config/graph_overnight.yaml --run-id=graph_20
-#   cena Assets/Scenes/Arthur/Nodes_2.unity -> Play. Ctrl+C de manha exporta o .onnx final;
-#   os intermediarios ficam em results/graph_20/GraphExplorer/*.onnx (um a cada 500k).
+#   mlagents-learn config/graph_overnight.yaml --run-id=night_03
+#   cena Assets/Scenes/Arthur/Nodes_2.unity (9 arenas) -> Play.
 #
-# O QUE OLHAR DE MANHA (TensorBoard, results/):
-#   Environment/Lesson Number  deve estar em 5 (todas as etapas passaram — e relogio, vai estar).
-#   A seta continua ligada, entao o reward NAO deve cair de etapa em etapa; se cair na E5, e a fuga.
-#   Environment/Cumulative Reward  um degrau para baixo em cada troca de etapa e recuperacao
-#                              dentro dela. Degrau sem recuperacao = etapa curta demais.
-#   Environment/Episode Length  caindo dentro de cada etapa; cravado em 1600 = timeout (nao
-#                              bate a cobertura) — na E5 isso e aceitavel se ele estiver
-#                              perseguindo; nas E0-E1 nao.
-# O que NAO esperar: captura. Existe visao (ver + se aproximar paga), mas nao existe captura
-# encerrando o episodio — o que a E5 ensina e seguir e se aproximar de um rastro que foge.
+# O QUE OLHAR DE MANHA (TensorBoard):
+#   Environment/Lesson Number  em 5.
+#   Exploration/HintEnabled    media cai 1 -> 0.7 -> 0.4 -> 0.1 -> 0: confirma o dropout.
+#   Exploration/Coverage e StepsToTarget  E o que importa: na E4-E5 (sem seta nenhuma) devem
+#                              ficar proximos do que eram na E1 (com seta). Se Coverage
+#                              desabar na E4, o valor por saida nao esta sendo lido — olhar
+#                              _lookaheadDecay e a esfera rosa no gizmo.
+#   Exploration/RevisitRatio   vai-e-vem; deve cair ao longo do treino.
+#   Cumulative Reward          cai um degrau em cada troca (renda do shaping da seta some nos
+#                              episodios sem ela) — comparar por Coverage, nao por reward.
+# Depois: config/graph_eval.yaml para medir a politica final e o greedy (ver docs).
 
 behaviors:
   GraphExplorer:
@@ -78,14 +62,14 @@ behaviors:
       extrinsic:
         gamma: 0.995
         strength: 1.0
-    keep_checkpoints: 20
+    keep_checkpoints: 12
     checkpoint_interval: 500000
-    max_steps: 8000000
+    max_steps: 5500000
     time_horizon: 128
     summary_freq: 20000
 
-# Os OITO parametros tem os mesmos thresholds (o ML-Agents avalia cada um sozinho): e o que
-# garante que avancem juntos. Mudou um, mude os outros sete.
+# Os NOVE parametros tem os mesmos thresholds (o ML-Agents avalia cada um sozinho): e o que
+# garante que avancem juntos. Mudou um, mude os outros oito.
 environment_parameters:
   coverage_target:
     curriculum:
@@ -95,7 +79,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0.3
       - name: E1_ExplorarMais
@@ -104,16 +88,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0.6
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0.9
       - name: E3_RastroQueAnda
@@ -122,16 +106,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 0.9
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 0.9
       - name: E5_Fuga
@@ -145,7 +129,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 1.0
       - name: E1_ExplorarMais
@@ -154,16 +138,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 1.0
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 1.0
       - name: E3_RastroQueAnda
@@ -172,16 +156,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 1.0
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 1.0
       - name: E5_Fuga
@@ -195,7 +179,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0
       - name: E1_ExplorarMais
@@ -204,16 +188,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0
       - name: E3_RastroQueAnda
@@ -222,16 +206,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 0
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 0
       - name: E5_Fuga
@@ -245,7 +229,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0.0
       - name: E1_ExplorarMais
@@ -254,16 +238,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0.25
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0.5
       - name: E3_RastroQueAnda
@@ -272,16 +256,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 0.5
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 0.5
       - name: E5_Fuga
@@ -295,7 +279,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0.0
       - name: E1_ExplorarMais
@@ -304,16 +288,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0.25
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0.5
       - name: E3_RastroQueAnda
@@ -322,16 +306,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 0.5
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 0.5
       - name: E5_Fuga
@@ -345,7 +329,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0
       - name: E1_ExplorarMais
@@ -354,16 +338,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0
       - name: E3_RastroQueAnda
@@ -372,16 +356,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 0
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 0
       - name: E5_Fuga
@@ -395,7 +379,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0
       - name: E1_ExplorarMais
@@ -404,16 +388,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 1
       - name: E3_RastroQueAnda
@@ -422,16 +406,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 2
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 2
       - name: E5_Fuga
@@ -445,7 +429,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.06
+          threshold: 0.07
           require_reset: true
         value: 0
       - name: E1_ExplorarMais
@@ -454,16 +438,16 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.19
+          threshold: 0.22
           require_reset: true
         value: 0
-      - name: E2_RastroParado
+      - name: E2_MetadeSemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.37
+          threshold: 0.4
           require_reset: true
         value: 0
       - name: E3_RastroQueAnda
@@ -472,18 +456,68 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.56
+          threshold: 0.6
           require_reset: true
         value: 1.0
-      - name: E4_RastroRapido
+      - name: E4_SemSeta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 0.75
+          threshold: 0.8
           require_reset: true
         value: 2.2
       - name: E5_Fuga
         value: 3.2
+
+  frontier_dropout:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.07
+          require_reset: true
+        value: 0.0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.22
+          require_reset: true
+        value: 0.3
+      - name: E2_MetadeSemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.4
+          require_reset: true
+        value: 0.6
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.6
+          require_reset: true
+        value: 0.9
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.8
+          require_reset: true
+        value: 1.0
+      - name: E5_Fuga
+        value: 1.0
 

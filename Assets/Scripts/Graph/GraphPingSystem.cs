@@ -88,6 +88,12 @@ namespace Assets.Scripts.Graph
         /// <summary>Um ping expirou sem visita desde o último <see cref="ClearStepFlags"/>.</summary>
         public bool Missed { get; private set; }
 
+        /// <summary>
+        /// Nó em que um ping COMEÇOU neste step de física (-1 se nenhum). O manager lê logo
+        /// depois do Tick para colocar calor no mapa — o ping é o "ouvi passos ali".
+        /// </summary>
+        public int StartedNode { get; private set; } = -1;
+
         public void Configure(NavGraph graph)
         {
             _graph = graph;
@@ -130,6 +136,8 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public void Tick(int currentNode, int elapsedSteps)
         {
+            StartedNode = -1;
+
             if (_graph == null)
                 return;
 
@@ -193,6 +201,7 @@ namespace Assets.Scripts.Graph
         {
             IsActive = true;
             TargetNode = target;
+            StartedNode = target;
             HotCold = 0;
             _expiresAtStep = elapsedSteps + _duration;
             _lastDistanceNode = -1;

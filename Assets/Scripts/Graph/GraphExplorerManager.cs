@@ -45,25 +45,30 @@ namespace Assets.Scripts.Graph
     public class GraphExplorerManager : Agent
     {
         // Por vizinho: direção X, direção Z, distância normalizada, visitado, PESO (relativo ao
-        // nó que mais vale neste episódio), slot válido.
-        private const int FloatsPerNeighbor = 6;
+        // nó que mais vale neste episódio), valor EXPLORAR da saída, valor CALOR da saída, válido.
+        private const int FloatsPerNeighbor = 8;
 
-        // LAYOUT DAS OBSERVAÇÕES GLOBAIS (21):
+        // LAYOUT DAS OBSERVAÇÕES GLOBAIS (25):
         //   [0]      está dentro do raio de algum nó
         //   [1..3]   direção + distância ao nó âncora
         //   [4..6]   direção + distância ao nó mais próximo COM LINHA LIVRE
         //   [7]      cobertura total
-        //   [8]      RESERVADO — era a cobertura da região atual; regiões saíram do sistema
+        //   [8]      "travado": steps sem nó inédito / _stagnationSteps, saturado em 1
         //   [9..11]  direção + distância ao próximo passo da fronteira
         //   [12]     distância em ARESTAS até a fronteira
         //   [13..15] PING: ativo, distância em arestas até o nó que toca, quente/frio (-1/0/+1)
         //   [16..20] VISÃO: vendo, já viu, direção + distância à última posição em que viu o hider
+        //   [21..22] HEADING: para onde o corpo está virado (forward X/Z no mundo). O sensor de
+        //            raios é preso ao corpo e as ações são no mundo — sem isto a rede não tem
+        //            como converter "parede à esquerda nos raios" em "não ande para +X".
+        //   [23..24] ÚLTIMA AÇÃO (X/Z): para onde estava indo. Sem isto cada decisão parte do
+        //            zero e o resultado é ziguezague entre dois nós bem espaçados.
         //
         // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
         // toda mudança neste número invalida os .onnx treinados: reservar custa 9 entradas numa
         // rede de 128 unidades e economiza uma retreinada inteira do zero. O [8] fica pelo
         // mesmo motivo: encolher o vetor só para tirar um zero custaria todos os modelos.
-        private const int GlobalObservations = 21;
+        private const int GlobalObservations = 25;
 
 
         [Header("-----Systems-----")]
@@ -134,11 +139,30 @@ namespace Assets.Scripts.Graph
         // Ver a tabela no cabeçalho do GraphRewardSystem antes de alterar.
         [SerializeField] private int _maxEpisodeSteps = 8000;
 
+        // Normalizador do sinal "travado" ([8]): o mesmo limiar da penalidade de estagnação do
+        // GraphRewardSystem (1250 steps = 25 s). Em 1.0 a penalidade está sendo cobrada — e o
+        // agente passa a SABER disso em vez de só sentir o reward cair.
+        [SerializeField, Min(1)] private int _stagnationSteps = 1250;
+
+        [Header("-----Baseline-----")]
+        // Com Behavior Type = Heuristic Only: em vez de WASD, um GREEDY sobre as MESMAS
+        // observações da rede — vai para a saída de maior valor (calor se houver, senão
+        // explorar; empate: a mais perto). É a régua: se a rede não bater isto, não aprendeu
+        // nada além do óbvio. Não afeta o treino.
+        [SerializeField] private bool _scriptedBaseline = true;
+
         private Vector3 _initialLocalPosition;
         private Quaternion _initialLocalRotation;
         private NavGraph _graph;
 
         private int _elapsedSteps;
+
+        // Ação da decisão anterior (X, Z), devolvida na observação [23..24].
+        private Vector2 _lastAction;
+
+        // Sorteado no início do episódio contra frontier_dropout: sem seta, CurrentFrontierHint
+        // é zero o episódio inteiro (observação, shaping e gizmo).
+        private bool _hintEnabledThisEpisode = true;
         private bool _episodeEnding;
         private bool _touchingWall;
 
@@ -174,6 +198,9 @@ namespace Assets.Scripts.Graph
         {
             get
             {
+                if (!_hintEnabledThisEpisode)
+                    return 0f;
+
                 int limit = _arenaController.FrontierHintSteps;
                 if (limit > 0 && _elapsedSteps >= limit)
                     return 0f;
@@ -233,8 +260,11 @@ namespace Assets.Scripts.Graph
             _elapsedSteps = 0;
             _episodeEnding = false;
             _touchingWall = false;
+            _wallContactDecisions = 0;
+            _lastAction = Vector2.zero;
 
             _arenaController.ResetEpisode();
+            _hintEnabledThisEpisode = UnityEngine.Random.value >= _arenaController.FrontierDropout;
 
             if (_arenaController.TryGetSpawn(out Vector3 position, out Quaternion rotation))
                 transform.SetPositionAndRotation(position, rotation);
@@ -286,6 +316,14 @@ namespace Assets.Scripts.Graph
 
             if (_perception != null)
                 _perception.Tick(transform);
+
+            // Calor: ping que começou e avistamento/perda de vista viram calor no mapa. É a
+            // memória do seeker sobre o que ouviu e viu — nunca a posição do hider.
+            if (_ping != null && _ping.StartedNode >= 0)
+                _memory.AddPingHeat(_ping.StartedNode);
+
+            if (_perception != null && (_perception.Spotted || _perception.LostSightThisStep) && _perception.HasSeen)
+                _memory.AddHeat(_graph.FindNearestReachableNode(_perception.LastSeenPosition), _perception.SightHeat);
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -312,7 +350,7 @@ namespace Assets.Scripts.Graph
             // O quanto falta explorar no geral. O segundo float era a fração da região atual;
             // sem regiões ele emite zero, mantido no lugar para não invalidar os .onnx.
             sensor.AddObservation(CurrentCoverage);
-            sensor.AddObservation(0f);
+            sensor.AddObservation(Mathf.Clamp01((float)_memory.StepsSinceNewNode / _stagnationSteps));
 
             // ---- Fronteira (4) ----
             float hint = CurrentFrontierHint;
@@ -350,7 +388,21 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(hasSeen ? 1f : 0f);
             AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
 
-            // ---- Vizinhos (5 x _neighborSlots) ----
+            // ---- Heading (2) e última ação (2) ----
+            Vector3 forward = transform.forward;
+            Vector2 heading = new Vector2(forward.x, forward.z);
+            if (heading.sqrMagnitude > 1e-6f)
+                heading.Normalize();
+            sensor.AddObservation(heading.x);
+            sensor.AddObservation(heading.y);
+            sensor.AddObservation(_lastAction.x);
+            sensor.AddObservation(_lastAction.y);
+
+            // ---- Vizinhos (8 x _neighborSlots) ----
+            // O valor de cada saída é calculado aqui, uma vez por DECISÃO (é uma BFS por
+            // vizinho), e lido slot a slot abaixo. As esferas rosa/vermelhas da memória mostram
+            // os mesmos números.
+            _memory.ScoreExits();
             FillNeighborBuffer(current);
 
             for (int slot = 0; slot < _neighborSlots; slot++)
@@ -360,12 +412,8 @@ namespace Assets.Scripts.Graph
                     // Slot vazio: zeros e a flag de validade em 0. O padding precisa ser
                     // distinguível de um vizinho real — senão "não existe saída aqui" e "existe
                     // uma saída exatamente na minha posição" chegam à rede como o mesmo vetor.
-                    sensor.AddObservation(0f);
-                    sensor.AddObservation(0f);
-                    sensor.AddObservation(0f);
-                    sensor.AddObservation(0f);
-                    sensor.AddObservation(0f);
-                    sensor.AddObservation(0f);
+                    for (int i = 0; i < FloatsPerNeighbor; i++)
+                        sensor.AddObservation(0f);
                     continue;
                 }
 
@@ -377,6 +425,11 @@ namespace Assets.Scripts.Graph
                 // variação de peso do currículo (weight_jitter) seria só ruído na recompensa —
                 // um sinal que a rede não pode usar não ensina nada.
                 sensor.AddObservation(_memory.NormalizedEpisodeWeight(neighbor));
+
+                // O que há atrás desta saída, relativo à melhor: inexplorado e calor. É o dado
+                // que substitui a seta — sem dizer qual porta tomar.
+                sensor.AddObservation(_memory.ExitExploreScore(neighbor));
+                sensor.AddObservation(_memory.ExitHeatScore(neighbor));
                 sensor.AddObservation(1f);
             }
         }
@@ -467,6 +520,9 @@ namespace Assets.Scripts.Graph
 
             AddReward(_rewardSystem.EvaluateStep(BuildStepContext()));
 
+            if (_touchingWall)
+                _wallContactDecisions++;
+
             // Consumidas depois de cobradas. A memória volta a acumular a partir do próximo
             // step de física.
             _hadFrontierAtLastDecision = _memory.HasFrontier;
@@ -481,6 +537,7 @@ namespace Assets.Scripts.Graph
                 _perception.ClearStepFlags();
             _touchingWall = false;
 
+            _lastAction = new Vector2(actions.ContinuousActions[0], actions.ContinuousActions[1]);
             Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
             _movementSystem.Move(direction);
 
@@ -623,6 +680,7 @@ namespace Assets.Scripts.Graph
         {
             _episodeEnding = true;
             _arenaController.ShowOutcome(covered);
+            RecordExplorationStats(covered);
 
             float delay = _arenaController.EpisodeEndDelay;
             if (delay <= 0f)
@@ -640,17 +698,109 @@ namespace Assets.Scripts.Graph
             EndEpisode();
         }
 
-#if ENABLE_LEGACY_INPUT_MANAGER
-        // Dirigir na mão é a forma mais rápida de conferir se os nós registram visita e se as
-        // ligações que você desenhou são percorríveis de verdade. Selecione o agente e olhe os
-        // gizmos da memória enquanto anda.
+        // Decisões em que o agente estava encostado em parede: a métrica de "tempo perdido
+        // raspando".
+        private int _wallContactDecisions;
+
+        /// <summary>
+        /// Métricas de EXPLORAÇÃO, separadas da recompensa. "Cumulative Reward" mistura shaping
+        /// com objetivo e muda a cada ajuste de peso ou de lição; estas medem o comportamento e
+        /// valem para comparar runs (e o baseline greedy) com recompensas diferentes:
+        ///   Exploration/Coverage         cobertura ao fim do episódio
+        ///   Exploration/RevisitRatio     chegadas repetidas / chegadas a primários — vai-e-vem
+        ///   Exploration/NewNodesPerMin   primários inéditos por minuto simulado — ritmo
+        ///   Exploration/StepsToTarget    steps até bater o alvo, só nos episódios que bateram
+        ///   Exploration/WallContactRatio decisões encostado em parede / decisões
+        ///   Exploration/HintEnabled      1 se o episódio teve seta, 0 se não (para separar as curvas)
+        /// </summary>
+        private void RecordExplorationStats(bool covered)
+        {
+            StatsRecorder stats = Academy.Instance.StatsRecorder;
+
+            stats.Add("Exploration/Coverage", CurrentCoverage);
+
+            int arrivals = _memory.PrimaryArrivalCount;
+            int fresh = _memory.VisitedNodeCount;
+            stats.Add("Exploration/RevisitRatio", arrivals > 0 ? (float)(arrivals - fresh) / arrivals : 0f);
+
+            float minutes = Mathf.Max(1, _elapsedSteps) * Time.fixedDeltaTime / 60f;
+            stats.Add("Exploration/NewNodesPerMin", fresh / minutes);
+
+            if (covered)
+                stats.Add("Exploration/StepsToTarget", _elapsedSteps);
+
+            stats.Add("Exploration/WallContactRatio", (float)_wallContactDecisions / Mathf.Max(1, _elapsedSteps));
+            stats.Add("Exploration/HintEnabled", _hintEnabledThisEpisode ? 1f : 0f);
+        }
+
+        /// <summary>
+        /// Com Behavior Type = Heuristic Only. Duas opções:
+        ///   _scriptedBaseline ligado: GREEDY sobre as mesmas observações da rede — a saída de
+        ///   maior valor (calor se houver, senão explorar; empate pela mais perto); sem nó
+        ///   âncora, vai para o nó alcançável mais próximo. É a régua do treino.
+        ///   Desligado (e com ENABLE_LEGACY_INPUT_MANAGER): WASD, para conferir a autoria.
+        /// </summary>
         public override void Heuristic(in ActionBuffers actionsOut)
         {
             ActionSegment<float> continuous = actionsOut.ContinuousActions;
-            continuous[0] = Input.GetAxisRaw("Horizontal");
-            continuous[1] = Input.GetAxisRaw("Vertical");
-        }
+            continuous[0] = 0f;
+            continuous[1] = 0f;
+
+            if (!_scriptedBaseline)
+            {
+#if ENABLE_LEGACY_INPUT_MANAGER
+                continuous[0] = Input.GetAxisRaw("Horizontal");
+                continuous[1] = Input.GetAxisRaw("Vertical");
 #endif
+                return;
+            }
+
+            if (_graph == null || _memory == null)
+                return;
+
+            int current = _memory.CurrentNodeIndex;
+            int target = -1;
+
+            if (current >= 0)
+            {
+                _memory.ScoreExits();
+                bool useHeat = _memory.HasHeat;
+                float best = -1f;
+                float bestDistance = float.MaxValue;
+
+                foreach (int neighbor in _graph.GetNeighbors(current))
+                {
+                    if (!_graph.IsNodeEnabled(neighbor))
+                        continue;
+
+                    float score = useHeat ? _memory.ExitHeatScore(neighbor) : _memory.ExitExploreScore(neighbor);
+                    float distance = (_graph.NodePosition(neighbor) - transform.position).sqrMagnitude;
+
+                    if (score > best + 1e-4f || (Mathf.Abs(score - best) <= 1e-4f && distance < bestDistance))
+                    {
+                        best = score;
+                        bestDistance = distance;
+                        target = neighbor;
+                    }
+                }
+            }
+            else
+            {
+                target = _graph.FindNearestReachableNode(transform.position);
+            }
+
+            if (target < 0)
+                return;
+
+            Vector3 delta = _graph.NodePosition(target) - transform.position;
+            Vector2 planar = new Vector2(delta.x, delta.z);
+            if (planar.sqrMagnitude < 1e-6f)
+                return;
+
+            planar.Normalize();
+            continuous[0] = planar.x;
+            continuous[1] = planar.y;
+        }
 
         // Erro de wiring em ML-Agents é silencioso e só aparece como treino que não converge.
         private void ValidateSetup()

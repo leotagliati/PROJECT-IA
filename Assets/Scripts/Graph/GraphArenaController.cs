@@ -29,6 +29,13 @@ namespace Assets.Scripts.Graph
         [SerializeField] private string _frontierParameterName = "frontier_hint";
         [SerializeField, Range(0f, 1f)] private float _defaultFrontierHint = 1f;
 
+        // DROPOUT da seta: probabilidade de um EPISÓDIO INTEIRO não ter seta nenhuma. É o que
+        // substitui o fade: baixar a força só reescala a observação e a rede nunca é obrigada a
+        // olhar os vizinhos; sortear episódios sem seta obriga — nesses episódios o único
+        // caminho para a recompensa passa pelo valor das saídas. 0 = sempre com seta; 1 = nunca.
+        [SerializeField] private string _frontierDropoutParameterName = "frontier_dropout";
+        [SerializeField, Range(0f, 1f)] private float _defaultFrontierDropout = 0f;
+
         // DURAÇÃO da dica dentro de cada episódio, em steps de FÍSICA (8000 = episódio inteiro
         // com _maxEpisodeSteps = 8000; 1500 = os primeiros 30 s). 0 = sem limite, a dica dura o
         // episódio todo. Depois do limite a escala vai a ZERO — observação, shaping e gizmo.
@@ -119,6 +126,9 @@ namespace Assets.Scripts.Graph
         public float CoverageTarget { get; private set; }
 
         public float FrontierHintScale { get; private set; }
+
+        /// <summary>Probabilidade de o episódio nascer sem seta (0..1).</summary>
+        public float FrontierDropout { get; private set; }
 
         /// <summary>Steps de física com a dica ligada por episódio; 0 = o episódio inteiro.</summary>
         public int FrontierHintSteps { get; private set; }
@@ -252,6 +262,7 @@ namespace Assets.Scripts.Graph
 
             CoverageTarget = Mathf.Clamp01(parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
             FrontierHintScale = Mathf.Clamp01(parameters.GetWithDefault(_frontierParameterName, _defaultFrontierHint));
+            FrontierDropout = Mathf.Clamp01(parameters.GetWithDefault(_frontierDropoutParameterName, _defaultFrontierDropout));
 
             // O currículo entrega float; a contagem é inteira.
             FrontierHintSteps = Mathf.Max(0, Mathf.RoundToInt(

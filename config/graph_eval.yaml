@@ -1,0 +1,52 @@
+# AVALIACAO — nao treina. Mede uma politica ja treinada (ou o baseline greedy) com as metricas
+# Exploration/* em condicoes fixas: SEM seta em nenhum episodio, sem hider, mapa inteiro por
+# fazer (pre-visitados 0), pesos autorados. E o protocolo "mede a politica em vez de treina-la".
+#
+# Rede treinada (usa o checkpoint do run, sem atualizar pesos):
+#   mlagents-learn config/graph_eval.yaml --run-id=night_03 --resume --inference
+#   (o run-id tem que ser o do treino: e de la que vem o modelo; este YAML so muda o ambiente)
+# Baseline greedy (Behavior Type = Heuristic Only no prefab; _scriptedBaseline ligado):
+#   mlagents-learn config/graph_eval.yaml --run-id=eval_greedy --force
+#   (nao ha o que treinar; o trainer so recebe as estatisticas)
+# Rode ate Environment/Episode Length estabilizar (~100 episodios por arena; alguns minutos) e
+# compare no TensorBoard: Exploration/Coverage, StepsToTarget, RevisitRatio, WallContactRatio.
+# Para testar TRANSFERENCIA, rode o mesmo par num mapa B que a rede nunca viu.
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 2
+    max_steps: 300000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  coverage_target: 0.9
+  frontier_hint: 0.0
+  frontier_hint_steps: 0
+  frontier_dropout: 1.0
+  previsited_fraction: 0.0
+  weight_jitter: 0.0
+  ping_interval: 0
+  hider_mode: 0
+  hider_speed: 0
