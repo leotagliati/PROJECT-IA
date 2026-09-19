@@ -18,8 +18,7 @@ namespace Assets.Scripts.Graph
     /// OBSERVAÇÃO — a decisão de projeto mais importante deste arquivo:
     /// o agente NÃO recebe a lista de todos os nós, nem a lista dos nós da região. Ele recebe
     /// uma visão EGOCÊNTRICA: o nó em que está, os K vizinhos dele (direção, distância, se já
-    /// foram visitados, quanto do que falta está atrás de cada um) e um resumo escalar (fração
-    /// do grafo já coberta).
+    /// foram visitados) e um resumo escalar (fração do grafo já coberta).
     ///
     /// Por quê:
     ///   - "Todos os nós" tem tamanho fixo amarrado a ESTE mapa. Cada slot do vetor vira "o nó
@@ -31,16 +30,10 @@ namespace Assets.Scripts.Graph
     ///     visitada". É isso que transfere. É também o mínimo necessário para decidir o próximo
     ///     passo — que é a única decisão que o agente toma.
     /// O que a visão local NÃO resolve sozinho é sair de um beco: os vizinhos imediatos podem
-    /// estar todos visitados e a resposta certa estar a cinco nós dali. Quem tapa esse buraco
-    /// é o VALOR DE CADA SAÍDA (por vizinho: quanto inexplorado há por ali, descontado pela
-    /// distância, relativo à melhor saída). É DADO, não resposta: "atrás daquela porta ainda
-    /// tem coisa" — a política decide o que fazer com isso, e fica ligado sempre, inclusive no
-    /// jogo final, porque é o que uma pessoa que conhece o prédio sabe.
-    ///
-    /// NÃO existe mais a "seta roxa" (direção do próximo passo até o não-visitado mais próximo,
-    /// com shaping por aproximação). Ela era RESPOSTA, e o run 11 mostrou o que isso dá: a
-    /// política aprende a seguir a seta e a decorar rotas, não a explorar. O que sobra de
-    /// denso na recompensa é a aresta inédita, que não tem direção.
+    /// estar todos visitados e a resposta certa estar a cinco nós dali. Esse buraco é tapado
+    /// pela DICA DE FRONTEIRA (BFS no grafo até o não-visitado mais próximo), que é um
+    /// escalar + direção e continua independente do tamanho do mapa. O currículo desliga a dica
+    /// nas lições finais, para o comportamento não virar "seguir a seta".
     ///
     /// Se um dia você quiser mesmo alimentar N nós de tamanho variável, o caminho é o
     /// BufferSensorComponent do ML-Agents (atenção sobre lista de entidades) — não um vetor
@@ -51,8 +44,8 @@ namespace Assets.Scripts.Graph
     /// </summary>
     public class GraphExplorerManager : Agent
     {
-        // Por vizinho: direção X, direção Z, distância normalizada, visitado, valor da saída
-        // (inexplorado atrás dela, relativo à melhor), slot válido.
+        // Por vizinho: direção X, direção Z, distância normalizada, visitado, PESO (relativo ao
+        // nó que mais vale neste episódio), slot válido.
         private const int FloatsPerNeighbor = 6;
 
         // LAYOUT DAS OBSERVAÇÕES GLOBAIS (21):
@@ -61,20 +54,17 @@ namespace Assets.Scripts.Graph
         //   [4..6]   direção + distância ao nó mais próximo COM LINHA LIVRE
         //   [7]      cobertura total
         //   [8]      RESERVADO — era a cobertura da região atual; regiões saíram do sistema
-        //   [9..12]  RESERVADO — era a seta de fronteira (direção, distância, arestas); saiu
-        //   [13..15] RESERVADO — alerta: ativo, distância em arestas, delta quente/frio
-        //   [16..20] RESERVADO — visão: vendo, já viu, direção + distância à última posição
+        //   [9..11]  direção + distância ao próximo passo da fronteira
+        //   [12]     distância em ARESTAS até a fronteira
+        //   [13..15] PING: ativo, distância em arestas até o nó que toca, quente/frio (-1/0/+1)
+        //   [16..20] VISÃO: vendo, já viu, direção + distância à última posição em que viu o hider
         //
-        // Os blocos reservados emitem ZERO. Os de alerta/visão esperam a branch de busca; os
-        // [8] e [9..12] são cicatrizes de coisas removidas e ficam pelo mesmo motivo: toda
-        // mudança neste número invalida os .onnx treinados, e encolher o vetor só para tirar
-        // zeros custaria todos os modelos. Quando a busca entrar, ela pode reocupá-los.
+        // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
+        // toda mudança neste número invalida os .onnx treinados: reservar custa 9 entradas numa
+        // rede de 128 unidades e economiza uma retreinada inteira do zero. O [8] fica pelo
+        // mesmo motivo: encolher o vetor só para tirar um zero custaria todos os modelos.
         private const int GlobalObservations = 21;
 
-        // Quantos zeros cada bloco reservado emite.
-        private const int ReservedFrontierObservations = 4;
-        private const int ReservedAlertObservations = 3;
-        private const int ReservedVisionObservations = 5;
 
         [Header("-----Systems-----")]
         [SerializeField] private GraphExplorationMemory _memory;
@@ -84,6 +74,10 @@ namespace Assets.Scripts.Graph
         // mesma física. Se um dia ele ganhar lógica específica do seeker, copie-o para cá.
         [SerializeField] private SeekerMovementSystem _movementSystem;
         [SerializeField] private GraphArenaController _arenaController;
+        // Opcional: sem ele, o bloco de ping da observação emite zero e nada de ping é pago.
+        [SerializeField] private GraphPingSystem _ping;
+        // Opcional: sem ele, o bloco de visão emite zero e nada de visão é pago.
+        [SerializeField] private GraphHiderPerception _perception;
 
         /// <summary>Como "explorei X% do mapa" é medido.</summary>
         public enum CoverageMeasure
@@ -122,11 +116,10 @@ namespace Assets.Scripts.Graph
         // Normalizador da distância em METROS até um nó. Da ordem da MAIOR aresta do mapa —
         // acima dele toda distância satura em 1.0 e a observação morre. Com 16 num mapa cuja
         // maior aresta é 34, um terço das arestas chegava à rede como o mesmo número.
-        // No NodeTraining atual a maior aresta é 20.6 m; o prefab usa 25.
         [SerializeField] private float _maxNodeDistance = 35f;
 
-        // O desconto do valor por saída (_lookaheadDecay) mora na GraphExplorationMemory, que é
-        // quem tem o estado de visitados e calcula o valor — aqui só se lê o resultado.
+        // Normalizador da distância em ARESTAS até a fronteira. Da ordem do diâmetro do grafo.
+        [SerializeField] private int _maxGraphDistance = 20;
 
         [Header("-----Settings-----")]
         // Em steps de FÍSICA, não em decisões: com TakeActionsBetweenDecisions ligado no
@@ -149,6 +142,19 @@ namespace Assets.Scripts.Graph
         private bool _episodeEnding;
         private bool _touchingWall;
 
+        // Distância de fronteira na decisão anterior. O delta entre decisões é o que vira
+        // shaping — medir isso dentro da memória daria o delta de um step de física, que é
+        // uma fração do que o agente controla com uma ação.
+        private int _frontierDistanceAtLastDecision;
+        private bool _hadFrontierAtLastDecision;
+
+        // Estado do shaping denso: qual nó era o próximo passo da fronteira no step anterior e a
+        // que distância em metros ele estava. Guardar o ÍNDICE, e não só a distância, é o que
+        // permite comparar por identidade — quando a BFS reaponta para outro nó a distância
+        // salta, e sem essa checagem o salto viraria recompensa (ou punição) fantasma.
+        private int _frontierNextStepAtLastDecision = -1;
+        private float _frontierApproachDistanceAtLastDecision;
+
         private readonly List<int> _neighborBuffer = new List<int>();
         private Comparison<int> _byDistanceFromNode;
         private Comparison<int> _byAngleFromNode;
@@ -159,6 +165,22 @@ namespace Assets.Scripts.Graph
         private float CurrentCoverage => _coverageMeasure == CoverageMeasure.NodeWeight
             ? _memory.VisitedWeightFraction
             : _memory.VisitedFraction;
+
+        // Peso EFETIVO da dica neste step: a força da lição enquanto a dica dura, zero depois.
+        // É o único ponto que combina força e duração — observação, shaping e gizmo leem daqui,
+        // porque os três são a mesma muleta e têm que sumir juntos. _elapsedSteps é em steps de
+        // física, a mesma unidade do limite.
+        private float CurrentFrontierHint
+        {
+            get
+            {
+                int limit = _arenaController.FrontierHintSteps;
+                if (limit > 0 && _elapsedSteps >= limit)
+                    return 0f;
+
+                return _arenaController.FrontierHintScale;
+            }
+        }
 
         public override void Initialize()
         {
@@ -176,6 +198,12 @@ namespace Assets.Scripts.Graph
             if (_arenaController == null)
                 _arenaController = GetComponentInParent<GraphArenaController>();
 
+            if (_ping == null)
+                _ping = GetComponentInChildren<GraphPingSystem>();
+
+            if (_perception == null)
+                _perception = GetComponentInChildren<GraphHiderPerception>();
+
             _byDistanceFromNode = CompareByDistance;
             _byAngleFromNode = CompareByAngle;
 
@@ -189,6 +217,12 @@ namespace Assets.Scripts.Graph
             {
                 _graph.EnsureBaked();
                 _memory.Configure(_graph);
+
+                if (_ping != null)
+                    _ping.Configure(_graph);
+
+                if (_perception != null)
+                    _perception.Configure(_graph);
             }
 
             ValidateSetup();
@@ -208,14 +242,32 @@ namespace Assets.Scripts.Graph
                 transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
 
             _movementSystem.ResetMovement();
+
+            // Depois do spawn: o hider nasce longe de onde o seeker nasceu.
+            _arenaController.ResetHider(transform.position);
+
             // A arena já leu o currículo em ResetEpisode() acima; a fração vale para este episódio.
-            _memory.ResetEpisode(_arenaController.PrevisitedFraction);
+            _memory.ResetEpisode(_arenaController.PrevisitedFraction, _arenaController.WeightJitter);
             _rewardSystem.ResetEpisode();
+
+            if (_ping != null)
+                _ping.ResetEpisode(_arenaController.PingInterval);
+
+            if (_perception != null)
+                _perception.ResetEpisode();
 
             // Registra de imediato o nó do spawn: sem isto o primeiro nó do episódio pagaria
             // recompensa de descoberta por o agente simplesmente ter nascido em cima dele.
             _memory.Tick(transform.position);
             _memory.ClearStepFlags();
+
+            _hadFrontierAtLastDecision = _memory.HasFrontier;
+            _frontierDistanceAtLastDecision = _memory.FrontierDistance;
+            RememberFrontierApproach();
+            RememberPing();
+            RememberHider();
+
+            _memory.FrontierHintVisible = CurrentFrontierHint > 0f;
         }
 
         // A memória é amostrada a cada step de FÍSICA. Com Decision Period > 1 o agente percorre
@@ -227,6 +279,13 @@ namespace Assets.Scripts.Graph
                 return;
 
             _memory.Tick(transform.position);
+
+            // Depois da memória: a chegada ao ping é "o nó âncora virou o nó do ping".
+            if (_ping != null)
+                _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps);
+
+            if (_perception != null)
+                _perception.Tick(transform);
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -255,17 +314,43 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(CurrentCoverage);
             sensor.AddObservation(0f);
 
-            // ---- Reservado: fronteira (4), alerta (3) e visão (5) ----
-            // Zeros. Ficam ANTES dos vizinhos para que o bloco de vizinhos continue no fim do
-            // vetor: assim, mudar _neighborSlots no futuro não desloca o significado de nenhuma
-            // posição anterior.
-            for (int i = 0; i < ReservedFrontierObservations + ReservedAlertObservations + ReservedVisionObservations; i++)
-                sensor.AddObservation(0f);
+            // ---- Fronteira (4) ----
+            float hint = CurrentFrontierHint;
+            bool showFrontier = _memory.HasFrontier && hint > 0f && _memory.FrontierNextStep >= 0;
 
-            // ---- Vizinhos (6 x _neighborSlots) ----
-            // O valor de cada saída é calculado aqui, uma vez por DECISÃO (é uma BFS por vizinho),
-            // e lido slot a slot abaixo. O gizmo rosa da memória mostra os mesmos números.
-            _memory.ScoreExits();
+            // O gizmo acompanha o que a rede recebe: seta no desenho = seta na observação.
+            _memory.FrontierHintVisible = hint > 0f;
+
+            AddDirectionAndDistance(
+                sensor,
+                position,
+                showFrontier ? _graph.NodePosition(_memory.FrontierNextStep) : position,
+                showFrontier);
+
+            // Distância em ARESTAS até o alvo: diz se a fronteira é "logo ali" ou "do outro lado
+            // do mapa", informação que a direção sozinha não carrega.
+            sensor.AddObservation(showFrontier ? Mathf.Clamp01((float)_memory.FrontierDistance / _maxGraphDistance) : 0f);
+
+            // ---- Ping (3) ----
+            // Ativo, distância em arestas (mesmo normalizador da fronteira) e quente/frio. Sem
+            // direção de propósito: a política descobre por qual saída a distância cai lendo o
+            // quente/frio a cada troca de nó — dado, não resposta.
+            bool pingActive = _ping != null && _ping.IsActive;
+            sensor.AddObservation(pingActive ? 1f : 0f);
+            sensor.AddObservation(pingActive ? Mathf.Clamp01((float)_ping.Distance / _maxGraphDistance) : 0f);
+            sensor.AddObservation(pingActive ? _ping.HotCold : 0f);
+
+            // ---- Visão (5) ----
+            // Vendo, já viu, e direção + distância à ÚLTIMA POSIÇÃO VISTA (a atual enquanto vê;
+            // congelada ao perder — é para lá que ele vai procurar). Fica ANTES dos vizinhos
+            // para que o bloco de vizinhos continue no fim do vetor.
+            bool seeing = _perception != null && _perception.IsSeeing;
+            bool hasSeen = _perception != null && _perception.HasSeen;
+            sensor.AddObservation(seeing ? 1f : 0f);
+            sensor.AddObservation(hasSeen ? 1f : 0f);
+            AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
+
+            // ---- Vizinhos (5 x _neighborSlots) ----
             FillNeighborBuffer(current);
 
             for (int slot = 0; slot < _neighborSlots; slot++)
@@ -287,7 +372,11 @@ namespace Assets.Scripts.Graph
                 int neighbor = _neighborBuffer[slot];
                 AddDirectionAndDistance(sensor, position, _graph.NodePosition(neighbor), true);
                 sensor.AddObservation(_memory.IsVisited(neighbor) ? 1f : 0f);
-                sensor.AddObservation(_memory.ExitScore(neighbor));
+
+                // Quanto vale esta saída, relativo ao nó mais valioso do episódio. Sem isto a
+                // variação de peso do currículo (weight_jitter) seria só ruído na recompensa —
+                // um sinal que a rede não pode usar não ensina nada.
+                sensor.AddObservation(_memory.NormalizedEpisodeWeight(neighbor));
                 sensor.AddObservation(1f);
             }
         }
@@ -380,7 +469,16 @@ namespace Assets.Scripts.Graph
 
             // Consumidas depois de cobradas. A memória volta a acumular a partir do próximo
             // step de física.
+            _hadFrontierAtLastDecision = _memory.HasFrontier;
+            _frontierDistanceAtLastDecision = _memory.FrontierDistance;
+            RememberFrontierApproach();
+            RememberPing();
+            RememberHider();
             _memory.ClearStepFlags();
+            if (_ping != null)
+                _ping.ClearStepFlags();
+            if (_perception != null)
+                _perception.ClearStepFlags();
             _touchingWall = false;
 
             Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
@@ -400,15 +498,110 @@ namespace Assets.Scripts.Graph
 
         private GraphStepContext BuildStepContext()
         {
+            // O delta só é comparável quando os dois lados mediram a distância até o mesmo
+            // alvo. Ao visitar um nó novo a fronteira salta para outro lugar do mapa, e sem
+            // este cuidado o shaping cobraria como retrocesso exatamente o step em que o agente
+            // acertou. A descoberta já é paga pelo _newNodeReward; aqui o termo se cala.
+            bool frontierComparable =
+                _hadFrontierAtLastDecision && _memory.HasFrontier && !_memory.EnteredNewNode;
+
+            int delta = frontierComparable
+                ? _frontierDistanceAtLastDecision - _memory.FrontierDistance
+                : 0;
+
+            // Aproximação em metros do próximo passo da fronteira. Aqui a porteira é OUTRA: não
+            // interessa se o agente entrou num nó novo, e sim se os dois steps mediram a
+            // distância até o MESMO nó. Enquanto o alvo não muda, cada centímetro andado na
+            // direção dele conta — é isso que dá gradiente no meio de uma aresta longa, onde o
+            // delta em arestas acima vale zero do começo ao fim da travessia.
+            int frontierNextStep = FrontierNextStepOrNone();
+
+            bool approachComparable =
+                frontierNextStep >= 0 && frontierNextStep == _frontierNextStepAtLastDecision;
+
+            float approachDelta = approachComparable
+                ? _frontierApproachDistanceAtLastDecision - PlanarDistanceToNode(frontierNextStep)
+                : 0f;
+
+            bool hiderComparable =
+                _perception != null && _perception.IsSeeing && _wasSeeingAtLastDecision;
+
+            float hiderDelta = hiderComparable ? _hiderDistanceAtLastDecision - _perception.CurrentDistance : 0f;
+
+            bool pingComparable =
+                _ping != null && _ping.IsActive && _ping.TargetNode == _pingTargetAtLastDecision;
+
+            int pingDelta = pingComparable ? _pingDistanceAtLastDecision - _ping.Distance : 0;
+
             return new GraphStepContext(
                 _maxEpisodeSteps,
                 _memory.EnteredNewNode,
                 _memory.EnteredNewNodeValue,
-                _memory.NewEdgeCount,
+                _memory.TraversedNewEdge,
                 _memory.ChangedNode,
                 _memory.CurrentNodeVisitCount,
+                delta,
+                frontierComparable,
+                approachDelta,
+                approachComparable,
                 _memory.StepsSinceNewNode,
-                _touchingWall);
+                _touchingWall,
+                CurrentFrontierHint,
+                pingDelta,
+                pingComparable,
+                _ping != null && _ping.Reached,
+                _ping != null && _ping.Missed,
+                _perception != null && _perception.Spotted,
+                hiderDelta,
+                hiderComparable);
+        }
+
+        // Visão na decisão anterior: via, e a que distância. O delta de aproximação só é
+        // comparável quando VIA nas duas decisões — ganhar ou perder visão faz a distância
+        // medida saltar, e isso não é o agente andando.
+        private bool _wasSeeingAtLastDecision;
+        private float _hiderDistanceAtLastDecision;
+
+        private void RememberHider()
+        {
+            _wasSeeingAtLastDecision = _perception != null && _perception.IsSeeing;
+            _hiderDistanceAtLastDecision = _wasSeeingAtLastDecision ? _perception.CurrentDistance : 0f;
+        }
+
+        // Ping na decisão anterior: qual nó tocava e a que distância em arestas. O delta só é
+        // comparável quando é o MESMO ping nas duas decisões — ao chegar (ou expirar) o alvo
+        // some, e um ping novo em outro lugar do mapa faria a distância saltar.
+        private int _pingTargetAtLastDecision = -1;
+        private int _pingDistanceAtLastDecision;
+
+        private void RememberPing()
+        {
+            _pingTargetAtLastDecision = _ping != null && _ping.IsActive ? _ping.TargetNode : -1;
+            _pingDistanceAtLastDecision = _ping != null ? _ping.Distance : 0;
+        }
+
+        /// <summary>
+        /// Próximo passo do caminho até o não-visitado mais próximo, ou -1 quando não há
+        /// fronteira. O peso da lição NÃO entra aqui: quem zera o shaping é a multiplicação por
+        /// FrontierRewardScale na recompensa, num lugar só.
+        /// </summary>
+        private int FrontierNextStepOrNone() => _memory.HasFrontier ? _memory.FrontierNextStep : -1;
+
+        // Planar (X/Z), pela mesma razão que FindNodeAt é planar: o mapa tem um andar só, e a
+        // diferença de altura entre o agente e o nó entraria no cálculo como distância que
+        // nenhuma ação consegue reduzir — um piso constante que só faria diluir o sinal.
+        private float PlanarDistanceToNode(int node)
+        {
+            Vector3 delta = _graph.NodePosition(node) - transform.position;
+            return new Vector2(delta.x, delta.z).magnitude;
+        }
+
+        private void RememberFrontierApproach()
+        {
+            _frontierNextStepAtLastDecision = FrontierNextStepOrNone();
+            _frontierApproachDistanceAtLastDecision = _frontierNextStepAtLastDecision >= 0
+                ? PlanarDistanceToNode(_frontierNextStepAtLastDecision)
+                : 0f;
         }
 
         // Encostar em parede é condição contínua: OnCollisionStay dispara uma vez por step POR
@@ -430,7 +623,6 @@ namespace Assets.Scripts.Graph
         {
             _episodeEnding = true;
             _arenaController.ShowOutcome(covered);
-            RecordExplorationStats(covered);
 
             float delay = _arenaController.EpisodeEndDelay;
             if (delay <= 0f)
@@ -446,33 +638,6 @@ namespace Assets.Scripts.Graph
         {
             yield return new WaitForSeconds(delay);
             EndEpisode();
-        }
-
-        /// <summary>
-        /// Métricas de EXPLORAÇÃO, separadas da recompensa. "Cumulative Reward" mistura shaping
-        /// com objetivo e muda a cada ajuste de peso ou de lição; estas três medem o
-        /// comportamento e valem para comparar runs com funções de recompensa diferentes:
-        ///   Exploration/Coverage         cobertura ao fim do episódio (a medida da lição)
-        ///   Exploration/RevisitRatio     chegadas repetidas / chegadas a primários — vai-e-vem
-        ///   Exploration/NewNodesPerMin   primários inéditos por minuto simulado — ritmo
-        ///   Exploration/StepsToTarget    steps até bater o alvo, só nos episódios que bateram
-        /// Aparecem no TensorBoard junto das do ambiente.
-        /// </summary>
-        private void RecordExplorationStats(bool covered)
-        {
-            StatsRecorder stats = Academy.Instance.StatsRecorder;
-
-            stats.Add("Exploration/Coverage", CurrentCoverage);
-
-            int arrivals = _memory.PrimaryArrivalCount;
-            int fresh = _memory.VisitedNodeCount;
-            stats.Add("Exploration/RevisitRatio", arrivals > 0 ? (float)(arrivals - fresh) / arrivals : 0f);
-
-            float minutes = Mathf.Max(1, _elapsedSteps) * Time.fixedDeltaTime / 60f;
-            stats.Add("Exploration/NewNodesPerMin", fresh / minutes);
-
-            if (covered)
-                stats.Add("Exploration/StepsToTarget", _elapsedSteps);
         }
 
 #if ENABLE_LEGACY_INPUT_MANAGER

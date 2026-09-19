@@ -2242,8 +2242,6 @@ MonoBehaviour:
   _neighbors:
   - {fileID: 5773450068470662910}
   - {fileID: 4956689210872196204}
-  - {fileID: 1629186280299769096}
-  - {fileID: 3502086390524960164}
   - {fileID: 7571551006496463440}
   _isEnabled: 1
   _explorationWeight: 1
@@ -5934,8 +5932,8 @@ MonoBehaviour:
   - {fileID: 802687728208168476}
   _makeLinksBidirectional: 1
   _nodeShape: 1
-  _defaultPrimaryRadius: 2.5
-  _defaultAuxiliaryRadius: 4
+  _defaultPrimaryRadius: 1.8
+  _defaultAuxiliaryRadius: 3
   _wallLayer:
     serializedVersion: 2
     m_Bits: 8
@@ -7958,6 +7956,8 @@ GameObject:
   - component: {fileID: 1159168535825041567}
   - component: {fileID: 6583427386879920861}
   - component: {fileID: 5671401481180252512}
+  - component: {fileID: 3822618179227723690}
+  - component: {fileID: 7732597228175512733}
   - component: {fileID: 8931499701957978793}
   - component: {fileID: 1010543490052302810}
   - component: {fileID: 6434343598585392075}
@@ -8109,6 +8109,40 @@ MonoBehaviour:
   rayMissColor: {r: 1, g: 1, b: 1, a: 1}
   m_StartVerticalOffset: 0
   m_EndVerticalOffset: 0
+--- !u!114 &7732597228175512733
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4540265889889625727}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f80e185871914ab380bab4f4a53e2103, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _defaultInterval: 0
+  _duration: 3000
+  _minDistance: 2
+  _firstPingDelay: 1000
+  _drawGizmos: 1
+--- !u!114 &3822618179227723690
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4540265889889625727}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e400d7c82eeb42c5922e87e269b84474, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  _viewAngle: 100
+  _viewDistance: 15
+  _eyeHeight: 0.5
+  _respotCooldownSteps: 250
+  _hider: {fileID: 0}
 --- !u!114 &8931499701957978793
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8129,9 +8163,10 @@ MonoBehaviour:
   _rewardSystem: {fileID: 6434343598585392075}
   _movementSystem: {fileID: 3718653896442034650}
   _arenaController: {fileID: 7022944098350372843}
+  _ping: {fileID: 0}
   _coverageMeasure: 1
   _neighborSlots: 8
-  _maxNodeDistance: 25
+  _maxNodeDistance: 35
   _maxGraphDistance: 25
   _maxEpisodeSteps: 8000
 --- !u!114 &1010543490052302810
@@ -8153,6 +8188,7 @@ MonoBehaviour:
   _drawTraversedEdges: 1
   _drawFrontier: 1
   _heatSaturationVisits: 5
+  _frontierCandidates: 3
 --- !u!114 &6434343598585392075
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8175,6 +8211,9 @@ MonoBehaviour:
   _fullCoverageReward: 5
   _frontierProgressReward: 0.05
   _frontierApproachReward: 0.02
+  _pingApproachReward: 0.1
+  _pingReachedReward: 2
+  _pingMissedPenalty: 0.5
 --- !u!114 &3718653896442034650
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11843,8 +11882,168 @@ Transform:
   - {fileID: 8256658587185069704}
   - {fileID: 3910263203433521127}
   - {fileID: 1894008197739875463}
+  - {fileID: 8942113477724776213}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &4871833921887533904
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8942113477724776213}
+  - component: {fileID: 3184029977906981389}
+  - component: {fileID: 6163805076464215277}
+  - component: {fileID: 5419715651103582040}
+  - component: {fileID: 4080689428657742872}
+  - component: {fileID: 5060532377192169796}
+  m_Layer: 0
+  m_Name: Hider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8942113477724776213
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.15, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5332903673734306003}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &3184029977906981389
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &6163805076464215277
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!136 &5419715651103582040
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.5
+  m_Height: 2
+  m_Direction: 1
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!54 &4080689428657742872
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  serializedVersion: 4
+  m_Mass: 1
+  m_Drag: 0
+  m_AngularDrag: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 0
+  m_IsKinematic: 1
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
+--- !u!114 &5060532377192169796
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4871833921887533904}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ece04260f69640b684e2763f72bfbf99, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  _speed: 1
+  _arriveDistance: 0.4
+  _maxPauseSteps: 100
+  _heightOffset: 0.15
+  _fleeRadius: 12
+  _minSpawnDistance: 6
+  _graph: {fileID: 1091057477462006450}
+  _seeker: {fileID: 8256658587185069704}
 --- !u!114 &7022944098350372843
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11876,6 +12075,14 @@ MonoBehaviour:
   _defaultFrontierHint: 1
   _frontierStepsParameterName: frontier_hint_steps
   _defaultFrontierHintSteps: 0
+  _previsitedParameterName: previsited_fraction
+  _defaultPrevisitedFraction: 0
+  _weightJitterParameterName: weight_jitter
+  _defaultWeightJitter: 0
+  _pingIntervalParameterName: ping_interval
+  _defaultPingInterval: 0
+  _spawnAtRandomNode: 1
+  _nodeSpawnHeightOffset: 0.15
   _randomizeSpawn: 1
   _episodeEndDelay: 0
 --- !u!1 &7179393840252376241
@@ -12027,7 +12234,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kind: 1
   _neighbors:
-  - {fileID: 3502086390524960164}
   - {fileID: 9008640063346942057}
   _isEnabled: 1
   _explorationWeight: 1

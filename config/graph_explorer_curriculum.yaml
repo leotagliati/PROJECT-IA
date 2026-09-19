@@ -34,56 +34,61 @@ behaviors:
       # Curiosity NAO usada: o bonus por no/aresta/area inedita do GraphRewardSystem faz o mesmo
       # trabalho de forma explicita, interpretavel e ajustavel no Inspector. Manter os dois
       # tornaria impossivel saber qual dos sinais causou qual comportamento.
-    keep_checkpoints: 5
-    max_steps: 6000000
+    # Run longo, deixado rodando sem supervisao: 30M steps sao ~30 h a ~270 steps/s (9 arenas;
+    # o run 11 fez 140k em 527 s). As cinco licoes so avancam por desempenho, entao o que sobra
+    # depois da ultima e refino. Os schedules lineares (lr, beta, epsilon) decaem sobre
+    # max_steps — com 30M eles ficam altos por mais tempo, o que e o certo para um curriculo
+    # com cinco licoes.
+    keep_checkpoints: 10
+    checkpoint_interval: 1000000
+    max_steps: 30000000
     time_horizon: 128     # o dobro do seeker: as recompensas aqui sao mais esparsas no tempo.
     summary_freq: 20000
 
 environment_parameters:
-  # ATENCAO: os DOIS parametros abaixo formam UMA licao conceitual cada (tres licoes), mas o
+  # ATENCAO: os OITO parametros abaixo formam UMA licao conceitual cada (cinco licoes), mas o
   # ML-Agents avalia o curriculo de cada parametro de forma independente. Os completion_criteria
-  # dos dois sao identicos de proposito — e a unica forma de garantir que avancem juntos. Se mexer
-  # num threshold, mexa no outro.
+  # dos oito sao identicos de proposito — e a unica forma de garantir que avancem juntos. Se
+  # mexer num threshold, mexa nos outros sete.
   #
   # POR QUE 'reward' E NAO 'progress' (a licao que o run 05 cobrou caro):
   # com 'progress' o threshold e fracao de max_steps, ou seja, RELOGIO. No run 05 as licoes
-  # viraram aos 500k, 980k e 1460k independentemente de desempenho. O agente foi promovido antes
-  # de estar pronto e a recompensa desabou de +15.1 para -3.0.
+  # viraram aos 500k, 980k e 1460k independentemente de desempenho — e a ultima cortou o
+  # frontier_hint de 0.5 direto para 0.0 num salto. A recompensa vinha subindo (-4.5 -> +15.1 aos
+  # 740k) e desabou para -3.0. O agente foi promovido antes de estar pronto e perdeu a muleta de
+  # uma vez.
   #
-  # NAO EXISTE MAIS A SETA (frontier_hint / frontier_hint_steps). Ela era um sinal DIRECIONAL —
-  # observacao "va por ali" + shaping por aproximacao — e o run 11 mostrou o resultado: a politica
-  # aprendia a seguir a seta e a decorar rotas, nao a explorar. No lugar dela:
-  #   - observacao: valor de cada SAIDA do no atual (inexplorado atras dela, descontado pela
-  #     distancia, relativo a melhor saida) — dado, nao resposta; fica ligado sempre;
-  #   - recompensa densa: aresta inedita, qualquer aresta, 0.02 — "andei por onde nunca andei",
-  #     sem direcao.
-  # Ver docs/graph/exploracao-local.md. Sem shaping direcional o comeco do treino e mais lento:
-  # se o reward nao descolar em ~300k steps, o plano B e um shaping NAO-direcional (potencial
-  # sobre o inexplorado descontado), nunca a seta de volta.
-  #
-  # OS THRESHOLDS SAO ESTIMATIVA, para a recompensa atual e o mapa atual do NodeTraining.prefab:
-  # 23 primarios de peso 1 (teto de cobertura 23 x 0.75 = 17.25), +5 de conclusao, 120 arestas
-  # x 0.02 = 2.4 de trajeto, ~-2 de penalidades. O threshold e avaliado DENTRO da licao que ele
-  # encerra, entao cada um e ~75% do teto daquela licao:
-  #   Quarter (alvo 0.3, pre 0.0):  5.2 + 5 + 0.6 - 1.5 ~=  9.3 -> threshold 7.0
-  #   Half    (alvo 0.6, pre 0.25): 7.8 + 5 + 1.2 - 2.0 ~= 12.0 -> threshold 9.5
-  #   Most    (alvo 0.9, pre 0.5):  7.8 + 5 + 1.5 - 2.5 ~= 11.8 -> licao final
-  # Rode 200k steps por licao, olhe "Environment/Lesson Number" e as metricas Exploration/* no
-  # TensorBoard e ajuste:
+  # OS THRESHOLDS SAO ESTIMATIVA, refeitos para a recompensa atual (peso por no, sem bonus de
+  # regiao) e para o mapa atual do NodeTraining.prefab: 23 primarios de peso 1 (teto de cobertura
+  # 23 x 0.75 = 17.25), +5 de conclusao, shaping de fronteira ~10 no mapa inteiro com hint 1.0,
+  # ~-2 de penalidades. O threshold e avaliado DENTRO da licao que ele encerra, entao cada um e
+  # ~75% do teto daquela licao — e o teto NAO cresce de licao em licao, porque os pre-visitados
+  # tiram renda ao mesmo tempo em que a cobertura-alvo sobe:
+  #   Quarter  (alvo 0.3, hint 1.0, pre 0.0):  5.2 + 5 + 3.0 - 1.5 ~= 11.7  -> threshold  8.5
+  #            (o run 11 mediu 11.25 aos 140k steps, batendo com a conta)
+  #   Half     (alvo 0.6, hint 0.7, pre 0.25): 7.8 + 5 + 3.1 - 2.0 ~= 13.9  -> threshold 10.5
+  #   Most     (alvo 0.9, hint 0.4, pre 0.5, seta so ate 4000): 7.8 + 5 + 0.9 - 2.5 ~= 11 -> 8.0
+  # Rode 200k steps por licao, olhe "Environment/Lesson Number" no TensorBoard e ajuste:
   #   - licao nao avanca nunca  -> threshold alto demais
   #   - avanca antes de a curva estabilizar -> threshold baixo demais
   # Errar para MAIS e mais seguro: ficar preso numa licao facil custa tempo, ser promovido cedo
   # custa a politica.
   #
-  # O que quebra a decoreba de rota (alem de nao haver mais seta):
+  # O QUE MUDOU EM RELACAO AO RUN 11 (que "aprendeu a seguir a linha roxa"): aquele run parou aos
+  # 140k, ainda na licao 1, onde seguir a seta E a tarefa. Mas mesmo com a seta apagando, dez spawns
+  # fixos + BFS deterministica = dez rotas para decorar. Tres coisas quebram a rota:
   #   1. spawn em no aleatorio (GraphArenaController._spawnAtRandomNode) — a origem varia;
-  #   2. previsited_fraction abaixo — o estado inicial varia.
+  #   2. previsited_fraction abaixo — o estado inicial varia;
+  #   3. a seta sorteia entre os 3 nao-visitados mais proximos (GraphExplorationMemory) — a
+  #      resposta "certa" varia.
   # A unica coisa constante em todos os episodios passa a ser a regra, e e ela que sobra.
 
   # Fracao do grafo que encerra o episodio em sucesso (lida pelo GraphArenaController).
   # Comeca baixa: um alvo de 100% desde o inicio faz TODO episodio terminar em timeout, e o
-  # agente nunca vê o sinal de conclusao. A fracao e sobre o que RESTA depois dos pre-visitados,
-  # entao 0.9 continua sendo 0.9 do que havia para descobrir.
+  # agente nunca vê o sinal de conclusao — ele passa o treino inteiro aprendendo so com o
+  # shaping, que e justamente a parte que voce quer poder desligar depois.
+  # A fracao e sobre o que RESTA depois dos pre-visitados, entao 0.9 continua sendo 0.9 do que
+  # havia para descobrir.
   coverage_target:
     curriculum:
       - name: Quarter
@@ -92,7 +97,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.0
+          threshold: 8.5
           require_reset: true
         value: 0.3
       - name: Half
@@ -101,29 +106,171 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 9.5
+          threshold: 10.5
           require_reset: true
         value: 0.6
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 0.9
       # 0.9, e nao 1.0: o ultimo no do mapa costuma custar tanto quanto os dez anteriores
       # juntos, e exigir cobertura perfeita transforma quase todo episodio bem-sucedido em
-      # fracasso por timeout. O objetivo e percorrer o mapa, nao varre-lo. Com pre 0.5 restam
-      # ~11 primarios e ele precisa de 10: se o Episode Length cravar em 1600 nesta licao, baixe
-      # para 0.8 ou os pre-visitados para 0.4.
-      - name: Most
+      # fracasso por timeout. O objetivo e percorrer o mapa, nao varre-lo.
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
         value: 0.9
+      - name: NoHint
+        value: 0.9
+
+  # Peso da dica de fronteira: escala a OBSERVACAO da direcao do nao-visitado mais proximo e o
+  # shaping de recompensa que a acompanha (os dois juntos, de proposito — sao a mesma muleta).
+  #
+  # Ela existe para o inicio do treino: sem nenhuma dica, o agente leva centenas de milhares de
+  # steps ate topar por acaso com uma sequencia de nos ineditos boa o bastante para o PPO
+  # notar. Com a dica, ele aprende rapido a NAVEGAR (seguir um rumo, atravessar porta, contornar
+  # parede) e so depois precisa aprender a DECIDIR o rumo sozinho.
+  #
+  # Por isso ela cai no fim: uma politica treinada com a dica ligada o tempo todo aprende a
+  # seguir a seta, e no cenario final essa seta pode nao existir. As ultimas licoes tiram a
+  # muleta enquanto o resto do comportamento ja esta formado.
+  #
+  # A ESCADA E SUAVE (1.0 -> 0.7 -> 0.4 -> 0.2), e nao 1.0 -> 0.5 -> 0.0. No run 05 o corte de
+  # 0.5 para 0.0 tirou de uma vez os DOIS termos de fronteira — inclusive o _frontierApproachReward,
+  # que e o unico sinal denso que existe durante uma travessia. A recompensa caiu de +15.1 para
+  # -3.0. Parte disso e mecanico (a renda some junto com a muleta), mas o Episode Length ficou
+  # cravado em 799 dali em diante: ele parou de concluir episodio.
+  #
+  # Passa por 0.2 antes de chegar a 0.0: um fio de sinal denso mantem o gradiente vivo durante
+  # a travessia enquanto a politica termina de aprender a decidir pelos vizinhos (visitado, peso,
+  # direcao) e pela cobertura. A ULTIMA licao (NoHint) e a seta em ZERO de verdade — observacao,
+  # shaping e gizmo — e e nela que o run longo passa a maior parte do tempo: e o comportamento
+  # que vai para o jogo. Se a recompensa desabar ao entrar em NoHint e nao recuperar em ~1M
+  # steps, o threshold de MostFadedHint promoveu cedo; suba-o (nos QUATRO parametros).
+  frontier_hint:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 1.0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0.7
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 0.4
+      - name: MostFadedHint
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.2
+      - name: NoHint
+        value: 0.0
+
+  # DURACAO da dica dentro de cada episodio, em steps de FISICA (lida pelo GraphArenaController).
+  # 0 = o episodio inteiro. Depois do limite a dica vai a ZERO de verdade — observacao, shaping e
+  # gizmo — e o agente termina o episodio sozinho.
+  #
+  # E o segundo eixo da muleta. O frontier_hint acima diz QUANTO confiar na seta; este diz POR
+  # QUANTO TEMPO ela existe. A vantagem de cortar a duracao em vez da forca: a politica ve os dois
+  # regimes (com e sem seta) dentro do MESMO episodio, entao a transicao acontece num estado que
+  # ela ja conhece — no run 05, cortar a forca para 0.0 entre duas licoes tirou a muleta de uma vez
+  # e a recompensa caiu de +15.1 para -3.0.
+  #
+  # Unidade: com _maxEpisodeSteps = 8000 e timestep 0.02, 8000 steps = 160 s de episodio.
+  #   6000 = a seta some nos ultimos 40 s (o agente ja esta longe do spawn, fecha o mapa sozinho)
+  #   4000 = metade do episodio com seta, metade sem
+  #   2000 = so os primeiros 40 s: o bastante para sair da sala inicial e pegar um rumo
+  # As duas primeiras licoes ficam em 0 (sem limite): la o agente ainda esta aprendendo a
+  # NAVEGAR, e tirar a seta antes disso so adicionaria ruido. Os valores sao ponto de partida —
+  # se o Episode Length subir e a recompensa cair na licao em que o limite entra, o corte foi
+  # cedo demais; suba o numero.
+  frontier_hint_steps:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 4000
+      - name: MostShortHint
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 2000
+      # Sem seta, a duracao nao importa; 0 so para nao cortar nada que nao existe.
+      - name: NoHint
+        value: 0
 
   # Fracao dos PRIMARIOS que ja nasce marcada como visitada, sorteada a cada episodio (lida pelo
   # GraphArenaController, aplicada pela GraphExplorationMemory). E a variacao de ESTADO INICIAL:
   # o agente nasce no meio de uma exploracao diferente a cada episodio, ve os pre-visitados como
-  # visitados (flag do vizinho, valor das saidas) e so e pago pelo que resta.
+  # visitados (flag do vizinho, BFS da fronteira) e so e pago pelo que resta.
   #
   # E o que impede a politica de decorar "a partir daqui, vira a esquerda, depois a segunda porta":
   # com metade do mapa ja marcada de forma aleatoria, a sequencia certa muda toda vez, e a unica
-  # coisa que funciona em todos os episodios e olhar as saidas — que e a regra.
+  # coisa que funciona em todos os episodios e olhar a flag "visitado" das saidas — que e a regra.
   #
   # Zero na primeira licao de proposito: ali ele ainda esta aprendendo a andar ate um no, e
-  # variar o estado inicial antes disso so deixa o sinal mais raro. Nao passa de 0.5 porque com
-  # quase tudo pre-visitado o episodio vira "ache o unico no que falta", que e outra tarefa.
+  # variar o estado inicial antes disso so deixa o sinal mais raro. Sobe para 0.25 e depois 0.5;
+  # nao passa de 0.5 porque com quase tudo pre-visitado o episodio vira "ache o unico no que
+  # falta", que e outra tarefa (e o teto e 0.9 no GraphArenaController).
   previsited_fraction:
     curriculum:
       - name: Quarter
@@ -132,7 +279,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.0
+          threshold: 8.5
           require_reset: true
         value: 0.0
       - name: Half
@@ -141,8 +288,234 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 9.5
+          threshold: 10.5
           require_reset: true
         value: 0.25
       - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
         value: 0.5
+      - name: MostPrevisited
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.5
+      - name: NoHint
+        value: 0.5
+
+  # VARIACAO DO PESO dos nos por episodio (lida pelo GraphArenaController, aplicada pela
+  # GraphExplorationMemory): cada no vale autorado x U[1 - j, 1 + j], sorteado a cada episodio.
+  # O peso do vizinho esta na OBSERVACAO (slot 5 de cada vizinho, relativo ao no mais valioso
+  # do episodio), entao a politica tem como preferir a saida que vale mais — e com a variacao
+  # ela e obrigada a LER esse numero em vez de decorar "aquela sala paga mais".
+  #
+  # A soma esperada dos pesos nao muda (fator de media 1), entao os thresholds acima nao
+  # precisam de ajuste. Zero na primeira licao: ali ele ainda esta aprendendo a chegar num no.
+  # 0.5 = um no vai de metade ao dobro entre episodios; nao passa disso porque acima o peso
+  # deixa de ter relacao com a autoria e vira sorteio puro.
+  weight_jitter:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0.0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0.25
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 0.5
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.5
+      - name: NoHint
+        value: 0.5
+
+  # PING: um primario "toca" e o agente tem que ir ate ele (GraphPingSystem). COM HIDER ligado
+  # (hider_mode abaixo), os pings sao os PASSOS DO HIDER — toda chegada dele num primario toca
+  # ali — e este intervalo e ignorado. Sem hider, vale o sorteio: valor = steps de FISICA entre
+  # um ping aleatorio e o proximo (0.5x-1.5x); 0 = sem ping. Cada ping dura 3000 steps (60 s).
+  #
+  # O agente recebe: ativo, distancia em ARESTAS, quente/frio (a ultima troca de no aproximou
+  # ou afastou). NAO recebe direcao — ele descobre por qual saida a distancia cai. Paga por
+  # aresta de aproximacao (0.1), +2.0 ao chegar, -0.5 se expirar. O ping NAO escala com a
+  # licao: e objetivo, nao muleta.
+  #
+  # Desligado nas duas primeiras licoes: ali ele ainda esta aprendendo a explorar, e ser
+  # interrompido antes disso so atrapalha. Liga na Most (a cada ~4000 steps = ate 2 por
+  # episodio) e aperta nas ultimas (~2000 = ate 4). Teto de renda do ping por episodio:
+  # 4 x (2.0 + ~1.0) = +12, da ordem da cobertura (17) — atender o ping vale a pena, mas
+  # explorar continua sendo a maior fonte. Com o ping ligado o reward medio SOBE (renda nova):
+  # os thresholds das licoes 2 e 3 (8.0 / 7.5) foram calculados sem ele, entao a promocao
+  # tende a vir mais cedo — se a Most passar em menos de 200k steps, suba os dois para ~11 / ~10
+  # (nos seis parametros).
+  ping_interval:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 4000
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 2000
+      - name: NoHint
+        value: 2000
+
+  # HIDER scriptado (GraphHider, um por arena): 0 nenhum, 1 parado, 2 anda pelo grafo, 3 foge
+  # (escolhe a saida que mais aumenta a distancia em arestas quando o seeker chega a 12 m).
+  # E a presa contra a qual o SEEKER treina; ele nao aprende nada — self-play produziria dois
+  # comportamentos estranhos que so funcionam um contra o outro, e voce perderia a regua.
+  #
+  # O seeker NUNCA recebe a posicao do hider: recebe os pings dos passos dele (ativo, distancia
+  # em arestas, quente/frio). Etapa 1 da perseguicao = seguir o rastro. A visao em cone (slots
+  # [16..20]) e a captura vem na etapa 2.
+  #
+  # Nasce a >= 6 arestas do seeker, anda a 3.5 m/s (seeker: 5), para 0-100 steps em cada no.
+  # Desligado nas licoes 0-1 (o seeker aprende a explorar primeiro); anda nas licoes 2-3; foge
+  # na ultima. O reward com hider tem a renda do ping (ate ~12/episodio) — ver nota acima sobre
+  # os thresholds das licoes 2-3.
+  hider_mode:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 2
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 2
+      - name: NoHint
+        value: 3
+
+  # VELOCIDADE do hider (m/s). Comeca em 1.0 e sobe ate 3.2 — sempre abaixo do seeker (5.0):
+  # o seeker aprende a seguir o rastro e a VER o hider (GraphHiderPerception: cone de 100
+  # graus, 15 m; +0.5 ao avistar, 0.05/m de aproximacao enquanto ve) antes de precisar correr.
+  hider_speed:
+    curriculum:
+      - name: Quarter
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: Half
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.5
+          require_reset: true
+        value: 0
+      - name: Most
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 8.0
+          require_reset: true
+        value: 1.0
+      - name: MostFaded
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 2.0
+      - name: NoHint
+        value: 3.2

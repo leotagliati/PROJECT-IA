@@ -28,7 +28,7 @@ namespace Assets.Scripts.Graph
 
     /// <summary>
     /// Consolida os <see cref="NavNode"/> de UMA arena num grafo consultável: índices,
-    /// adjacência, pesos, áreas e o valor descontado atrás de cada saída. É estrutura do mapa, não estado de agente — o que
+    /// adjacência, pesos, áreas e busca em largura. É estrutura do mapa, não estado de agente — o que
     /// o agente já visitou mora na <see cref="GraphExplorationMemory"/>, uma por agente.
     ///
     /// Existe um NavGraph por cópia da arena; os índices são locais a ele, então nove arenas na
@@ -60,9 +60,6 @@ namespace Assets.Scripts.Graph
         //   - pequeno demais: ele passa reto e a visita nunca é registrada.
         // Ponto de partida: metade da MENOR aresta entre dois primários, nunca menor que o raio
         // do corpo do agente. O aviso do bake mede exatamente isso.
-        // No NodeTraining atual o primário mais próximo de outro está a 8.15 m, então até 4.0
-        // não sobrepõe; o prefab usa 2.5 — folga para o agente a 0.1 m/step não passar reto,
-        // ainda bem abaixo do limite.
         [FormerlySerializedAs("_defaultNodeRadius")]
         [SerializeField] private float _defaultPrimaryRadius = 1.8f;
 
@@ -71,9 +68,6 @@ namespace Assets.Scripts.Graph
         // nunca fique sem âncora no meio de um corredor. Por isso o aviso de sobreposição do
         // bake ignora arestas que envolvem auxiliar — aqui não há nada a proteger.
         // Ponto de partida: um pouco acima do espaçamento da cadeia dividido por dois.
-        // No NodeTraining atual a aresta mediana é 7.4 m e 100 das 120 arestas deixavam um
-        // buraco entre as áreas com raio 3; o prefab usa 4 (quadrado de 8 m), que fecha o
-        // buraco em toda aresta até 8 m.
         [SerializeField] private float _defaultAuxiliaryRadius = 3f;
 
         [Header("-----Checagem de parede-----")]
@@ -125,11 +119,14 @@ namespace Assets.Scripts.Graph
         private bool _isBaked;
 
         // Rascunho da BFS, alocado uma vez. O carimbo evita limpar o array de visitados a cada
-        // busca — a BFS roda uma vez por saída por decisão, por agente.
+        // busca — a BFS roda uma vez por step de física, por agente.
         private int[] _bfsQueue;
+        private int[] _bfsParent;
         private int[] _bfsDepth;
         private int[] _bfsStampOf;
+        private int[] _bfsCandidates;
         private int _bfsStamp;
+        private int _bfsCount;
 
         public LayerMask WallLayer => _wallLayer;
 
@@ -196,8 +193,10 @@ namespace Assets.Scripts.Graph
             BuildAdjacency();
 
             _bfsQueue = new int[_nodes.Count];
+            _bfsParent = new int[_nodes.Count];
             _bfsDepth = new int[_nodes.Count];
             _bfsStampOf = new int[_nodes.Count];
+            _bfsCandidates = new int[_nodes.Count];
 
             _isBaked = true;
 
@@ -384,45 +383,99 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Peso NÃO-VISITADO alcançável entrando por <paramref name="via"/> a partir de
-        /// <paramref name="from"/>, com cada nó descontado por <paramref name="decay"/>^distância
-        /// (via = distância 0). A busca NÃO passa por from: o que está do outro lado do nó
-        /// atual pertence a outra saída.
+        /// BFS a partir de <paramref name="from"/> até um nó primário ativo ainda não visitado,
+        /// SORTEADO entre os <paramref name="candidates"/> mais próximos. Devolve o alvo, o
+        /// PRIMEIRO PASSO do caminho (que é o que interessa para observação e shaping) e a
+        /// distância em arestas.
         ///
-        /// É o "valor de cada porta" da observação: a resposta para "o que tem atrás desta
-        /// saída?" que uma pessoa que conhece o prédio daria — sem ninguém dizer para onde ir.
-        /// O desconto faz o perto pesar mais que o longe, mas nunca zera: num beco cujas
-        /// saídas estão todas visitadas, a que leva de volta ao inexplorado ainda pontua mais
-        /// que as outras. É o que substitui a antiga seta de fronteira sem entregar um caminho.
+        /// Distância em arestas, e não euclidiana: é justamente a diferença que faz o sinal
+        /// funcionar num mapa com paredes. Contornar uma sala para chegar a uma porta aumenta a
+        /// distância em linha reta e diminui a de grafo — a segunda é a que descreve progresso.
         ///
-        /// Ciclos curtos podem contar o mesmo nó para duas saídas. Aceitável: a observação é
-        /// comparativa entre saídas, e as duas contariam o mesmo — o empate é a resposta certa.
+        /// POR QUE SORTEAR e não pegar sempre o mais próximo: "o não-visitado mais próximo" é
+        /// determinístico, então de um mesmo spawn a seta desenha SEMPRE a mesma rota — e a
+        /// política aprende a rota, não a regra. Com candidates = 1 o comportamento antigo volta.
         /// </summary>
-        public float DiscountedUnvisitedBeyond(int from, int via, float decay, bool[] visited)
+        public bool TryFindNearestUnvisited(int from, bool[] visited, int candidates, out int target, out int nextStep, out int graphDistance)
         {
-            if (via < 0 || via >= _nodes.Count || !_nodes[via].IsEnabled)
-                return 0f;
+            target = -1;
+            nextStep = -1;
+            graphDistance = 0;
 
+            if (from < 0 || from >= _nodes.Count || !_nodes[from].IsEnabled)
+                return false;
+
+            RunBfs(from);
+
+            // A fila da BFS já está em ordem de distância, então os k primeiros alvos válidos
+            // nela SÃO os k mais próximos — basta varrê-la e sortear entre eles.
+            //
+            // O ALVO tem que ser primário — um nó de malha não vale nada, e apontar a fronteira
+            // para ele mandaria o agente "explorar" um pedaço de corredor que não paga e não
+            // conta para cobertura. O CAMINHO continua atravessando auxiliares normalmente.
+            int found = 0;
+            int limit = Mathf.Max(1, candidates);
+            for (int i = 0; i < _bfsCount && found < limit; i++)
+            {
+                int node = _bfsQueue[i];
+                if (node == from || visited[node] || !_nodes[node].IsPrimary)
+                    continue;
+
+                _bfsCandidates[found++] = node;
+            }
+
+            if (found == 0)
+                return false;
+
+            target = _bfsCandidates[Random.Range(0, found)];
+            graphDistance = _bfsDepth[target];
+            nextStep = FirstStepTowards(from, target);
+            return true;
+        }
+
+        /// <summary>
+        /// Caminho mais curto até um alvo JÁ ESCOLHIDO. É o que mantém a seta fixa num alvo
+        /// entre dois sorteios: sem isto, cada troca de nó re-sortearia e a seta ficaria
+        /// piscando entre candidatos. Falha se o alvo ficou inalcançável.
+        /// </summary>
+        public bool TryFindPathTo(int from, int target, out int nextStep, out int graphDistance)
+        {
+            nextStep = -1;
+            graphDistance = 0;
+
+            if (from < 0 || from >= _nodes.Count || target < 0 || target >= _nodes.Count || from == target)
+                return false;
+
+            if (!_nodes[from].IsEnabled || !_nodes[target].IsEnabled)
+                return false;
+
+            RunBfs(from);
+
+            if (_bfsStampOf[target] != _bfsStamp)
+                return false;
+
+            graphDistance = _bfsDepth[target];
+            nextStep = FirstStepTowards(from, target);
+            return true;
+        }
+
+        // Expansão completa a partir de from, só por nós ativos. Deixa em _bfsQueue[0.._bfsCount)
+        // os alcançáveis em ordem de distância e em _bfsParent/_bfsDepth o caminho de cada um.
+        private void RunBfs(int from)
+        {
             _bfsStamp++;
 
             int head = 0;
             int tail = 0;
-            float total = 0f;
 
-            // from carimbado sem entrar na fila: é a parede que separa esta saída das outras.
-            if (from >= 0 && from < _nodes.Count)
-                _bfsStampOf[from] = _bfsStamp;
-
-            _bfsQueue[tail++] = via;
-            _bfsStampOf[via] = _bfsStamp;
-            _bfsDepth[via] = 0;
+            _bfsQueue[tail++] = from;
+            _bfsStampOf[from] = _bfsStamp;
+            _bfsParent[from] = -1;
+            _bfsDepth[from] = 0;
 
             while (head < tail)
             {
                 int current = _bfsQueue[head++];
-
-                if (!visited[current])
-                    total += NodeWeight(current) * Mathf.Pow(decay, _bfsDepth[current]);
 
                 foreach (int neighbor in _adjacency[current])
                 {
@@ -430,14 +483,24 @@ namespace Assets.Scripts.Graph
                         continue;
 
                     _bfsStampOf[neighbor] = _bfsStamp;
+                    _bfsParent[neighbor] = current;
                     _bfsDepth[neighbor] = _bfsDepth[current] + 1;
                     _bfsQueue[tail++] = neighbor;
                 }
             }
 
-            return total;
+            _bfsCount = tail;
         }
 
+        // Volta pelos pais até o nó imediatamente após a origem. Só vale logo após RunBfs(from).
+        private int FirstStepTowards(int from, int target)
+        {
+            int step = target;
+            while (_bfsParent[step] != from && _bfsParent[step] != -1)
+                step = _bfsParent[step];
+
+            return step;
+        }
 
         /// <summary>
         /// O segmento entre dois pontos passa livre? Usado pelo gizmo de validação e pela

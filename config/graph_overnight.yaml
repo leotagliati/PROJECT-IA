@@ -1,0 +1,483 @@
+# TREINO DA NOITE — 6 etapas por RELOGIO, 8M steps (~8.4 h a ~266 steps/s, 9 arenas).
+#
+# POR QUE 'progress' AQUI (e 'reward' no graph_explorer_curriculum.yaml): este config e para
+# rodar SEM supervisao e chegar ate a ultima etapa de qualquer jeito. Com criterio por reward,
+# um threshold mal estimado deixa a IA presa numa licao a noite inteira e voce acorda com nada.
+# O preco e o conhecido: promocao por relogio pode vir antes de a politica estar pronta. A
+# defesa e (1) um degrau por etapa — nunca duas coisas novas ao mesmo tempo — e (2) orcamento
+# generoso nas primeiras etapas, que sao as que formam a base. Os checkpoints a cada 500k
+# permitem, de manha, voltar para o .onnx de qualquer etapa.
+#
+# AS ETAPAS (fracao de max_steps em que cada uma TERMINA -> steps aproximados):
+#   E0 AndarAteNo     ate 0.06 (0.5M)  cobertura 0.3, seta 1.0 o episodio inteiro, tudo fixo,
+#                                      sem hider. Aprende: chegar num no, ler a seta, virar em porta.
+#   E1 ExplorarMais   ate 0.19 (1.5M)  cobertura 0.6, seta 0.7, pre-visitados 0.25, peso +-25%.
+#                                      Aprende: escolher saida nao visitada, preferir peso maior.
+#   E2 RastroParado   ate 0.37 (3.0M)  cobertura 0.9, seta 0.4 so ate 4000 steps, pre 0.5,
+#                                      peso +-50%, HIDER PARADO. Aprende: ler o ping (ativo,
+#                                      distancia, quente/frio) e ir ate um no que toca uma vez.
+#   E3 RastroQueAnda  ate 0.56 (4.5M)  seta 0.2 so ate 2000 steps, HIDER ANDA a 1.0 m/s.
+#                                      Aprende: seguir um ping que pula de no em no; ver o
+#                                      hider (cone 100 graus, 15 m) e se aproximar dele.
+#   E4 SemSeta        ate 0.75 (6.0M)  seta ZERO, hider a 2.2 m/s. Aprende: explorar e seguir
+#                                      rastro so com vizinhos (visitado, peso), cobertura, ping
+#                                      e visao.
+#   E5 Fuga           ate 1.00 (8.0M)  HIDER FOGE a 3.2 m/s (escolhe a saida que mais aumenta a
+#                                      distancia em arestas quando o seeker chega a 12 m).
+#                                      Aprende: cortar caminho em vez de so seguir o rastro.
+#
+# VISAO (GraphHiderPerception) fica ligada sempre — e percepcao, nao muleta. Paga +0.5 ao
+# avistar (cooldown 5 s) e 0.05/m de aproximacao enquanto ve. Nas E0-E2 nao ha o que ver
+# (sem hider / hider parado longe), entao so entra em jogo a partir da E3.
+# VELOCIDADE do hider sobe 1.0 -> 2.2 -> 3.2 (seeker: 5.0): comeca lento para o seeker aprender a
+# seguir e ver antes de precisar correr.
+# Cada etapa muda UMA coisa em relacao a anterior (E2 muda a cobertura e liga o hider parado,
+# mas o hider parado e so "um ping que nao se mexe" — e o menor degrau possivel para o ping).
+#
+# COMO USAR:
+#   mlagents-learn config/graph_overnight.yaml --run-id=graph_20
+#   cena Assets/Scenes/Arthur/Nodes_2.unity -> Play. Ctrl+C de manha exporta o .onnx final;
+#   os intermediarios ficam em results/graph_20/GraphExplorer/*.onnx (um a cada 500k).
+#
+# O QUE OLHAR DE MANHA (TensorBoard, results/):
+#   Environment/Lesson Number  deve estar em 5 (todas as etapas passaram — e relogio, vai estar).
+#   Environment/Cumulative Reward  um degrau para baixo em cada troca de etapa e recuperacao
+#                              dentro dela. Degrau sem recuperacao = etapa curta demais.
+#   Environment/Episode Length  caindo dentro de cada etapa; cravado em 1600 = timeout (nao
+#                              bate a cobertura) — na E5 isso e aceitavel se ele estiver
+#                              perseguindo; nas E0-E1 nao.
+# O que NAO esperar: captura. Existe visao (ver + se aproximar paga), mas nao existe captura
+# encerrando o episodio — o que a E5 ensina e seguir e se aproximar de um rastro que foge.
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 20
+    checkpoint_interval: 500000
+    max_steps: 8000000
+    time_horizon: 128
+    summary_freq: 20000
+
+# Os OITO parametros tem os mesmos thresholds (o ML-Agents avalia cada um sozinho): e o que
+# garante que avancem juntos. Mudou um, mude os outros sete.
+environment_parameters:
+  coverage_target:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0.3
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0.6
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0.9
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 0.9
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0.9
+      - name: E5_Fuga
+        value: 0.9
+
+  frontier_hint:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 1.0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0.7
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0.4
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 0.2
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0.0
+      - name: E5_Fuga
+        value: 0.0
+
+  frontier_hint_steps:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 4000
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 2000
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0
+      - name: E5_Fuga
+        value: 0
+
+  previsited_fraction:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0.0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0.25
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0.5
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 0.5
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0.5
+      - name: E5_Fuga
+        value: 0.5
+
+  weight_jitter:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0.0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0.25
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0.5
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 0.5
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0.5
+      - name: E5_Fuga
+        value: 0.5
+
+  ping_interval:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 0
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 0
+      - name: E5_Fuga
+        value: 0
+
+  hider_mode:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 1
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 2
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 2
+      - name: E5_Fuga
+        value: 3
+
+  hider_speed:
+    curriculum:
+      - name: E0_AndarAteNo
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.06
+          require_reset: true
+        value: 0
+      - name: E1_ExplorarMais
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.19
+          require_reset: true
+        value: 0
+      - name: E2_RastroParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.37
+          require_reset: true
+        value: 0
+      - name: E3_RastroQueAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.56
+          require_reset: true
+        value: 1.0
+      - name: E4_SemSeta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 100
+          threshold: 0.75
+          require_reset: true
+        value: 2.2
+      - name: E5_Fuga
+        value: 3.2
+

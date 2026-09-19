@@ -4,8 +4,8 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// O que ESTE agente já viu do grafo, neste episódio: nós visitados, arestas percorridas e
-    /// quanto ainda há por ver atrás de cada saída do nó atual.
+    /// O que ESTE agente já viu do grafo, neste episódio: nós visitados, arestas percorridas,
+    /// áreas alcançadas e onde fica a fronteira (o não-visitado mais próximo).
     ///
     /// É o análogo da <see cref="Assets.Scripts.Seeker.SeekerExplorationMemory"/>, trocando a
     /// grade regular por um grafo. A troca importa: numa grade, "célula vizinha" pode estar do
@@ -37,38 +37,31 @@ namespace Assets.Scripts.Graph
         //   traço fino        auxiliar (guia), esverdeado se já passou por ele
         //   linha branca      aresta já percorrida (não paga de novo neste episódio)
         //   disco amarelo     nó âncora atual
-        //   esfera rosa       valor de cada SAÍDA do nó atual (o que a rede recebe por vizinho):
-        //                     tamanho = quanto do inexplorado está por ali, relativo à melhor
+        //   esfera magenta    alvo da fronteira, com a linha até o próximo passo — só enquanto a
+        //                     dica está sendo entregue ao agente (força > 0 e dentro da duração)
         [SerializeField] private bool _drawGizmos = true;
         [SerializeField] private bool _drawVisitedNodes = true;
         [SerializeField] private bool _drawPendingNodes = true;
         [SerializeField] private bool _drawAuxiliaryNodes = true;
         [SerializeField] private bool _drawTraversedEdges = true;
-        [SerializeField] private bool _drawExitScores = true;
+        [SerializeField] private bool _drawFrontier = true;
 
         // Quantas revisitas levam a cor ao topo da escala de calor.
         [SerializeField] private int _heatSaturationVisits = 5;
 
-        [Header("-----Valor das saídas-----")]
-        // Desconto por ARESTA no valor do que está atrás de cada saída: um nó a d arestas do
-        // vizinho conta peso x decay^d. Quanto menor, mais "míope" a observação.
-        //
-        // Calibre pelo DIÂMETRO do grafo em arestas. O mapa atual do NodeTraining tem 42 (aresta
-        // mediana 7.4 m, primário mais próximo a 3 arestas): com 0.85, a 3 arestas um nó vale
-        // 61%, a 10 vale 20%, a 20 vale 4% e a 42 vale 0.1%. O perto domina, mas o longe NUNCA
-        // some — num beco com tudo visitado por perto, a saída que leva ao inexplorado ainda
-        // pontua mais que as outras. Sem isso o agente ficaria cego em beco, que era o que a
-        // seta resolvia. Como a observação é RELATIVA à melhor saída, o valor absoluto pequeno
-        // não importa; o que o decay decide é quanto "3 nós perto" vale contra "10 nós longe".
-        // Mapa com diâmetro ~20: 0.75 dá a mesma curva.
-        [SerializeField, Range(0.3f, 0.95f)] private float _lookaheadDecay = 0.85f;
+        [Header("-----Fronteira-----")]
+        // Entre quantos não-visitados mais próximos a seta SORTEIA o alvo. 1 = sempre o mais
+        // próximo (determinístico: do mesmo spawn, a mesma rota todo episódio — e a política
+        // decora a rota em vez de aprender a regra). 3 dá variação sem mandar o agente para o
+        // outro lado do mapa: o 3º mais próximo raramente está muito além do 1º. O alvo fica
+        // fixo até ser visitado, então a seta não pisca entre candidatos a cada troca de nó.
+        [SerializeField, Min(1)] private int _frontierCandidates = 3;
 
         private static readonly Color VisitedColor = new Color(0.15f, 0.9f, 0.3f, 0.9f);
         private static readonly Color RevisitedColor = new Color(1f, 0.5f, 0.05f, 0.9f);
         private static readonly Color PendingColor = new Color(0.45f, 0.45f, 0.5f, 0.35f);
         private static readonly Color PrevisitedColor = new Color(0.25f, 0.3f, 0.65f, 0.5f);
         private static readonly Color TraversedEdgeColor = new Color(1f, 1f, 1f, 0.85f);
-        private static readonly Color ExitScoreColor = new Color(1f, 0.45f, 0.8f, 0.9f);
 
         private NavGraph _graph;
 
@@ -86,12 +79,6 @@ namespace Assets.Scripts.Graph
 
         private readonly HashSet<long> _traversedEdges = new HashSet<long>();
 
-        // Valor bruto de cada saída do nó atual, indexado pelo ÍNDICE DO NÓ vizinho. Preenchido
-        // por ScoreExits uma vez por decisão; lido pela observação e pelo gizmo.
-        private float[] _exitScore;
-        private float _bestExitScore;
-        private int _scoredFromNode = -1;
-
         private int _enabledNodeCount;
         private int _visitedNodeCount;
 
@@ -100,6 +87,14 @@ namespace Assets.Scripts.Graph
         // usando o total, a cobertura por peso ficaria inatingível.
         private float _totalWeight;
         private float _collectedWeight;
+
+        // Peso de cada nó NESTE episódio: o autorado (NavNode.ExplorationWeight) vezes um fator
+        // sorteado em [1 - jitter, 1 + jitter]. Variar o valor dos nós entre episódios é o que
+        // obriga a política a LER o peso do vizinho (ele está na observação) em vez de decorar
+        // "aquela sala vale mais". Auxiliar continua 0. Recomputado a cada ResetEpisode.
+        private float[] _episodeWeight;
+        private float _maxEpisodeWeight;
+        private bool _frontierDirty = true;
 
         public int CurrentNodeIndex { get; private set; } = -1;
 
@@ -116,8 +111,8 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public float EnteredNewNodeValue { get; private set; }
 
-        /// <summary>Arestas inéditas percorridas desde o último <see cref="ClearStepFlags"/>.</summary>
-        public int NewEdgeCount { get; private set; }
+        /// <summary>Percorreu uma aresta do grafo que ainda não tinha sido percorrida.</summary>
+        public bool TraversedNewEdge { get; private set; }
 
         public bool ChangedNode { get; private set; }
 
@@ -147,55 +142,24 @@ namespace Assets.Scripts.Graph
 
         public int EnabledNodeCount => _enabledNodeCount;
 
-        /// <summary>Peso que ainda falta coletar. Normalizador do lookahead por saída.</summary>
-        public float RemainingWeight => Mathf.Max(0f, _totalWeight - _collectedWeight);
+        public bool HasFrontier { get; private set; }
+
+        /// <summary>Nó não-visitado mais próximo em número de arestas.</summary>
+        public int FrontierTarget { get; private set; } = -1;
+
+        /// <summary>Primeiro nó do caminho até ele — é para cá que o agente deve andar AGORA.</summary>
+        public int FrontierNextStep { get; private set; } = -1;
+
+        public int FrontierDistance { get; private set; }
 
         /// <summary>
-        /// Chegadas a nós PRIMÁRIOS neste episódio, inéditos ou não. Com
-        /// <see cref="VisitedNodeCount"/> dá a razão de revisitas — a métrica de vai-e-vem.
+        /// Se a dica de fronteira está sendo ENTREGUE ao agente agora (força > 0 e dentro da
+        /// duração da lição). Só o gizmo lê isto: a fronteira continua sendo calculada — é
+        /// estado do episódio e o BFS é barato — mas desenhar a seta quando a rede não a recebe
+        /// faria você calibrar olhando uma dica que o agente não tem. Quem escreve é o manager,
+        /// que é quem conhece força e duração.
         /// </summary>
-        public int PrimaryArrivalCount { get; private set; }
-
-        /// <summary>
-        /// Calcula o valor de cada saída do nó atual (ver
-        /// <see cref="NavGraph.DiscountedUnvisitedBeyond"/>). Uma vez por decisão, antes de
-        /// ler <see cref="ExitScore"/>. Sem nó âncora não há saídas: tudo fica em zero.
-        /// </summary>
-        public void ScoreExits()
-        {
-            _bestExitScore = 0f;
-            _scoredFromNode = CurrentNodeIndex;
-
-            if (CurrentNodeIndex < 0)
-                return;
-
-            foreach (int neighbor in _graph.GetNeighbors(CurrentNodeIndex))
-            {
-                float score = _graph.IsNodeEnabled(neighbor)
-                    ? _graph.DiscountedUnvisitedBeyond(CurrentNodeIndex, neighbor, _lookaheadDecay, _visited)
-                    : 0f;
-
-                _exitScore[neighbor] = score;
-                if (score > _bestExitScore)
-                    _bestExitScore = score;
-            }
-        }
-
-        /// <summary>
-        /// Valor da saída <paramref name="neighbor"/> RELATIVO à melhor saída do nó atual:
-        /// 1 = a melhor (ou empatada com ela), 0 = nada inexplorado por ali. Relativo, e não
-        /// absoluto, porque o que a política precisa decidir é "qual porta", e um número que
-        /// vale 1.0 para a melhor porta em qualquer mapa e em qualquer fase do episódio é muito
-        /// mais fácil de ler que uma fração pequena que encolhe conforme o mapa é coberto.
-        /// "Quanto falta no total" já está na cobertura, uma observação global.
-        /// </summary>
-        public float ExitScore(int neighbor)
-        {
-            if (_scoredFromNode != CurrentNodeIndex || _bestExitScore <= 1e-6f)
-                return 0f;
-
-            return Mathf.Clamp01(_exitScore[neighbor] / _bestExitScore);
-        }
+        public bool FrontierHintVisible { get; set; } = true;
 
         public void Configure(NavGraph graph)
         {
@@ -206,7 +170,7 @@ namespace Assets.Scripts.Graph
             _visitCount = new int[_graph.NodeCount];
             _previsited = new bool[_graph.NodeCount];
             _shuffleBuffer = new int[_graph.NodeCount];
-            _exitScore = new float[_graph.NodeCount];
+            _episodeWeight = new float[_graph.NodeCount];
         }
 
         /// <summary>
@@ -217,19 +181,19 @@ namespace Assets.Scripts.Graph
         /// <paramref name="previsitedFraction"/> (0..1) é a fração dos primários ativos que
         /// já começa marcada como visitada, sorteada a cada episódio. Ver <see cref="_previsited"/>.
         /// </summary>
-        public void ResetEpisode(float previsitedFraction = 0f)
+        public void ResetEpisode(float previsitedFraction = 0f, float weightJitter = 0f)
         {
             System.Array.Clear(_visited, 0, _visited.Length);
             System.Array.Clear(_visitCount, 0, _visitCount.Length);
             System.Array.Clear(_previsited, 0, _previsited.Length);
             _traversedEdges.Clear();
 
+            DrawEpisodeWeights(weightJitter);
             DrawPrevisited(previsitedFraction);
 
             _enabledNodeCount = 0;
             _visitedNodeCount = 0;
             _collectedWeight = 0f;
-            PrimaryArrivalCount = 0;
 
             RecomputeTotalWeight();
 
@@ -241,8 +205,11 @@ namespace Assets.Scripts.Graph
 
             ClearStepFlags();
 
-            _scoredFromNode = -1;
-            _bestExitScore = 0f;
+            HasFrontier = false;
+            FrontierTarget = -1;
+            FrontierNextStep = -1;
+            FrontierDistance = 0;
+            _frontierDirty = true;
         }
 
         /// <summary>
@@ -264,7 +231,7 @@ namespace Assets.Scripts.Graph
                 if (!_graph.IsNodeEnabled(i) || _previsited[i])
                     continue;
 
-                _totalWeight += _graph.NodeWeight(i);
+                _totalWeight += _episodeWeight[i];
 
                 if (_graph.IsNodePrimary(i))
                     _enabledNodeCount++;
@@ -318,9 +285,16 @@ namespace Assets.Scripts.Graph
             {
                 RegisterArrival(node);
                 ChangedNode = true;
+                _frontierDirty = true;
             }
 
             StepsSinceNewNode = EnteredNewNode ? 0 : StepsSinceNewNode + 1;
+
+            // A fronteira só muda quando o nó âncora muda ou quando algo é visitado — as duas
+            // coisas acontecem juntas, aqui. Recalcular a BFS nos outros steps seria trabalho
+            // jogado fora, multiplicado por arena e por step de física.
+            if (_frontierDirty)
+                UpdateFrontier();
         }
 
         /// <summary>
@@ -331,7 +305,7 @@ namespace Assets.Scripts.Graph
         {
             EnteredNewNode = false;
             EnteredNewNodeValue = 0f;
-            NewEdgeCount = 0;
+            TraversedNewEdge = false;
             ChangedNode = false;
         }
 
@@ -344,23 +318,23 @@ namespace Assets.Scripts.Graph
             // só a pressão existencial. Uma recompensa por travessia sem essa memória é a forma
             // mais fácil de o agente descobrir uma máquina de fazer pontos parado no lugar.
             //
-            // Qualquer aresta, inclusive as da malha auxiliar: desde que a seta saiu, esta é a
-            // única recompensa densa que existe, e é ela que dá gradiente no meio de um
-            // corredor. O risco de a malha inflar a renda é controlado pelo VALOR (pequeno) e
-            // pelo teto arestas x valor, que o GraphRewardSystem documenta — não por filtro.
-            if (PreviousNodeIndex >= 0 && IsAdjacent(PreviousNodeIndex, node))
+            // Só entre PRIMÁRIOS: o _newEdgeReward é um valor plano, não escalado por peso,
+            // então uma malha auxiliar densa multiplicaria a contagem de arestas e com ela a
+            // renda do episódio — percorrer a guia passaria a pagar mais que cobrir o mapa.
+            // Quem dá gradiente durante a travessia é o _frontierApproachReward, que é por metro
+            // e não depende de quantos nós existem no caminho.
+            if (PreviousNodeIndex >= 0
+                && _graph.IsNodePrimary(PreviousNodeIndex)
+                && _graph.IsNodePrimary(node)
+                && IsAdjacent(PreviousNodeIndex, node))
             {
                 long key = EdgeKey(PreviousNodeIndex, node);
-                if (_traversedEdges.Add(key))
-                    NewEdgeCount++;
+                TraversedNewEdge |= _traversedEdges.Add(key);
             }
 
             CurrentNodeIndex = node;
             _visitCount[node]++;
             CurrentNodeVisitCount = _visitCount[node];
-
-            if (_graph.IsNodePrimary(node))
-                PrimaryArrivalCount++;
 
             if (_visited[node])
                 return;
@@ -379,9 +353,66 @@ namespace Assets.Scripts.Graph
 
             // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
             // nó, e cada um tem que pagar o seu.
-            float weight = _graph.NodeWeight(node);
+            float weight = _episodeWeight[node];
             EnteredNewNodeValue += weight;
             _collectedWeight += weight;
+        }
+
+        /// <summary>
+        /// Sorteia o peso de cada nó para o episódio: autorado x U[1 - jitter, 1 + jitter],
+        /// nunca negativo. Com jitter 0 é o peso autorado. A SOMA esperada não muda (o fator
+        /// tem média 1), então o teto de recompensa do mapa fica o mesmo — o que muda é QUEM
+        /// vale mais a cada episódio.
+        /// </summary>
+        private void DrawEpisodeWeights(float jitter)
+        {
+            jitter = Mathf.Clamp01(jitter);
+            _maxEpisodeWeight = 0f;
+
+            for (int i = 0; i < _graph.NodeCount; i++)
+            {
+                float factor = jitter > 0f ? Random.Range(1f - jitter, 1f + jitter) : 1f;
+                _episodeWeight[i] = Mathf.Max(0f, _graph.NodeWeight(i) * factor);
+                _maxEpisodeWeight = Mathf.Max(_maxEpisodeWeight, _episodeWeight[i]);
+            }
+        }
+
+        /// <summary>
+        /// Peso do nó neste episódio, NORMALIZADO pelo maior peso do mapa (0..1). É o que a
+        /// observação entrega por vizinho: "quanto vale esta saída em relação ao nó que mais
+        /// vale". Auxiliar e nó desligado dão 0.
+        /// </summary>
+        public float NormalizedEpisodeWeight(int node)
+        {
+            if (_maxEpisodeWeight <= 1e-6f || !_graph.IsNodeEnabled(node))
+                return 0f;
+
+            return Mathf.Clamp01(_episodeWeight[node] / _maxEpisodeWeight);
+        }
+
+        private void UpdateFrontier()
+        {
+            _frontierDirty = false;
+
+            // Alvo fixo enquanto ele continuar valendo: o sorteio só acontece quando o alvo
+            // atual foi visitado (ou ficou inalcançável). É o que faz a seta apontar para o
+            // MESMO lugar do começo ao fim de uma travessia — e o que mantém o shaping de
+            // aproximação comparável entre dois steps.
+            if (FrontierTarget >= 0 && !_visited[FrontierTarget]
+                && _graph.TryFindPathTo(CurrentNodeIndex, FrontierTarget, out int keptStep, out int keptDistance))
+            {
+                HasFrontier = true;
+                FrontierNextStep = keptStep;
+                FrontierDistance = keptDistance;
+                return;
+            }
+
+            HasFrontier = _graph.TryFindNearestUnvisited(
+                CurrentNodeIndex, _visited, _frontierCandidates, out int target, out int nextStep, out int distance);
+
+            FrontierTarget = HasFrontier ? target : -1;
+            FrontierNextStep = HasFrontier ? nextStep : -1;
+            FrontierDistance = HasFrontier ? distance : 0;
         }
 
         public bool IsVisited(int node) => _visited[node];
@@ -421,9 +452,6 @@ namespace Assets.Scripts.Graph
             if (_drawTraversedEdges)
                 DrawTraversedEdges();
 
-            if (_drawExitScores)
-                DrawExitScores();
-
             // O disco do nó atual, no mesmo formato do gizmo de autoria: dá para ver ao vivo se
             // o raio que você calibrou está registrando a chegada onde você achou que ia.
             if (CurrentNodeIndex >= 0)
@@ -436,26 +464,11 @@ namespace Assets.Scripts.Graph
                     height: 0.12f);
             }
 
-        }
-
-        /// <summary>
-        /// Uma esfera rosa em cada vizinho do nó atual, com o tamanho do valor RELATIVO daquela
-        /// saída — exatamente o número que a rede recebe no slot. É o gizmo para responder "por
-        /// que ele foi por ali?": a maior esfera é a saída com mais inexplorado atrás.
-        /// </summary>
-        private void DrawExitScores()
-        {
-            if (_scoredFromNode < 0 || _scoredFromNode != CurrentNodeIndex)
-                return;
-
-            Gizmos.color = ExitScoreColor;
-            foreach (int neighbor in _graph.GetNeighbors(CurrentNodeIndex))
+            if (_drawFrontier && HasFrontier && FrontierHintVisible)
             {
-                float score = ExitScore(neighbor);
-                if (score <= 0f)
-                    continue;
-
-                Gizmos.DrawSphere(_graph.NodePosition(neighbor) + Vector3.up * 0.9f, 0.15f + 0.35f * score);
+                Gizmos.color = Color.magenta;
+                Gizmos.DrawWireSphere(_graph.NodePosition(FrontierTarget), 0.45f);
+                Gizmos.DrawLine(transform.position, _graph.NodePosition(FrontierNextStep));
             }
         }
 

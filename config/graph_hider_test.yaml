@@ -1,0 +1,60 @@
+# TESTE DO HIDER — nao e config de treino. Serve para ver, em minutos, se o hider anda pelo
+# grafo, se o ping pula de no em no atras dele e se o seeker recebe/e pago pelo rastro.
+#
+# Tudo fixo desde o primeiro episodio (uma licao por parametro, sem completion_criteria):
+#   - hider ANDANDO (2) desde o inicio, seta roxa em 1.0 (o seeker mal treinado precisa dela
+#     para se mexer), sem pre-visitados, sem variacao de peso;
+#   - max_steps curto (300k ~ 20 min): o objetivo e observar, nao convergir.
+#
+# Como usar:
+#   mlagents-learn config/graph_hider_test.yaml --run-id=hider_test --force
+#   cena: Assets/Scenes/Arthur/Nodes_2.unity -> Play
+# O que olhar (com um agente selecionado na Hierarchy, Scene view):
+#   - capsula cinza (Hider) nascendo longe do agente e andando de no em no (linha verde-azulada
+#     ate o no de destino);
+#   - farol ROSA aparecendo no no em que o hider acabou de pisar e pulando com ele;
+#   - Console sem erro de ValidateSetup; nenhum "Hider" com NullReference.
+# Para trocar o modo sem editar isto: hider_mode 1 = parado (o ping toca uma vez e fica),
+# 3 = foge (chegue perto com o agente e veja ele escolher a saida oposta).
+#
+# Sem trainer nenhum (so Play no editor) o hider fica DESLIGADO, porque o default do
+# GraphArenaController e hider_mode 0. Para testar sem mlagents, mude "Default Hider Mode"
+# para 2 no Inspector do GraphArenaController do prefab.
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 2
+    max_steps: 300000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  coverage_target: 0.3
+  frontier_hint: 1.0
+  frontier_hint_steps: 0
+  previsited_fraction: 0.0
+  weight_jitter: 0.0
+  ping_interval: 0
+  hider_mode: 2
+  hider_speed: 1.0

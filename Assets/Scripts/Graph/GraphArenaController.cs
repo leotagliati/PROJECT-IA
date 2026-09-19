@@ -13,12 +13,35 @@ namespace Assets.Scripts.Graph
         [SerializeField] private NavGraph _graph;
         [SerializeField] private Renderer _floorRenderer;
         [SerializeField] private Transform[] _spawnPoints;
+        // Opcional: sem hider a arena é só exploração. Fallback por GetComponentInChildren.
+        [SerializeField] private GraphHider _hider;
 
         [Header("-----Currículo-----")]
         // Fração do grafo que conta como episódio resolvido. Vem do currículo; o valor aqui é
         // o fallback quando você roda a cena sem trainer (Play no editor, inferência).
         [SerializeField] private string _coverageParameterName = "coverage_target";
         [SerializeField, Range(0.05f, 1f)] private float _defaultCoverageTarget = 0.35f;
+
+        // Peso da dica de fronteira. 1 = o agente vê para onde ir; 0 = ele tem que descobrir
+        // sozinho a partir dos vizinhos e do que já visitou. Escala tanto a OBSERVAÇÃO quanto o
+        // shaping de recompensa, de propósito: as duas são a mesma muleta, e desligar só uma
+        // deixa metade da dependência de pé.
+        [SerializeField] private string _frontierParameterName = "frontier_hint";
+        [SerializeField, Range(0f, 1f)] private float _defaultFrontierHint = 1f;
+
+        // DURAÇÃO da dica dentro de cada episódio, em steps de FÍSICA (8000 = episódio inteiro
+        // com _maxEpisodeSteps = 8000; 1500 = os primeiros 30 s). 0 = sem limite, a dica dura o
+        // episódio todo. Depois do limite a escala vai a ZERO — observação, shaping e gizmo.
+        //
+        // É o segundo eixo da muleta, independente da força acima: a força diz "quanto confiar
+        // na seta", a duração diz "por quanto tempo ela existe". Dar a dica só no início do
+        // episódio ensina o agente a se orientar com ela e a TERMINAR sem ela — que é a
+        // situação do jogo final, onde não há seta nenhuma. Cortar a força direto para 0.0
+        // numa lição (run 05) derrubou a recompensa de +15 para -3; cortar a duração deixa a
+        // política ver os dois regimes no MESMO episódio, e a transição fica dentro do que ela
+        // já sabe fazer.
+        [SerializeField] private string _frontierStepsParameterName = "frontier_hint_steps";
+        [SerializeField, Min(0)] private int _defaultFrontierHintSteps = 0;
 
         // Fração dos primários que já NASCE marcada como visitada, sorteada a cada episódio
         // (lida pela GraphExplorationMemory). É a variação de estado inicial: com 0, todo
@@ -28,6 +51,28 @@ namespace Assets.Scripts.Graph
         // ("vá para a saída não visitada"), que é o que queremos que ele aprenda.
         [SerializeField] private string _previsitedParameterName = "previsited_fraction";
         [SerializeField, Range(0f, 0.9f)] private float _defaultPrevisitedFraction = 0f;
+
+        // Variação do PESO dos nós por episódio (lida pela GraphExplorationMemory): cada nó
+        // vale autorado x U[1 - j, 1 + j]. Com 0, o mapa vale sempre o mesmo e a política pode
+        // decorar "aquela sala paga mais"; com 0.5, o peso de um nó vai de metade ao dobro entre
+        // episódios, e a única forma de ganhar é ler o peso do vizinho na observação.
+        [SerializeField] private string _weightJitterParameterName = "weight_jitter";
+        [SerializeField, Range(0f, 1f)] private float _defaultWeightJitter = 0f;
+
+        // Intervalo entre PINGS, em steps de física (ver GraphPingSystem). 0 = sem ping. O
+        // currículo liga o ping só depois de o agente saber explorar: antes disso ele seria
+        // interrompido antes de aprender o que estava fazendo.
+        [SerializeField] private string _pingIntervalParameterName = "ping_interval";
+        [SerializeField, Min(0)] private int _defaultPingInterval = 0;
+
+        // Modo do hider scriptado (ver GraphHider.Mode): 0 nenhum, 1 parado, 2 anda, 3 foge.
+        // Com hider ligado, os pings vêm dos passos dele e o sorteio de ping_interval é ignorado.
+        [SerializeField] private string _hiderModeParameterName = "hider_mode";
+        [SerializeField, Range(0, 3)] private int _defaultHiderMode = 0;
+
+        // Velocidade do hider (m/s) na lição. 0 = usa o padrão do GraphHider.
+        [SerializeField] private string _hiderSpeedParameterName = "hider_speed";
+        [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
 
         [Header("-----Spawn-----")]
         // Nasce em cima de um nó ATIVO qualquer do grafo, sorteado por episódio, em vez de num
@@ -73,8 +118,36 @@ namespace Assets.Scripts.Graph
         // Atualizados a cada ResetEpisode e lidos pelo manager ao montar o step context.
         public float CoverageTarget { get; private set; }
 
+        public float FrontierHintScale { get; private set; }
+
+        /// <summary>Steps de física com a dica ligada por episódio; 0 = o episódio inteiro.</summary>
+        public int FrontierHintSteps { get; private set; }
+
         /// <summary>Fração dos primários que nasce visitada neste episódio (0..0.9).</summary>
         public float PrevisitedFraction { get; private set; }
+
+        /// <summary>Amplitude do sorteio de peso por nó neste episódio (0..1).</summary>
+        public float WeightJitter { get; private set; }
+
+        /// <summary>Steps de física entre pings neste episódio; 0 = sem ping.</summary>
+        public int PingInterval { get; private set; }
+
+        public GraphHider.Mode HiderMode { get; private set; }
+
+        public float HiderSpeed { get; private set; }
+
+        /// <summary>
+        /// Posiciona (ou desliga) o hider para o episódio. Chamar DEPOIS do spawn do seeker,
+        /// porque o hider nasce a uma distância mínima dele.
+        /// </summary>
+        public void ResetHider(Vector3 seekerPosition)
+        {
+            if (_hider == null)
+                _hider = GetComponentInChildren<GraphHider>(includeInactive: true);
+
+            if (_hider != null)
+                _hider.ResetEpisode(HiderMode, HiderSpeed, seekerPosition);
+        }
 
         private void Awake() => EnsureInitialized();
 
@@ -178,11 +251,28 @@ namespace Assets.Scripts.Graph
             EnvironmentParameters parameters = Academy.Instance.EnvironmentParameters;
 
             CoverageTarget = Mathf.Clamp01(parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
+            FrontierHintScale = Mathf.Clamp01(parameters.GetWithDefault(_frontierParameterName, _defaultFrontierHint));
+
+            // O currículo entrega float; a contagem é inteira.
+            FrontierHintSteps = Mathf.Max(0, Mathf.RoundToInt(
+                parameters.GetWithDefault(_frontierStepsParameterName, _defaultFrontierHintSteps)));
+
             // Teto em 0.9 e não 1.0: a memória sempre deixa ao menos um nó por descobrir, mas
             // com quase tudo pré-visitado o episódio vira "ache o único nó que falta" — que é
             // outra tarefa, não exploração.
             PrevisitedFraction = Mathf.Clamp(
                 parameters.GetWithDefault(_previsitedParameterName, _defaultPrevisitedFraction), 0f, 0.9f);
+
+            WeightJitter = Mathf.Clamp01(
+                parameters.GetWithDefault(_weightJitterParameterName, _defaultWeightJitter));
+
+            PingInterval = Mathf.Max(0, Mathf.RoundToInt(
+                parameters.GetWithDefault(_pingIntervalParameterName, _defaultPingInterval)));
+
+            HiderMode = (GraphHider.Mode)Mathf.Clamp(Mathf.RoundToInt(
+                parameters.GetWithDefault(_hiderModeParameterName, _defaultHiderMode)), 0, 3);
+
+            HiderSpeed = Mathf.Max(0f, parameters.GetWithDefault(_hiderSpeedParameterName, _defaultHiderSpeed));
         }
     }
 }
