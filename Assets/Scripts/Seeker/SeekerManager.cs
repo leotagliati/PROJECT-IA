@@ -31,6 +31,9 @@ public class SeekerManager : Agent
     [SerializeField] private SeekerExplorationMemory _explorationMemory;
     [SerializeField] private SeekerArenaController _arenaController;
     [SerializeField] private SeekerAnimationSystem _animationSystem;
+    [SerializeField] private SeekerChaseState _chaseState;
+    [SerializeField] private SeekerAudioSystem _audioSystem;
+    [SerializeField] private SeekerStaticVisual _staticVisual;
 
     [Header("-----Settings-----")]
     [Tooltip("Game: sem fim de episódio; caça só em GameState.Playing e encostar no Goal avisa o GameManager.")]
@@ -82,6 +85,23 @@ public class SeekerManager : Agent
         if (_animationSystem != null)
             _animationSystem.Initialize();
 
+        // O estado de perseguição vem antes dos consumidores: áudio e visual leem o Blend dele.
+        if (_chaseState == null)
+            _chaseState = GetComponentInChildren<SeekerChaseState>();
+
+        // Mesmo motivo da animação: só depois da Academy dá para saber se é treino e ficar mudo.
+        if (_audioSystem == null)
+            _audioSystem = GetComponentInChildren<SeekerAudioSystem>();
+
+        if (_audioSystem != null)
+            _audioSystem.Initialize();
+
+        if (_staticVisual == null)
+            _staticVisual = GetComponentInChildren<SeekerStaticVisual>();
+
+        if (_staticVisual != null)
+            _staticVisual.Initialize();
+
         // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
         // usar coordenadas de mundo faria as arenas compartilharem células.
         if (_explorationMemory != null && _arenaController != null)
@@ -117,6 +137,11 @@ public class SeekerManager : Agent
             _episodeEnding = true;
             if (_animationSystem != null)
                 _animationSystem.Tick(Vector3.zero, false);
+
+            // Tudo do seeker cala aqui — estática e passos. Dali em diante o único áudio é o
+            // da PlayerCaughtSequence; sem isto o jumpscare abre com ele andando ao fundo.
+            if (_audioSystem != null)
+                _audioSystem.Silence();
         }
     }
 
@@ -144,6 +169,13 @@ public class SeekerManager : Agent
 
         if (_animationSystem != null)
             _animationSystem.ResetEpisode();
+
+        // Chase antes do áudio: o áudio reflete o Blend no reset.
+        if (_chaseState != null)
+            _chaseState.ResetEpisode();
+
+        if (_audioSystem != null)
+            _audioSystem.ResetEpisode();
 
         // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
         // dedup precisa ser invalidado: sem isso a primeira observação da nova run enxergaria
@@ -208,6 +240,9 @@ public class SeekerManager : Agent
 
         if (_animationSystem != null)
             _animationSystem.Tick(direction, _perceptionSystem.IsSeeingHider);
+
+        if (_chaseState != null)
+            _chaseState.Tick(_perceptionSystem.IsSeeingHider);
 
         // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
         // step de física marca de novo; se acabou, ela fica false sozinha.
