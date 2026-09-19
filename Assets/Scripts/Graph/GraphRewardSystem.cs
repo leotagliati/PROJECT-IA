@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Assets.Scripts.Graph
 {
@@ -7,20 +8,23 @@ namespace Assets.Scripts.Graph
     /// <see cref="GraphStepContext"/> e devolve o delta do step. Todo o tuning mora aqui.
     ///
     /// ORÇAMENTO (faça a conta antes de treinar, é o que determina o comportamento):
-    ///   total_positivo ~= Σ orçamentos x _regionCoverageReward
-    ///                     + Σ orçamentos x _regionEntryReward
-    ///                     + Σ orçamentos x _regionCompletionReward
+    ///   total_positivo ~= Σ pesos_dos_primários x _nodeCoverageReward
     ///                     + arestas_entre_primários x _newEdgeReward
     ///                     + caminho_percorrido_em_metros x _frontierApproachReward
     ///                     + _fullCoverageReward
-    /// Repare no que SUMIU da conta: o número de nós. Cobrir uma região paga o orçamento dela,
-    /// tenha ela 3 ou 30 nós (ver NavRegion) — então adensar a malha para descrever melhor uma
-    /// sala torta não muda mais o valor daquela sala.
+    /// O peso é declarado NÓ A NÓ (NavNode.ExplorationWeight), então a densidade de primários
+    /// entra na conta: dois primários de peso 1 na mesma sala pagam o dobro de um. Ao adensar
+    /// uma sala, reparta o peso entre os nós dela para o total do mapa não inflar.
     ///
-    /// Num mapa de 8 regiões de orçamento 1 e 90 arestas, com os defaults abaixo:
-    ///   8x0.75 = +6.0 | 8x0.50 = +4.0 | 90x0.05 = +4.5 | +5.0  =>  ~+19.5
+    /// Num mapa com 12 primários de peso 1 e 20 arestas entre eles, com os defaults abaixo:
+    ///   12x0.75 = +9.0 | 20x0.05 = +1.0 | +5.0  =>  ~+15.0
     /// contra -2 de pressão existencial. A folga é enorme DE PROPÓSITO: aqui, diferente do
     /// seeker, explorar não compete com nenhum outro objetivo — explorar É o objetivo.
+    ///
+    /// Os bônus por ENTRAR e por CONCLUIR uma região saíram junto com as regiões. O empurrão
+    /// para trocar de cômodo em vez de esmiuçar o atual agora é só o peso dos nós de lá + a
+    /// dica de fronteira; se o run mostrar o agente varrendo a mesma sala, suba o peso dos
+    /// primários das salas vizinhas em vez de recriar um bônus de sala.
     /// </summary>
     public class GraphRewardSystem : MonoBehaviour
     {
@@ -74,32 +78,16 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _revisitPenalty = 0f;
 
         [Header("-----Recompensas de exploração-----")]
-        // O sinal principal, e o ÚNICO conversor de "orçamento" em "recompensa": cobrir uma
-        // região de orçamento 1 rende exatamente este valor, distribuído entre os nós ativos
-        // dela. Mexer aqui reescala o mapa inteiro de uma vez; mexer no orçamento de uma
-        // NavRegion reescala só ela. Duas alavancas, dois escopos.
-        [SerializeField] private float _regionCoverageReward = 0.75f;
+        // O sinal principal, e o ÚNICO conversor de "peso" em "recompensa": descobrir um nó de
+        // peso 1 rende exatamente este valor. Mexer aqui reescala o mapa inteiro de uma vez;
+        // mexer no peso de um NavNode reescala só ele. Duas alavancas, dois escopos.
+        [FormerlySerializedAs("_regionCoverageReward")]
+        [SerializeField] private float _nodeCoverageReward = 0.75f;
 
         // Paga o TRAJETO inédito, não o destino. É o que dá gradiente dentro de um corredor
         // longo (onde só há dois nós e muitos steps entre eles) e o que diferencia "cheguei lá
         // por um caminho novo" de "cheguei lá de novo".
         [SerializeField] private float _newEdgeReward = 0.05f;
-
-        // Bônus por PISAR pela primeira vez numa região, escalado pelo orçamento dela. É o
-        // termo que empurra para TROCAR DE CÔMODO em vez de esmiuçar o atual — pagar só por
-        // cobertura torna os dois indiferentes, e varrer a sala em que já se está é sempre mais
-        // barato que arriscar uma porta.
-        [SerializeField] private float _regionEntryReward = 0.5f;
-
-        // Bônus por CONCLUIR uma região: todos os pontos de vantagem dela visitados. Com nó
-        // primário significando "daqui eu vejo a sala", isto paga por ter visto o cômodo
-        // inteiro — não por ter passado pela porta.
-        //
-        // Existe separado da entrada porque entrar e terminar são conquistas diferentes: com só
-        // um dos dois, espiar cinco portas rende igual a varrer cinco salas, e espiar é muito
-        // mais barato. É o mesmo raciocínio do _regionEntryReward em relação à cobertura, um
-        // degrau acima.
-        [SerializeField] private float _regionCompletionReward = 0.5f;
 
         // Prêmio por cobrir a fração-alvo do grafo (a lição define o alvo). Encerra o episódio.
         [SerializeField] private float _fullCoverageReward = 5f;
@@ -121,7 +109,7 @@ namespace Assets.Scripts.Graph
         //
         // TETO deste valor, e a conta que você deve refazer a cada mapa novo:
         //
-        //   chegada = (orçamento da região / nós da região) x _regionCoverageReward
+        //   chegada = peso_do_nó x _nodeCoverageReward
         //   teto    = chegada / aresta_mediana
         //
         // Acima do teto, percorrer a aresta paga mais que chegar ao nó, e o agente otimiza o
@@ -157,15 +145,11 @@ namespace Assets.Scripts.Graph
             if (context.StepsSinceNewNode > _stagnationSteps)
                 reward -= _stagnationPenalty;
 
-            // Já vem normalizado por região: é a fração do orçamento daquela região que este nó
-            // representa. Nenhuma contagem de nós entra aqui.
-            reward += _regionCoverageReward * context.NewNodeValue;
+            // Peso dos nós descobertos neste intervalo (zero quando não houve nenhum).
+            reward += _nodeCoverageReward * context.NewNodeValue;
 
             if (context.TraversedNewEdge)
                 reward += _newEdgeReward;
-
-            reward += _regionEntryReward * context.NewRegionBudget;
-            reward += _regionCompletionReward * context.CompletedRegionBudget;
 
             if (context.ChangedNode && !context.EnteredNewNode && _revisitPenalty > 0f)
                 reward -= _revisitPenalty / Mathf.Max(1, context.CurrentNodeVisitCount);

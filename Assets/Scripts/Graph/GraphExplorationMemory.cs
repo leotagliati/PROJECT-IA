@@ -31,6 +31,8 @@ namespace Assets.Scripts.Graph
         // Legenda:
         //   disco verde       PRIMÁRIO já visitado neste episódio
         //   disco alaranjado  primário revisitado — quanto mais quente, mais vezes ele voltou
+        //   disco azul-escuro primário PRÉ-VISITADO: já nasceu marcado (sorteio do currículo),
+        //                     não paga nem conta — o agente o vê como visitado
         //   contorno cinza    primário que ainda falta
         //   traço fino        auxiliar (guia), esverdeado se já passou por ele
         //   linha branca      aresta já percorrida (não paga de novo neste episódio)
@@ -47,31 +49,44 @@ namespace Assets.Scripts.Graph
         // Quantas revisitas levam a cor ao topo da escala de calor.
         [SerializeField] private int _heatSaturationVisits = 5;
 
+        [Header("-----Fronteira-----")]
+        // Entre quantos não-visitados mais próximos a seta SORTEIA o alvo. 1 = sempre o mais
+        // próximo (determinístico: do mesmo spawn, a mesma rota todo episódio — e a política
+        // decora a rota em vez de aprender a regra). 3 dá variação sem mandar o agente para o
+        // outro lado do mapa: o 3º mais próximo raramente está muito além do 1º. O alvo fica
+        // fixo até ser visitado, então a seta não pisca entre candidatos a cada troca de nó.
+        [SerializeField, Min(1)] private int _frontierCandidates = 3;
+
         private static readonly Color VisitedColor = new Color(0.15f, 0.9f, 0.3f, 0.9f);
         private static readonly Color RevisitedColor = new Color(1f, 0.5f, 0.05f, 0.9f);
         private static readonly Color PendingColor = new Color(0.45f, 0.45f, 0.5f, 0.35f);
+        private static readonly Color PrevisitedColor = new Color(0.25f, 0.3f, 0.65f, 0.5f);
         private static readonly Color TraversedEdgeColor = new Color(1f, 1f, 1f, 0.85f);
 
         private NavGraph _graph;
 
         private bool[] _visited;
         private int[] _visitCount;
-        private bool[] _regionVisited;
-        private int[] _regionVisitedCount;
-        private int[] _regionEnabledCount;
 
-        // Quanto vale UM nó de cada região: orçamento da região dividido pelos nós ATIVOS dela.
-        // Recalculado a cada episódio (e não no bake) porque uma lição do currículo pode
-        // desligar nós — e se a divisão continuasse usando o total, cobrir a região inteira
-        // pagaria menos que o orçamento prometido.
-        private float[] _regionNodeValue;
+        // Nós que já nasceram visitados neste episódio (sorteio do currículo). Ficam fora do
+        // denominador da cobertura e do valor coletado, mas aparecem como visitados para o
+        // agente e para a BFS — é isso que faz cada episódio começar num "meio de exploração"
+        // diferente, e o que impede a política de decorar uma rota a partir do spawn.
+        private bool[] _previsited;
+
+        // Rascunho do sorteio de pré-visitados, alocado uma vez.
+        private int[] _shuffleBuffer;
 
         private readonly HashSet<long> _traversedEdges = new HashSet<long>();
 
         private int _enabledNodeCount;
         private int _visitedNodeCount;
-        private float _totalBudget;
-        private float _collectedBudget;
+
+        // Soma dos pesos dos primários ATIVOS. Fotografada a cada episódio (e não no bake)
+        // porque uma lição do currículo pode desligar nós — e se o denominador continuasse
+        // usando o total, a cobertura por peso ficaria inatingível.
+        private float _totalWeight;
+        private float _collectedWeight;
         private bool _frontierDirty = true;
 
         public int CurrentNodeIndex { get; private set; } = -1;
@@ -84,26 +99,10 @@ namespace Assets.Scripts.Graph
         public bool EnteredNewNode { get; private set; }
 
         /// <summary>
-        /// Soma do valor dos nós inéditos alcançados desde o último <see cref="ClearStepFlags"/>.
-        /// Cada nó vale orçamento_da_região / nós_ativos_da_região — é aqui que a normalização
-        /// acontece, e é por isso que a recompensa não olha mais para a CONTAGEM de nós.
+        /// Soma dos PESOS dos nós inéditos alcançados desde o último <see cref="ClearStepFlags"/>.
+        /// O peso é o do próprio nó (NavNode.ExplorationWeight); auxiliar entra como zero.
         /// </summary>
         public float EnteredNewNodeValue { get; private set; }
-
-        public bool EnteredNewRegion { get; private set; }
-
-        /// <summary>Soma dos orçamentos das regiões inéditas alcançadas neste intervalo.</summary>
-        public float EnteredNewRegionBudget { get; private set; }
-
-        /// <summary>
-        /// Soma dos orçamentos das regiões CONCLUÍDAS neste intervalo — todos os pontos de
-        /// vantagem da região visitados. Com nó primário significando "daqui eu vejo a sala",
-        /// concluir uma região é ter visto o cômodo inteiro.
-        ///
-        /// Acumulativa como as outras: entre duas decisões o agente pode fechar mais de uma
-        /// região (um doorway que completa a sala e o corredor no mesmo intervalo).
-        /// </summary>
-        public float CompletedRegionBudget { get; private set; }
 
         /// <summary>Percorreu uma aresta do grafo que ainda não tinha sido percorrida.</summary>
         public bool TraversedNewEdge { get; private set; }
@@ -118,7 +117,7 @@ namespace Assets.Scripts.Graph
 
         /// <summary>
         /// Fração dos nós PRIMÁRIOS ativos já visitados. Medida geométrica pura: quanto do mapa
-        /// foi fisicamente coberto, sem opinião sobre o valor de cada parte. Regiões descritas
+        /// foi fisicamente coberto, sem opinião sobre o valor de cada parte. Salas descritas
         /// com muitos pontos de vantagem pesam mais aqui, por serem maiores no chão.
         ///
         /// A malha auxiliar fica fora: adensar a guia faria esta barra andar mais devagar sem o
@@ -127,28 +126,14 @@ namespace Assets.Scripts.Graph
         public float VisitedFraction => _enabledNodeCount > 0 ? (float)_visitedNodeCount / _enabledNodeCount : 1f;
 
         /// <summary>
-        /// Fração do ORÇAMENTO total já coletada. Mesma normalização da recompensa: cobrir um
-        /// corredor de orçamento 0.2 avança pouco, cobrir a sala de orçamento 2.0 avança muito,
-        /// independente de quantos nós cada um tem.
+        /// Fração do PESO total já coletada. Mesma normalização da recompensa: descobrir um nó
+        /// de peso 0.2 avança pouco, um de peso 2.0 avança muito.
         /// </summary>
-        public float VisitedBudgetFraction => _totalBudget > 1e-6f ? _collectedBudget / _totalBudget : 1f;
+        public float VisitedWeightFraction => _totalWeight > 1e-6f ? _collectedWeight / _totalWeight : 1f;
 
         public int VisitedNodeCount => _visitedNodeCount;
 
         public int EnabledNodeCount => _enabledNodeCount;
-
-        public float CurrentRegionVisitedFraction
-        {
-            get
-            {
-                if (CurrentNodeIndex < 0)
-                    return 0f;
-
-                int slot = _graph.RegionSlotOf(CurrentNodeIndex);
-                int total = _regionEnabledCount[slot];
-                return total > 0 ? (float)_regionVisitedCount[slot] / total : 1f;
-            }
-        }
 
         public bool HasFrontier { get; private set; }
 
@@ -176,30 +161,32 @@ namespace Assets.Scripts.Graph
 
             _visited = new bool[_graph.NodeCount];
             _visitCount = new int[_graph.NodeCount];
-            _regionVisited = new bool[_graph.RegionCount];
-            _regionVisitedCount = new int[_graph.RegionCount];
-            _regionEnabledCount = new int[_graph.RegionCount];
-            _regionNodeValue = new float[_graph.RegionCount];
+            _previsited = new bool[_graph.NodeCount];
+            _shuffleBuffer = new int[_graph.NodeCount];
         }
 
         /// <summary>
         /// Zera o episódio. O denominador da cobertura é fotografado AQUI: se uma lição do
         /// currículo desliga uma ala do mapa, ela precisa sair da conta antes do primeiro step,
         /// senão o alvo de cobertura fica inatingível e todo episódio termina em fracasso.
+        ///
+        /// <paramref name="previsitedFraction"/> (0..1) é a fração dos primários ativos que
+        /// já começa marcada como visitada, sorteada a cada episódio. Ver <see cref="_previsited"/>.
         /// </summary>
-        public void ResetEpisode()
+        public void ResetEpisode(float previsitedFraction = 0f)
         {
             System.Array.Clear(_visited, 0, _visited.Length);
             System.Array.Clear(_visitCount, 0, _visitCount.Length);
-            System.Array.Clear(_regionVisited, 0, _regionVisited.Length);
-            System.Array.Clear(_regionVisitedCount, 0, _regionVisitedCount.Length);
+            System.Array.Clear(_previsited, 0, _previsited.Length);
             _traversedEdges.Clear();
 
-            _enabledNodeCount = _graph.EnabledPrimaryCount();
-            _visitedNodeCount = 0;
-            _collectedBudget = 0f;
+            DrawPrevisited(previsitedFraction);
 
-            RecomputeRegionValues();
+            _enabledNodeCount = 0;
+            _visitedNodeCount = 0;
+            _collectedWeight = 0f;
+
+            RecomputeTotalWeight();
 
             CurrentNodeIndex = -1;
             PreviousNodeIndex = -1;
@@ -217,40 +204,62 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// A divisão do orçamento: cada nó PRIMÁRIO ativo de uma região passa a valer
-        /// orçamento / primários_ativos_da_região. Cobrir a região inteira paga exatamente o
-        /// orçamento, independente de ela ter sido descrita com 3 ou com 30 nós — que é o
-        /// ponto: a densidade da sua autoria deixa de ser função de recompensa.
+        /// Denominador da cobertura por peso: a soma dos pesos dos primários ATIVOS. Um nó
+        /// desligado por uma lição sai da conta, senão o alvo de cobertura vira inatingível.
         ///
-        /// Auxiliares ficam fora da conta inteira. É isso que torna a malha de navegação
-        /// GRÁTIS: você adensa o quanto quiser para o agente não se perder, e nem o valor de um
-        /// nó, nem o denominador da cobertura, nem o critério de conclusão da região se mexem.
+        /// Auxiliares ficam fora (NodeWeight devolve 0 para eles). É isso que torna a malha de
+        /// navegação GRÁTIS: você adensa o quanto quiser para o agente não se perder, e nem o
+        /// valor de um nó nem o denominador da cobertura se mexem.
         /// </summary>
-        private void RecomputeRegionValues()
+        private void RecomputeTotalWeight()
         {
-            System.Array.Clear(_regionEnabledCount, 0, _regionEnabledCount.Length);
+            _totalWeight = 0f;
 
             for (int i = 0; i < _graph.NodeCount; i++)
             {
+                // Pré-visitado sai do denominador dos DOIS medidores: ele não pode ser
+                // coletado, então contá-lo tornaria o alvo de cobertura inatingível.
+                if (!_graph.IsNodeEnabled(i) || _previsited[i])
+                    continue;
+
+                _totalWeight += _graph.NodeWeight(i);
+
+                if (_graph.IsNodePrimary(i))
+                    _enabledNodeCount++;
+            }
+        }
+
+        /// <summary>
+        /// Sorteia a fração pedida dos primários ativos e marca-os como visitados de nascença.
+        /// Sempre deixa pelo menos um primário por descobrir, senão a cobertura nasce em 100% e
+        /// o episódio termina em "sucesso" antes do primeiro step.
+        ///
+        /// Auxiliares nunca entram no sorteio: marcá-los não mudaria nada que o agente veja
+        /// (eles já não pagam) e só tiraria âncoras do caminho.
+        /// </summary>
+        private void DrawPrevisited(float fraction)
+        {
+            fraction = Mathf.Clamp01(fraction);
+            if (fraction <= 0f)
+                return;
+
+            int candidates = 0;
+            for (int i = 0; i < _graph.NodeCount; i++)
+            {
                 if (_graph.IsNodeEnabled(i) && _graph.IsNodePrimary(i))
-                    _regionEnabledCount[_graph.RegionSlotOf(i)]++;
+                    _shuffleBuffer[candidates++] = i;
             }
 
-            _totalBudget = 0f;
+            int count = Mathf.Min(Mathf.RoundToInt(candidates * fraction), candidates - 1);
 
-            for (int slot = 0; slot < _regionNodeValue.Length; slot++)
+            // Fisher-Yates parcial: só embaralha as `count` primeiras posições.
+            for (int k = 0; k < count; k++)
             {
-                int count = _regionEnabledCount[slot];
-                if (count == 0)
-                {
-                    // Região inteiramente desligada por uma lição: sai do valor por nó E do
-                    // denominador da cobertura, senão o alvo vira inatingível.
-                    _regionNodeValue[slot] = 0f;
-                    continue;
-                }
+                int j = Random.Range(k, candidates);
+                (_shuffleBuffer[k], _shuffleBuffer[j]) = (_shuffleBuffer[j], _shuffleBuffer[k]);
 
-                _regionNodeValue[slot] = _graph.RegionBudget(slot) / count;
-                _totalBudget += _graph.RegionBudget(slot);
+                _previsited[_shuffleBuffer[k]] = true;
+                _visited[_shuffleBuffer[k]] = true;
             }
         }
 
@@ -287,9 +296,6 @@ namespace Assets.Scripts.Graph
         {
             EnteredNewNode = false;
             EnteredNewNodeValue = 0f;
-            EnteredNewRegion = false;
-            EnteredNewRegionBudget = 0f;
-            CompletedRegionBudget = 0f;
             TraversedNewEdge = false;
             ChangedNode = false;
         }
@@ -303,7 +309,7 @@ namespace Assets.Scripts.Graph
             // só a pressão existencial. Uma recompensa por travessia sem essa memória é a forma
             // mais fácil de o agente descobrir uma máquina de fazer pontos parado no lugar.
             //
-            // Só entre PRIMÁRIOS: o _newEdgeReward é um valor plano, não escalado por orçamento,
+            // Só entre PRIMÁRIOS: o _newEdgeReward é um valor plano, não escalado por peso,
             // então uma malha auxiliar densa multiplicaria a contagem de arestas e com ela a
             // renda do episódio — percorrer a guia passaria a pagar mais que cobrir o mapa.
             // Quem dá gradiente durante a travessia é o _frontierApproachReward, que é por metro
@@ -328,44 +334,40 @@ namespace Assets.Scripts.Graph
             // onde ele passou e o que impede a fronteira de reprocessá-lo. O que muda é o resto.
             _visited[node] = true;
 
-            // Auxiliar não paga, não conta e não fecha região. Ele já fez o trabalho dele —
-            // servir de âncora e de caminho. Sair daqui é o que mantém a malha grátis.
+            // Auxiliar não paga nem conta. Ele já fez o trabalho dele — servir de âncora e de
+            // caminho. Sair daqui é o que mantém a malha grátis.
             if (!_graph.IsNodePrimary(node))
                 return;
 
             _visitedNodeCount++;
             EnteredNewNode = true;
 
-            int slot = _graph.RegionSlotOf(node);
-
             // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
             // nó, e cada um tem que pagar o seu.
-            EnteredNewNodeValue += _regionNodeValue[slot];
-            _collectedBudget += _regionNodeValue[slot];
-            _regionVisitedCount[slot]++;
-
-            if (!_regionVisited[slot])
-            {
-                _regionVisited[slot] = true;
-                EnteredNewRegion = true;
-                EnteredNewRegionBudget += _graph.RegionBudget(slot);
-            }
-
-            // Região fechada: todos os pontos de vantagem dela foram visitados. Com nó primário
-            // significando "daqui eu vejo a sala", isto quer dizer literalmente "vi esta sala
-            // inteira" — e é por isso que o evento é da REGIÃO e não de um nó. Um "nó de
-            // conclusão" colocado dentro da sala poderia ser tocado sem a sala ter sido coberta:
-            // pagaria por encostar num ponto, não por ter visto o lugar.
-            if (_regionVisitedCount[slot] >= _regionEnabledCount[slot])
-                CompletedRegionBudget += _graph.RegionBudget(slot);
+            float weight = _graph.NodeWeight(node);
+            EnteredNewNodeValue += weight;
+            _collectedWeight += weight;
         }
 
         private void UpdateFrontier()
         {
             _frontierDirty = false;
 
+            // Alvo fixo enquanto ele continuar valendo: o sorteio só acontece quando o alvo
+            // atual foi visitado (ou ficou inalcançável). É o que faz a seta apontar para o
+            // MESMO lugar do começo ao fim de uma travessia — e o que mantém o shaping de
+            // aproximação comparável entre dois steps.
+            if (FrontierTarget >= 0 && !_visited[FrontierTarget]
+                && _graph.TryFindPathTo(CurrentNodeIndex, FrontierTarget, out int keptStep, out int keptDistance))
+            {
+                HasFrontier = true;
+                FrontierNextStep = keptStep;
+                FrontierDistance = keptDistance;
+                return;
+            }
+
             HasFrontier = _graph.TryFindNearestUnvisited(
-                CurrentNodeIndex, _visited, out int target, out int nextStep, out int distance);
+                CurrentNodeIndex, _visited, _frontierCandidates, out int target, out int nextStep, out int distance);
 
             FrontierTarget = HasFrontier ? target : -1;
             FrontierNextStep = HasFrontier ? nextStep : -1;
@@ -373,6 +375,9 @@ namespace Assets.Scripts.Graph
         }
 
         public bool IsVisited(int node) => _visited[node];
+
+        /// <summary>Nasceu marcado como visitado neste episódio (sorteio do currículo).</summary>
+        public bool IsPrevisited(int node) => _previsited[node];
 
         public int VisitCountOf(int node) => _visitCount[node];
 
@@ -471,6 +476,16 @@ namespace Assets.Scripts.Graph
 
                 if (!_drawVisitedNodes)
                     continue;
+
+                // Pré-visitado: cheio e frio, sem escala de calor. Distinguir do verde importa
+                // porque este aqui NÃO foi mérito do agente — se ele orbitar em volta de um
+                // azul, é vai-e-vem tanto quanto em volta de um laranja.
+                if (_previsited[i])
+                {
+                    Gizmos.color = PrevisitedColor;
+                    GraphGizmos.DrawGroundAreaFilled(_graph.Shape, position, radius, height: 0.06f);
+                    continue;
+                }
 
                 // Verde -> laranja conforme as revisitas. Ver o nó esquentar é a forma mais
                 // rápida de flagrar vai-e-vem: nó e aresta pagam uma vez por episódio, então

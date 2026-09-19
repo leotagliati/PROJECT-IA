@@ -16,25 +16,14 @@ namespace Assets.Scripts.Graph
         public readonly bool EnteredNewNode;
 
         /// <summary>
-        /// Valor dos nós inéditos deste intervalo, já normalizado por região
-        /// (orçamento / nós da região). A recompensa multiplica isto por um peso e pronto — a
-        /// contagem de nós não aparece em lugar nenhum do cálculo, de propósito.
+        /// Soma dos PESOS (NavNode.ExplorationWeight) dos nós inéditos deste intervalo. A
+        /// recompensa multiplica isto por um fator e pronto — a contagem de nós não aparece
+        /// em lugar nenhum do cálculo, de propósito.
         /// </summary>
         public readonly float NewNodeValue;
 
         /// <summary>Percorreu uma aresta inédita. Paga o CAMINHO, não só o destino.</summary>
         public readonly bool TraversedNewEdge;
-
-        /// <summary>Soma dos orçamentos das regiões inéditas alcançadas neste intervalo.</summary>
-        public readonly float NewRegionBudget;
-
-        /// <summary>
-        /// Soma dos orçamentos das regiões CONCLUÍDAS neste intervalo (todos os pontos de
-        /// vantagem visitados). Separado de <see cref="NewRegionBudget"/> de propósito: entrar
-        /// numa sala e ter visto a sala inteira são conquistas diferentes e devem ter preços
-        /// diferentes — pagar só a entrada torna espiar a porta tão bom quanto varrer o cômodo.
-        /// </summary>
-        public readonly float CompletedRegionBudget;
 
         /// <summary>Trocou de nó neste step, visitado ou não.</summary>
         public readonly bool ChangedNode;
@@ -87,8 +76,6 @@ namespace Assets.Scripts.Graph
             bool enteredNewNode,
             float newNodeValue,
             bool traversedNewEdge,
-            float newRegionBudget,
-            float completedRegionBudget,
             bool changedNode,
             int currentNodeVisitCount,
             int frontierDistanceDelta,
@@ -103,8 +90,6 @@ namespace Assets.Scripts.Graph
             EnteredNewNode = enteredNewNode;
             NewNodeValue = newNodeValue;
             TraversedNewEdge = traversedNewEdge;
-            NewRegionBudget = newRegionBudget;
-            CompletedRegionBudget = completedRegionBudget;
             ChangedNode = changedNode;
             CurrentNodeVisitCount = currentNodeVisitCount;
             FrontierDistanceDelta = frontierDistanceDelta;

@@ -41,7 +41,26 @@ namespace Assets.Scripts.Graph
         [SerializeField] private string _frontierStepsParameterName = "frontier_hint_steps";
         [SerializeField, Min(0)] private int _defaultFrontierHintSteps = 0;
 
+        // Fração dos primários que já NASCE marcada como visitada, sorteada a cada episódio
+        // (lida pela GraphExplorationMemory). É a variação de estado inicial: com 0, todo
+        // episódio começa com o mapa inteiro por fazer e a sequência ótima a partir de cada
+        // spawn é sempre a mesma — a política decora. Com 0.5, o agente nasce no meio de uma
+        // exploração diferente a cada vez e a única coisa que serve em todas é a REGRA
+        // ("vá para a saída não visitada"), que é o que queremos que ele aprenda.
+        [SerializeField] private string _previsitedParameterName = "previsited_fraction";
+        [SerializeField, Range(0f, 0.9f)] private float _defaultPrevisitedFraction = 0f;
+
         [Header("-----Spawn-----")]
+        // Nasce em cima de um nó ATIVO qualquer do grafo, sorteado por episódio, em vez de num
+        // dos _spawnPoints. Dez pontos fixos são dez rotas para decorar; sessenta nós são
+        // sessenta origens, e a origem deixa de identificar a rota. Os _spawnPoints continuam
+        // sendo o fallback quando isto está desligado ou o grafo não tem nós.
+        [SerializeField] private bool _spawnAtRandomNode = true;
+
+        // Os nós ficam no chão; o corpo do agente nasce este tanto acima, para não nascer com
+        // o collider dentro do piso. Da ordem da altura dos _spawnPoints originais (~0.13).
+        [SerializeField] private float _nodeSpawnHeightOffset = 0.15f;
+
         // Spawn aleatório entre os pontos. Sortear é o que impede a política de decorar UMA
         // rota: com origem fixa, "explorar" e "executar aquela sequência de curvas" viram a
         // mesma coisa, e a segunda é muito mais fácil de aprender.
@@ -80,6 +99,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Steps de física com a dica ligada por episódio; 0 = o episódio inteiro.</summary>
         public int FrontierHintSteps { get; private set; }
 
+        /// <summary>Fração dos primários que nasce visitada neste episódio (0..0.9).</summary>
+        public float PrevisitedFraction { get; private set; }
+
         private void Awake() => EnsureInitialized();
 
         // Mesma razão do Graph: a cor original do chão precisa estar guardada antes do primeiro
@@ -116,6 +138,9 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public bool TryGetSpawn(out Vector3 position, out Quaternion rotation)
         {
+            if (_spawnAtRandomNode && TryGetNodeSpawn(out position, out rotation))
+                return true;
+
             if (_spawnPoints == null || _spawnPoints.Length == 0)
             {
                 position = Vector3.zero;
@@ -144,6 +169,36 @@ namespace Assets.Scripts.Graph
             return true;
         }
 
+        // Sorteia um nó ativo. Auxiliares entram também: são justamente os pontos no meio dos
+        // corredores, e nascer ali é o caso que os spawn points fixos nunca cobriam. A rotação
+        // é sorteada só por variedade visual — as ações são no referencial do mundo.
+        private bool TryGetNodeSpawn(out Vector3 position, out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+
+            NavGraph graph = Graph;
+            if (graph == null || graph.NodeCount == 0)
+                return false;
+
+            graph.EnsureBaked();
+
+            // Até NodeCount tentativas: com nós desligados por uma lição, sortear e rejeitar é
+            // mais simples que manter uma lista de ativos em dia.
+            for (int attempt = 0; attempt < graph.NodeCount; attempt++)
+            {
+                int index = Random.Range(0, graph.NodeCount);
+                if (!graph.IsNodeEnabled(index))
+                    continue;
+
+                position = graph.NodePosition(index) + Vector3.up * _nodeSpawnHeightOffset;
+                rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+                return true;
+            }
+
+            return false;
+        }
+
         private void ApplyCurriculum()
         {
             EnvironmentParameters parameters = Academy.Instance.EnvironmentParameters;
@@ -154,6 +209,12 @@ namespace Assets.Scripts.Graph
             // O currículo entrega float; a contagem é inteira.
             FrontierHintSteps = Mathf.Max(0, Mathf.RoundToInt(
                 parameters.GetWithDefault(_frontierStepsParameterName, _defaultFrontierHintSteps)));
+
+            // Teto em 0.9 e não 1.0: a memória sempre deixa ao menos um nó por descobrir, mas
+            // com quase tudo pré-visitado o episódio vira "ache o único nó que falta" — que é
+            // outra tarefa, não exploração.
+            PrevisitedFraction = Mathf.Clamp(
+                parameters.GetWithDefault(_previsitedParameterName, _defaultPrevisitedFraction), 0f, 0.9f);
         }
     }
 }

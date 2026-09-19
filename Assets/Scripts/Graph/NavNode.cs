@@ -13,7 +13,7 @@ namespace Assets.Scripts.Graph
     {
         /// <summary>
         /// PONTO DE VANTAGEM: parado aqui, a visão do agente cobre a sala/corredor. É ele que
-        /// paga cobertura, conta para a conclusão da região e pode ser alvo da fronteira.
+        /// paga cobertura (o peso dele) e pode ser alvo da fronteira.
         /// Poucos por área (1 a 3) e com raio apertado, porque nele "visitado" precisa
         /// significar "estive lá e vi daqui".
         /// </summary>
@@ -30,8 +30,8 @@ namespace Assets.Scripts.Graph
     /// <summary>
     /// Um ponto de interesse do mapa, posicionado À MÃO na cena (doorway, canto de sala,
     /// bifurcação de corredor). Guarda só o que é do nó: onde ele está, com quem ele conversa,
-    /// se está ativo e a que área pertence. Nenhuma lógica de agente, recompensa ou busca mora
-    /// aqui — quem consolida isso num grafo utilizável é o <see cref="NavGraph"/>.
+    /// se está ativo e quanto vale. Nenhuma lógica de agente, recompensa ou busca mora aqui —
+    /// quem consolida isso num grafo utilizável é o <see cref="NavGraph"/>.
     ///
     /// A ligação é declarativa e em linha reta: você arrasta os vizinhos no Inspector e a
     /// promessa (que você garante ao posicionar, e o gizmo do NavGraph confere) é que o
@@ -57,18 +57,19 @@ namespace Assets.Scripts.Graph
         // fechada, ala bloqueada numa lição do currículo), não estado do componente.
         [SerializeField] private bool _isEnabled = true;
 
-        [Header("-----Região-----")]
-        // A que parte do mapa este nó pertence. É uma referência, e não um id solto, porque o
-        // ORÇAMENTO de exploração mora na região (ver NavRegion) e precisa de um lugar só —
-        // replicar o valor em cada nó seria a forma mais fácil de dois nós da mesma sala
-        // discordarem sobre quanto ela vale.
+        [Header("-----Valor-----")]
+        // Quanto vale DESCOBRIR este nó, em unidades relativas. 1 é a referência; 2 é "este
+        // ponto vale o dobro". A conversão para recompensa acontece uma vez só, no
+        // GraphRewardSystem (_nodeCoverageReward) — aqui você só declara a importância relativa.
         //
-        // Usos: (1) o nó paga orcamento_da_regiao / nós_da_regiao ao ser descoberto;
-        //       (2) bônus ao entrar numa região inédita; (3) observação da fração da região
-        //       atual já coberta.
-        // Nós de doorway podem ficar de qualquer um dos dois lados; o que importa é que a
-        // travessia troque de região em algum ponto.
-        [SerializeField] private NavRegion _region;
+        // O peso mora no nó, e não numa região que o agrupa: cada ponto de vantagem é uma
+        // decisão de autoria ("daqui se vê a sala"), então o valor dele é decidido no mesmo
+        // lugar em que ele é colocado. O preço disso é que a DENSIDADE da malha vira função de
+        // recompensa: dois primários de peso 1 na mesma sala pagam o dobro de um. Ao adensar
+        // uma sala, divida o peso entre os nós dela para o total da sala não mudar.
+        //
+        // Só conta em nó PRIMÁRIO. Num auxiliar o campo é ignorado — ele não paga nada.
+        [SerializeField] private float _explorationWeight = 1f;
 
         // Raio de chegada SÓ DESTE NÓ. Deixe em 0 (o normal): o NavGraph tem um padrão por PAPEL
         // (apertado para primário, generoso para auxiliar), e é lá que se calibra o mapa inteiro.
@@ -89,7 +90,7 @@ namespace Assets.Scripts.Graph
         public NodeKind Kind => _kind;
 
         /// <summary>
-        /// Atalho do teste que aparece em todo lugar: cobertura, conclusão de região, alvo da
+        /// Atalho do teste que aparece em todo lugar: cobertura, peso, alvo da
         /// fronteira e recompensa de aresta são todos privilégio de nó primário.
         /// </summary>
         public bool IsPrimary => _kind == NodeKind.Primary;
@@ -101,7 +102,8 @@ namespace Assets.Scripts.Graph
         /// <summary>Raio próprio, ou 0 quando o nó usa o padrão do grafo.</summary>
         public float RadiusOverride => _radiusOverride;
 
-        public NavRegion Region => _region;
+        /// <summary>Peso de exploração declarado na autoria. Nunca negativo; 0 é "não paga".</summary>
+        public float ExplorationWeight => Mathf.Max(0f, _explorationWeight);
 
         /// <summary>
         /// Nó ativo participa de tudo: observação, busca de fronteira e denominador da cobertura.
@@ -122,10 +124,12 @@ namespace Assets.Scripts.Graph
 
         public bool IsNeighbor(NavNode other) => _neighbors.Contains(other);
 
-        internal void SetRegion(NavRegion region) => _region = region;
-
-        /// <summary>Cor da região, para o gizmo. Magenta gritante quando falta região.</summary>
-        public Color RegionColor => _region != null ? _region.GizmoColor : Color.magenta;
+        // Cor do PONTO, por papel. Mesma matiz que o disco padrão do NavGraph desenha para cada
+        // papel, então ponto e disco contam a mesma história — e um nó sem disco (esquecido
+        // fora do grafo) ainda diz o que ele é.
+        private static readonly Color PrimaryColor = new Color(0.25f, 0.75f, 0.95f, 1f);
+        private static readonly Color AuxiliaryColor = new Color(0.55f, 0.60f, 0.72f, 1f);
+        private static readonly Color DisabledColor = new Color(0.35f, 0.35f, 0.35f, 1f);
 
         // Só o pontinho. O raio de chegada é desenhado pelo NavGraph, que é quem conhece o valor
         // efetivo (padrão do grafo ou override) — resolver isso aqui exigiria o nó ser filho do
@@ -136,21 +140,22 @@ namespace Assets.Scripts.Graph
         // está na lista do grafo. É o sintoma de ter esquecido de rodar "Coletar nós filhos".
         private void OnDrawGizmos()
         {
-            Color color = _isEnabled ? RegionColor : new Color(0.35f, 0.35f, 0.35f, 1f);
-
             // Auxiliar desenha menor e apagado: numa malha densa, ponto cheio em cima de ponto
             // cheio deixa de dar para ver quais são os poucos nós que realmente valem alguma
             // coisa — que é a informação que você procura quando olha o mapa de cima.
             if (_kind == NodeKind.Auxiliary)
             {
-                color.a *= 0.45f;
-                Gizmos.color = color;
+                Color aux = _isEnabled ? AuxiliaryColor : DisabledColor;
+                aux.a *= 0.45f;
+                Gizmos.color = aux;
                 Gizmos.DrawSphere(Position, 0.09f);
                 return;
             }
 
-            Gizmos.color = color;
-            Gizmos.DrawSphere(Position, 0.18f);
+            // O tamanho do ponto cresce com o peso (raiz, para peso 4 não virar uma bola de
+            // 4x): dá para ver de cima onde estão os nós que valem mais sem abrir o Inspector.
+            Gizmos.color = _isEnabled ? PrimaryColor : DisabledColor;
+            Gizmos.DrawSphere(Position, 0.18f * Mathf.Sqrt(Mathf.Max(0.25f, ExplorationWeight)));
         }
 
         private void OnDrawGizmosSelected()

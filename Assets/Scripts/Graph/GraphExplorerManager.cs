@@ -18,7 +18,7 @@ namespace Assets.Scripts.Graph
     /// OBSERVAÇÃO — a decisão de projeto mais importante deste arquivo:
     /// o agente NÃO recebe a lista de todos os nós, nem a lista dos nós da região. Ele recebe
     /// uma visão EGOCÊNTRICA: o nó em que está, os K vizinhos dele (direção, distância, se já
-    /// foram visitados) e dois resumos escalares (fração do grafo e da área atual já cobertas).
+    /// foram visitados) e um resumo escalar (fração do grafo já coberta).
     ///
     /// Por quê:
     ///   - "Todos os nós" tem tamanho fixo amarrado a ESTE mapa. Cada slot do vetor vira "o nó
@@ -51,15 +51,17 @@ namespace Assets.Scripts.Graph
         //   [0]      está dentro do raio de algum nó
         //   [1..3]   direção + distância ao nó âncora
         //   [4..6]   direção + distância ao nó mais próximo COM LINHA LIVRE
-        //   [7..8]   cobertura total e da região atual
+        //   [7]      cobertura total
+        //   [8]      RESERVADO — era a cobertura da região atual; regiões saíram do sistema
         //   [9..11]  direção + distância ao próximo passo da fronteira
         //   [12]     distância em ARESTAS até a fronteira
         //   [13..15] RESERVADO — alerta: ativo, distância em arestas, delta quente/frio
         //   [16..20] RESERVADO — visão: vendo, já viu, direção + distância à última posição
         //
         // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
-        // toda mudança neste número invalida os .onnx treinados: reservar custa 8 entradas numa
-        // rede de 128 unidades e economiza uma retreinada inteira do zero.
+        // toda mudança neste número invalida os .onnx treinados: reservar custa 9 entradas numa
+        // rede de 128 unidades e economiza uma retreinada inteira do zero. O [8] fica pelo
+        // mesmo motivo: encolher o vetor só para tirar um zero custaria todos os modelos.
         private const int GlobalObservations = 21;
 
         // Quantos zeros os blocos ainda não implementados emitem. Somem quando a busca entrar.
@@ -82,10 +84,10 @@ namespace Assets.Scripts.Graph
             NodeFraction,
 
             /// <summary>
-            /// Fração do orçamento das regiões coletada. Coerente com a recompensa: um corredor
-            /// de orçamento 0.2 conta pouco, a sala de 2.0 conta muito.
+            /// Fração da soma dos pesos dos nós (NavNode.ExplorationWeight) coletada. Coerente
+            /// com a recompensa: um nó de peso 0.2 conta pouco, um de peso 2.0 conta muito.
             /// </summary>
-            RegionBudget,
+            NodeWeight,
         }
 
         [Header("-----Cobertura-----")]
@@ -93,10 +95,10 @@ namespace Assets.Scripts.Graph
         // pelo agente. Os dois de propósito na mesma chave: observar uma barra de progresso
         // diferente da que julga o episódio é a receita de um agente que "acha" que está indo bem.
         //
-        // RegionBudget é o default porque é o único que fica imune à densidade de nós — com
-        // NodeFraction, uma sala descrita com 30 nós domina o alvo de cobertura mesmo valendo
-        // o mesmo que um corredor de 3, e a normalização por região vira meia-normalização.
-        [SerializeField] private CoverageMeasure _coverageMeasure = CoverageMeasure.RegionBudget;
+        // NodeWeight é o default porque é a mesma conta da recompensa: o agente observa a
+        // barra que decide o que ele ganha. NodeFraction ignora os pesos e trata todo primário
+        // como igual — serve para medir cobertura GEOMÉTRICA num mapa de pesos desiguais.
+        [SerializeField] private CoverageMeasure _coverageMeasure = CoverageMeasure.NodeWeight;
 
         [Header("-----Observação-----")]
         // Quantos vizinhos cabem na observação. Nós com mais vizinhos que isto têm os excedentes
@@ -158,8 +160,8 @@ namespace Assets.Scripts.Graph
 
         public int ObservationSize => _neighborSlots * FloatsPerNeighbor + GlobalObservations;
 
-        private float CurrentCoverage => _coverageMeasure == CoverageMeasure.RegionBudget
-            ? _memory.VisitedBudgetFraction
+        private float CurrentCoverage => _coverageMeasure == CoverageMeasure.NodeWeight
+            ? _memory.VisitedWeightFraction
             : _memory.VisitedFraction;
 
         // Peso EFETIVO da dica neste step: a força da lição enquanto a dica dura, zero depois.
@@ -226,7 +228,8 @@ namespace Assets.Scripts.Graph
                 transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
 
             _movementSystem.ResetMovement();
-            _memory.ResetEpisode();
+            // A arena já leu o currículo em ResetEpisode() acima; a fração vale para este episódio.
+            _memory.ResetEpisode(_arenaController.PrevisitedFraction);
             _rewardSystem.ResetEpisode();
 
             // Registra de imediato o nó do spawn: sem isto o primeiro nó do episódio pagaria
@@ -272,11 +275,11 @@ namespace Assets.Scripts.Graph
             int nearest = _graph.FindNearestReachableNode(position);
             AddDirectionAndDistance(sensor, position, nearest >= 0 ? _graph.NodePosition(nearest) : position, nearest >= 0);
 
-            // ---- Cobertura (2) ----
-            // O quanto falta explorar, no geral e na região atual. É o que permite à política
-            // decidir entre "esta sala ainda tem coisa" e "hora de procurar a porta".
+            // ---- Cobertura (1) + reservado (1) ----
+            // O quanto falta explorar no geral. O segundo float era a fração da região atual;
+            // sem regiões ele emite zero, mantido no lugar para não invalidar os .onnx.
             sensor.AddObservation(CurrentCoverage);
-            sensor.AddObservation(_memory.CurrentRegionVisitedFraction);
+            sensor.AddObservation(0f);
 
             // ---- Fronteira (4) ----
             float hint = CurrentFrontierHint;
@@ -468,8 +471,6 @@ namespace Assets.Scripts.Graph
                 _memory.EnteredNewNode,
                 _memory.EnteredNewNodeValue,
                 _memory.TraversedNewEdge,
-                _memory.EnteredNewRegionBudget,
-                _memory.CompletedRegionBudget,
                 _memory.ChangedNode,
                 _memory.CurrentNodeVisitCount,
                 delta,

@@ -127,7 +127,7 @@ nomes de menus são em **português** — mantenha assim.
 ```
 Assets/
   Scripts/
-    Graph/          GraphExplorer: NavGraph, NavNode, NavRegion, GraphExplorerManager,
+    Graph/          GraphExplorer: NavGraph, NavNode, GraphExplorerManager,
                     GraphExplorationMemory, GraphRewardSystem, GraphStepContext, GraphArenaController, GraphGizmos
     Seeker/         Seeker: SeekerManager, SeekerPerceptionSystem, SeekerExplorationMemory, SeekerRewardSystem,
                     SeekerStepContext, SeekerArenaController, SeekerMovementSystem (reusado pelo GraphExplorer)
@@ -170,12 +170,13 @@ Regras derivadas disso:
 
 ## GraphExplorer em detalhe
 
-- **NavNode** — posicionado à mão na cena. `Primary` = ponto de vantagem (paga cobertura, conta para concluir a
-  região, pode ser alvo da fronteira; raio apertado). `Auxiliary` = guia (não vale nada; raio generoso, só para o
-  agente ter âncora no meio do corredor). Ligações declaradas de um lado só; o bake espelha.
-- **NavRegion** — sala/corredor com `_explorationBudget`. O orçamento é dividido entre os nós ativos da região,
-  então adensar a malha **não** muda quanto a sala vale. Coloque a região como pai dos nós e use o menu de contexto
-  "Atribuir esta região aos nós filhos".
+- **NavNode** — posicionado à mão na cena. `Primary` = ponto de vantagem (paga cobertura, pode ser alvo da
+  fronteira; raio apertado). `Auxiliary` = guia (não vale nada; raio generoso, só para o agente ter âncora no meio
+  do corredor). Ligações declaradas de um lado só; o bake espelha.
+- **Peso por nó** — cada `Primary` tem `_explorationWeight` (1 = referência); é o único lugar que diz quanto um
+  ponto vale. Não existe mais agrupamento por região: adensar uma sala com mais primários **aumenta** quanto ela
+  paga, então ao adensar reparta o peso entre os nós dela. Auxiliar ignora o campo. O bônus de entrar/concluir
+  sala saiu junto com as regiões.
 - **NavGraph** — um por arena. Bake idempotente (`EnsureBaked`), adjacência, BFS de fronteira (não-visitado mais
   próximo), validação de ligações contra a layer `Wall` com SphereCast (`_linkClearance` = metade da largura do
   agente). Menus de contexto: **Coletar nós filhos**, **Auto-ligar por linha de visão**, **Validar ligações**.
@@ -184,23 +185,30 @@ Regras derivadas disso:
   busca/visão — existem para não invalidar os `.onnx` quando ela entrar. Vizinhos ordenados por ângulo no mundo
   (ordem estável = slot com significado geométrico).
 - **Ações**: 2 contínuas (X, Z) no referencial do mundo, mesmo referencial das observações de direção.
-- **Fronteira**: direção + distância em arestas até o não-visitado mais próximo, escalada por `frontier_hint` do
-  currículo. Observação, shaping e gizmo roxo são escalados **juntos** (são a mesma muleta) via
-  `GraphExplorerManager.CurrentFrontierHint`. Dois eixos no currículo: `frontier_hint` (força, cai até 0.2) e
-  `frontier_hint_steps` (duração por episódio em steps de física; 0 = episódio inteiro; depois do limite a dica vai
-  a zero e o agente termina sozinho). Para avaliar sem dica nenhuma, use `frontier_hint = 0` no
-  `GraphArenaController`, não no treino.
+- **Fronteira**: direção + distância em arestas até um não-visitado próximo, escalada por `frontier_hint` do
+  currículo. O alvo é **sorteado entre os `_frontierCandidates` (3) mais próximos** e fica fixo até ser visitado
+  (`GraphExplorationMemory`) — com 1 ele volta a ser determinístico e a política decora rotas. Observação, shaping
+  e gizmo roxo são escalados **juntos** (são a mesma muleta) via `GraphExplorerManager.CurrentFrontierHint`. Dois
+  eixos no currículo: `frontier_hint` (força, cai até 0.2) e `frontier_hint_steps` (duração por episódio em steps
+  de física; 0 = episódio inteiro; depois do limite a dica vai a zero e o agente termina sozinho). Para avaliar sem
+  dica nenhuma, use `frontier_hint = 0` no `GraphArenaController`, não no treino.
+- **Anti-decoreba** (variação por episódio, para a política aprender a regra e não a rota):
+  `GraphArenaController._spawnAtRandomNode` (nasce em qualquer nó ativo, não nos `_spawnPoints`) e
+  `previsited_fraction` do currículo (fração dos primários que já nasce marcada como visitada; sai do denominador
+  da cobertura, aparece como visitada para o agente e para a BFS; disco azul-escuro no gizmo).
 - **Gizmos**: NavGraph desenha estrutura (sempre); GraphExplorationMemory desenha estado (só em Play; legenda no
   cabeçalho do arquivo). Evite reutilizar verde/laranja/amarelo/magenta/branco em gizmos novos.
 
 ### Autorar um mapa novo (fluxo)
 
-1. Duplique `NodeTraining.prefab` ou monte uma arena com `GraphArenaController` > `NavGraph` > regiões > nós.
-2. Coloque `NavRegion` por sala/corredor, nós `Primary` (1–3 por área) e `Auxiliary` ao longo dos corredores.
-3. Em cada região: "Atribuir esta região aos nós filhos". Ligue os nós (na mão ou "Auto-ligar" + poda manual).
+1. Duplique `NodeTraining.prefab` ou monte uma arena com `GraphArenaController` > `NavGraph` > nós.
+2. Coloque nós `Primary` (1–3 por sala/corredor) e `Auxiliary` ao longo dos corredores.
+3. Dê o `_explorationWeight` de cada primário (some o total do mapa: é o teto da recompensa de cobertura).
+   Ligue os nós (na mão ou "Auto-ligar" + poda manual).
 4. `NavGraph` > "Coletar nós filhos" (obrigatório após adicionar/remover nós) e "Validar ligações".
-5. Confira `_spawnPoints` do `GraphArenaController` e `_maxNodeDistance` (~ maior aresta do mapa).
-6. Play e leia o Console: `ValidateSetup` e o bake avisam grafo desconexo, nó sem região, vizinhos > slots,
+5. Confira `_maxNodeDistance` (~ maior aresta do mapa). `_spawnPoints` só importa com `_spawnAtRandomNode`
+   desligado.
+6. Play e leia o Console: `ValidateSetup` e o bake avisam grafo desconexo, primário com peso 0, vizinhos > slots,
    `VectorObservationSize` errado, referência vazada de outra arena.
 
 ## Treino e avaliação
@@ -235,10 +243,12 @@ Comandos completos na seção **Treinar: comandos no Anaconda PowerShell**, no t
 - Qualquer mudança no layout/tamanho das observações (`_neighborSlots`, `GlobalObservations`, ordem dos blocos)
   **invalida todos os `.onnx`** e exige ajustar `VectorObservationSize` no prefab. Use os blocos reservados antes de
   crescer o vetor.
-- No currículo do GraphExplorer, `coverage_target`, `frontier_hint` e `frontier_hint_steps` têm
-  `completion_criteria` **idênticos de propósito** (o ML-Agents avalia cada parâmetro sozinho). Mexeu num
-  threshold, mexa nos outros dois. Os thresholds em `reward` ainda são estimativa e precisam de calibração (ver
-  comentário no YAML).
+- No currículo do GraphExplorer, `coverage_target`, `frontier_hint`, `frontier_hint_steps` e `previsited_fraction`
+  têm `completion_criteria` **idênticos de propósito** (o ML-Agents avalia cada parâmetro sozinho). Mexeu num
+  threshold, mexa nos outros três. Os thresholds em `reward` são estimativa (conta no YAML) e **não crescem de
+  lição em lição**: os pré-visitados tiram renda enquanto a cobertura-alvo sobe.
+- `_newEdgeReward` só paga aresta **entre dois primários**. No mapa atual do `NodeTraining.prefab` não existe
+  nenhuma (todo primário se liga via auxiliares), então o termo está morto ali.
 - `_frontierApproachReward` tem um teto por mapa (`chegada / aresta_mediana`) — refaça a conta em mapa novo.
 - Esqueceu "Coletar nós filhos" → nó aparece como ponto sem círculo e sem ligações no gizmo.
 - `Heuristic` (dirigir com WASD) só compila com `ENABLE_LEGACY_INPUT_MANAGER`.

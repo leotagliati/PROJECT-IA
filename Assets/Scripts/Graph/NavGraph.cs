@@ -28,7 +28,7 @@ namespace Assets.Scripts.Graph
 
     /// <summary>
     /// Consolida os <see cref="NavNode"/> de UMA arena num grafo consultável: índices,
-    /// adjacência, áreas e busca em largura. É estrutura do mapa, não estado de agente — o que
+    /// adjacência, pesos, áreas e busca em largura. É estrutura do mapa, não estado de agente — o que
     /// o agente já visitou mora na <see cref="GraphExplorationMemory"/>, uma por agente.
     ///
     /// Existe um NavGraph por cópia da arena; os índices são locais a ele, então nove arenas na
@@ -45,10 +45,6 @@ namespace Assets.Scripts.Graph
         // de volta. Com isto ligado, a autoria fica à prova disso.
         [SerializeField] private bool _makeLinksBidirectional = true;
 
-        // Orçamento usado pelos nós que ficaram sem NavRegion atribuída. Eles são agrupados numa
-        // única região implícita, então este valor é dividido entre TODOS eles.
-        [SerializeField] private float _defaultRegionBudget = 1f;
-
         // Forma da área de chegada, para o mapa inteiro. No quadrado os dois raios abaixo deixam
         // de ser raio e passam a ser MEIA-ARESTA: trocar a forma sem mexer nos números aumenta a
         // área em ~27% e estica o alcance da diagonal em 41%. Reveja o espaçamento ao trocar.
@@ -56,8 +52,7 @@ namespace Assets.Scripts.Graph
 
         // UM RAIO PADRÃO POR PAPEL, porque os dois têm fórmulas de calibração opostas. Deixar os
         // dois no mesmo campo obrigaria a corrigir um deles nó a nó, no override — e replicar um
-        // valor por nó é a forma mais rápida de dois nós discordarem sobre ele (o mesmo motivo
-        // pelo qual o orçamento mora na NavRegion e não em cada NavNode).
+        // valor por nó é a forma mais rápida de dois nós discordarem sobre ele.
         //
         // PRIMÁRIO — certifica presença, então quer ficar APERTADO:
         //   - grande demais: o raio do vizinho encosta no dele, a chegada acontece no meio do
@@ -121,10 +116,6 @@ namespace Assets.Scripts.Graph
         [SerializeField] private bool _validateLinksInGizmos = true;
 
         private int[][] _adjacency;
-        private int[] _regionSlotOfNode;
-        private int[] _regionNodeCounts;
-        private NavRegion[] _regions;
-        private int _regionCount;
         private bool _isBaked;
 
         // Rascunho da BFS, alocado uma vez. O carimbo evita limpar o array de visitados a cada
@@ -133,7 +124,9 @@ namespace Assets.Scripts.Graph
         private int[] _bfsParent;
         private int[] _bfsDepth;
         private int[] _bfsStampOf;
+        private int[] _bfsCandidates;
         private int _bfsStamp;
+        private int _bfsCount;
 
         public LayerMask WallLayer => _wallLayer;
 
@@ -178,8 +171,6 @@ namespace Assets.Scripts.Graph
 
         public int NodeCount => _nodes.Count;
 
-        public int RegionCount => _regionCount;
-
         public IReadOnlyList<NavNode> Nodes => _nodes;
 
         private void Awake() => EnsureBaked();
@@ -200,12 +191,12 @@ namespace Assets.Scripts.Graph
                 _nodes[i].AssignIndex(i);
 
             BuildAdjacency();
-            BuildRegions();
 
             _bfsQueue = new int[_nodes.Count];
             _bfsParent = new int[_nodes.Count];
             _bfsDepth = new int[_nodes.Count];
             _bfsStampOf = new int[_nodes.Count];
+            _bfsCandidates = new int[_nodes.Count];
 
             _isBaked = true;
 
@@ -254,51 +245,6 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // As regiões viram slots contíguos (0..n-1) para que os arrays de cobertura por região
-        // sejam pequenos e indexáveis. Nós sem região caem num slot implícito compartilhado —
-        // com aviso, porque é quase sempre esquecimento de autoria, não intenção.
-        private void BuildRegions()
-        {
-            var slotOf = new Dictionary<NavRegion, int>();
-            var ordered = new List<NavRegion>();
-            int unassignedSlot = -1;
-
-            _regionSlotOfNode = new int[_nodes.Count];
-
-            for (int i = 0; i < _nodes.Count; i++)
-            {
-                NavRegion region = _nodes[i].Region;
-
-                if (region == null)
-                {
-                    if (unassignedSlot < 0)
-                    {
-                        unassignedSlot = ordered.Count;
-                        ordered.Add(null);
-                    }
-
-                    _regionSlotOfNode[i] = unassignedSlot;
-                    continue;
-                }
-
-                if (!slotOf.TryGetValue(region, out int slot))
-                {
-                    slot = ordered.Count;
-                    slotOf.Add(region, slot);
-                    ordered.Add(region);
-                }
-
-                _regionSlotOfNode[i] = slot;
-            }
-
-            _regions = ordered.ToArray();
-            _regionCount = _regions.Length;
-            _regionNodeCounts = new int[_regionCount];
-
-            for (int i = 0; i < _nodes.Count; i++)
-                _regionNodeCounts[_regionSlotOfNode[i]]++;
-        }
-
         public Vector3 NodePosition(int index) => _nodes[index].Position;
 
         public NavNode GetNode(int index) => _nodes[index];
@@ -306,27 +252,22 @@ namespace Assets.Scripts.Graph
         public bool IsNodeEnabled(int index) => _nodes[index].IsEnabled;
 
         /// <summary>
-        /// Nó primário (ponto de vantagem) ou auxiliar (guia)? Cobertura, conclusão de região,
-        /// alvo de fronteira e recompensa de aresta são todos privilégio do primário.
+        /// Nó primário (ponto de vantagem) ou auxiliar (guia)? Cobertura, peso, alvo de
+        /// fronteira e recompensa de aresta são todos privilégio do primário.
         /// </summary>
         public bool IsNodePrimary(int index) => _nodes[index].IsPrimary;
 
         public int[] GetNeighbors(int index) => _adjacency[index];
 
-        public int RegionSlotOf(int index) => _regionSlotOfNode[index];
-
-        public int RegionNodeCount(int regionSlot) => _regionNodeCounts[regionSlot];
-
-        public NavRegion RegionAt(int regionSlot) => _regions[regionSlot];
-
         /// <summary>
-        /// Orçamento da região daquele slot. Nós sem região usam <see cref="_defaultRegionBudget"/> —
-        /// o treino não quebra por causa de um nó esquecido, mas o aviso no bake te avisa.
+        /// Quanto vale descobrir o nó. Auxiliar vale ZERO aqui, independente do que estiver no
+        /// campo dele: é esta função (e não cada consumidor) que garante que a malha de guia
+        /// não paga nada, então nem a recompensa nem a cobertura precisam repetir o teste.
         /// </summary>
-        public float RegionBudget(int regionSlot)
+        public float NodeWeight(int index)
         {
-            NavRegion region = _regions[regionSlot];
-            return region != null ? region.ExplorationBudget : _defaultRegionBudget;
+            NavNode node = _nodes[index];
+            return node.IsPrimary ? node.ExplorationWeight : 0f;
         }
 
         /// <summary>
@@ -442,15 +383,20 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// BFS a partir de <paramref name="from"/> até o nó ativo mais próximo ainda não
-        /// visitado. Devolve o alvo, o PRIMEIRO PASSO do caminho (que é o que interessa para
-        /// observação e shaping) e a distância em arestas.
+        /// BFS a partir de <paramref name="from"/> até um nó primário ativo ainda não visitado,
+        /// SORTEADO entre os <paramref name="candidates"/> mais próximos. Devolve o alvo, o
+        /// PRIMEIRO PASSO do caminho (que é o que interessa para observação e shaping) e a
+        /// distância em arestas.
         ///
         /// Distância em arestas, e não euclidiana: é justamente a diferença que faz o sinal
         /// funcionar num mapa com paredes. Contornar uma sala para chegar a uma porta aumenta a
         /// distância em linha reta e diminui a de grafo — a segunda é a que descreve progresso.
+        ///
+        /// POR QUE SORTEAR e não pegar sempre o mais próximo: "o não-visitado mais próximo" é
+        /// determinístico, então de um mesmo spawn a seta desenha SEMPRE a mesma rota — e a
+        /// política aprende a rota, não a regra. Com candidates = 1 o comportamento antigo volta.
         /// </summary>
-        public bool TryFindNearestUnvisited(int from, bool[] visited, out int target, out int nextStep, out int graphDistance)
+        public bool TryFindNearestUnvisited(int from, bool[] visited, int candidates, out int target, out int nextStep, out int graphDistance)
         {
             target = -1;
             nextStep = -1;
@@ -459,6 +405,64 @@ namespace Assets.Scripts.Graph
             if (from < 0 || from >= _nodes.Count || !_nodes[from].IsEnabled)
                 return false;
 
+            RunBfs(from);
+
+            // A fila da BFS já está em ordem de distância, então os k primeiros alvos válidos
+            // nela SÃO os k mais próximos — basta varrê-la e sortear entre eles.
+            //
+            // O ALVO tem que ser primário — um nó de malha não vale nada, e apontar a fronteira
+            // para ele mandaria o agente "explorar" um pedaço de corredor que não paga e não
+            // conta para cobertura. O CAMINHO continua atravessando auxiliares normalmente.
+            int found = 0;
+            int limit = Mathf.Max(1, candidates);
+            for (int i = 0; i < _bfsCount && found < limit; i++)
+            {
+                int node = _bfsQueue[i];
+                if (node == from || visited[node] || !_nodes[node].IsPrimary)
+                    continue;
+
+                _bfsCandidates[found++] = node;
+            }
+
+            if (found == 0)
+                return false;
+
+            target = _bfsCandidates[Random.Range(0, found)];
+            graphDistance = _bfsDepth[target];
+            nextStep = FirstStepTowards(from, target);
+            return true;
+        }
+
+        /// <summary>
+        /// Caminho mais curto até um alvo JÁ ESCOLHIDO. É o que mantém a seta fixa num alvo
+        /// entre dois sorteios: sem isto, cada troca de nó re-sortearia e a seta ficaria
+        /// piscando entre candidatos. Falha se o alvo ficou inalcançável.
+        /// </summary>
+        public bool TryFindPathTo(int from, int target, out int nextStep, out int graphDistance)
+        {
+            nextStep = -1;
+            graphDistance = 0;
+
+            if (from < 0 || from >= _nodes.Count || target < 0 || target >= _nodes.Count || from == target)
+                return false;
+
+            if (!_nodes[from].IsEnabled || !_nodes[target].IsEnabled)
+                return false;
+
+            RunBfs(from);
+
+            if (_bfsStampOf[target] != _bfsStamp)
+                return false;
+
+            graphDistance = _bfsDepth[target];
+            nextStep = FirstStepTowards(from, target);
+            return true;
+        }
+
+        // Expansão completa a partir de from, só por nós ativos. Deixa em _bfsQueue[0.._bfsCount)
+        // os alcançáveis em ordem de distância e em _bfsParent/_bfsDepth o caminho de cada um.
+        private void RunBfs(int from)
+        {
             _bfsStamp++;
 
             int head = 0;
@@ -473,24 +477,6 @@ namespace Assets.Scripts.Graph
             {
                 int current = _bfsQueue[head++];
 
-                // O ALVO tem que ser primário — um nó de malha não vale nada, e apontar a
-                // fronteira para ele mandaria o agente "explorar" um pedaço de corredor que não
-                // paga e não conta para cobertura. O CAMINHO continua atravessando auxiliares
-                // normalmente: eles entram na expansão logo abaixo, sem filtro.
-                if (current != from && !visited[current] && _nodes[current].IsPrimary)
-                {
-                    target = current;
-                    graphDistance = _bfsDepth[current];
-
-                    // Volta pelos pais até o nó imediatamente após a origem.
-                    int step = current;
-                    while (_bfsParent[step] != from && _bfsParent[step] != -1)
-                        step = _bfsParent[step];
-
-                    nextStep = step;
-                    return true;
-                }
-
                 foreach (int neighbor in _adjacency[current])
                 {
                     if (_bfsStampOf[neighbor] == _bfsStamp || !_nodes[neighbor].IsEnabled)
@@ -503,7 +489,17 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            return false;
+            _bfsCount = tail;
+        }
+
+        // Volta pelos pais até o nó imediatamente após a origem. Só vale logo após RunBfs(from).
+        private int FirstStepTowards(int from, int target)
+        {
+            int step = target;
+            while (_bfsParent[step] != from && _bfsParent[step] != -1)
+                step = _bfsParent[step];
+
+            return step;
         }
 
         /// <summary>
@@ -538,23 +534,25 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            int withoutRegion = 0;
+            int weightless = 0;
             for (int i = 0; i < _nodes.Count; i++)
             {
                 if (_adjacency[i].Length == 0)
                     Debug.LogWarning($"{name}: nó {i} ({_nodes[i].name}) não tem vizinhos — inalcançável.", _nodes[i]);
 
-                if (_nodes[i].Region == null)
-                    withoutRegion++;
+                if (_nodes[i].IsPrimary && _nodes[i].ExplorationWeight <= 0f)
+                    weightless++;
             }
 
-            // Sem região o nó continua funcionando, mas divide um orçamento com todos os outros
-            // órfãos do mapa — o que quase nunca é o que você quis dizer.
-            if (withoutRegion > 0)
+            // Primário de peso zero continua contando para a cobertura em NodeFraction e sendo
+            // alvo da fronteira, mas não paga nada ao ser descoberto — a seta manda o agente
+            // até um lugar que não rende. Quase sempre é um campo esquecido, não intenção; se
+            // for intenção, o nó provavelmente queria ser auxiliar.
+            if (weightless > 0)
             {
                 Debug.LogWarning(
-                    $"{name}: {withoutRegion} nó(s) sem NavRegion. Eles dividem um orçamento único de " +
-                    $"{_defaultRegionBudget}. No gizmo eles aparecem em magenta.", this);
+                    $"{name}: {weightless} nó(s) primário(s) com Exploration Weight 0. Eles não pagam " +
+                    "cobertura — se era para não valer nada, marque-os como Auxiliary.", this);
             }
 
             // Raios que se tocam ao longo de uma aresta: o agente entra no raio do destino antes
@@ -829,15 +827,23 @@ namespace Assets.Scripts.Graph
                 bool hasOverride = node.RadiusOverride > 0f;
                 float radius = RadiusOf(node);
 
-                // Três estados, cada um dizendo uma coisa diferente:
                 if (!node.IsEnabled)
+                {
                     Gizmos.color = new Color(0.4f, 0.4f, 0.4f, 0.4f);
-                else if (hasOverride)
-                    // Um raio fora do padrão do papel é uma decisão de autoria, e decisão tem
-                    // que ser visível sem abrir o Inspector.
-                    Gizmos.color = new Color(1f, 0.85f, 0.15f, 0.9f);
+                }
                 else
-                    Gizmos.color = node.IsPrimary ? _primaryRadiusColor : _auxiliaryRadiusColor;
+                {
+                    // O disco SEMPRE fica na cor do papel: o override não pode trocar a matiz,
+                    // senão um primário com raio ajustado deixa de parecer primário e você perde
+                    // a leitura do mapa de cima (que é o motivo de o disco ter cor por papel).
+                    // A decisão de autoria continua visível pela OPACIDADE: disco cheio é
+                    // override, disco apagado é o padrão do grafo.
+                    Color color = node.IsPrimary ? _primaryRadiusColor : _auxiliaryRadiusColor;
+                    if (hasOverride)
+                        color.a = Mathf.Min(1f, color.a * 1.6f);
+
+                    Gizmos.color = color;
+                }
 
                 GraphGizmos.DrawGroundArea(_nodeShape, node.Position, radius);
             }
