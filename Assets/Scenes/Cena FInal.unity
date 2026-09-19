@@ -69434,8 +69434,8 @@ MonoBehaviour:
   sequence: {fileID: 0}
   messageLabel: {fileID: 1488229667}
   hintLabel: {fileID: 1555439484}
-  message: Ele te encontrou.
-  hint: "R \u2014 tentar de novo"
+  message: GOT YOU
+  hint: 
   messageDelay: 1
   hintDelay: 1.5
 --- !u!225 &523163113
@@ -258166,13 +258166,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 290878221}
     m_Modifications:
-    - target: {fileID: 578036348230745126, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
-      propertyPath: m_Name
-      value: SeekerAgentV2
-      objectReference: {fileID: 0}
     - target: {fileID: 572788143576534877, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
       propertyPath: _mode
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 578036348230745126, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
+      propertyPath: m_Name
+      value: SeekerAgentV2
       objectReference: {fileID: 0}
     - target: {fileID: 4965023623266010248, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
       propertyPath: m_LocalPosition.x
@@ -258214,6 +258214,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 8425139605532769143, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
+      propertyPath: _displayRenderer
+      value: 
+      objectReference: {fileID: 2004871539}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -263227,6 +263231,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 37f533e1990504f4496d50abc0803119, type: 3}
+--- !u!137 &2004871539 stripped
+SkinnedMeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 957083014859761393, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
+  m_PrefabInstance: {fileID: 1965005931}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &2005457914
 PrefabInstance:
   m_ObjectHideFlags: 0

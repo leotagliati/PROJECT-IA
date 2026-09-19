@@ -659,7 +659,7 @@ MonoBehaviour:
   _rayCount: 30
   _hiderTag: Goal
   _isSeeingHider: 0
-  _arrivalThreshold: 0.5
+  _arrivalThreshold: 1
 --- !u!1001 &7379724707077577716
 PrefabInstance:
   m_ObjectHideFlags: 0
