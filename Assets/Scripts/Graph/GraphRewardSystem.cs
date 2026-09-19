@@ -9,22 +9,24 @@ namespace Assets.Scripts.Graph
     ///
     /// ORÇAMENTO (faça a conta antes de treinar, é o que determina o comportamento):
     ///   total_positivo ~= Σ pesos_dos_primários x _nodeCoverageReward
-    ///                     + arestas_entre_primários x _newEdgeReward
-    ///                     + caminho_percorrido_em_metros x _frontierApproachReward
+    ///                     + arestas_do_grafo x _newEdgeReward
     ///                     + _fullCoverageReward
     /// O peso é declarado NÓ A NÓ (NavNode.ExplorationWeight), então a densidade de primários
     /// entra na conta: dois primários de peso 1 na mesma sala pagam o dobro de um. Ao adensar
     /// uma sala, reparta o peso entre os nós dela para o total do mapa não inflar.
     ///
-    /// Num mapa com 12 primários de peso 1 e 20 arestas entre eles, com os defaults abaixo:
-    ///   12x0.75 = +9.0 | 20x0.05 = +1.0 | +5.0  =>  ~+15.0
+    /// No mapa atual (23 primários de peso 1, 120 arestas), com os defaults abaixo:
+    ///   23x0.75 = +17.25 | 120x0.02 = +2.4 | +5.0  =>  ~+24.6
     /// contra -2 de pressão existencial. A folga é enorme DE PROPÓSITO: aqui, diferente do
     /// seeker, explorar não compete com nenhum outro objetivo — explorar É o objetivo.
     ///
-    /// Os bônus por ENTRAR e por CONCLUIR uma região saíram junto com as regiões. O empurrão
-    /// para trocar de cômodo em vez de esmiuçar o atual agora é só o peso dos nós de lá + a
-    /// dica de fronteira; se o run mostrar o agente varrendo a mesma sala, suba o peso dos
-    /// primários das salas vizinhas em vez de recriar um bônus de sala.
+    /// O QUE NÃO EXISTE MAIS, de propósito:
+    ///   - bônus por entrar/concluir REGIÃO (saíram com as regiões; o peso por nó faz o papel);
+    ///   - shaping de FRONTEIRA (a "seta roxa": recompensa por se aproximar do não-visitado mais
+    ///     próximo). Era um sinal DIRECIONAL — dizia para onde ir — e a política aprendia a
+    ///     seguir a seta em vez de explorar. O único sinal denso agora é a aresta inédita, que
+    ///     paga "ir por onde nunca fui" sem opinar sobre qual caminho. A direção fica por conta
+    ///     da observação (valor descontado atrás de cada saída) e da política.
     /// </summary>
     public class GraphRewardSystem : MonoBehaviour
     {
@@ -84,45 +86,19 @@ namespace Assets.Scripts.Graph
         [FormerlySerializedAs("_regionCoverageReward")]
         [SerializeField] private float _nodeCoverageReward = 0.75f;
 
-        // Paga o TRAJETO inédito, não o destino. É o que dá gradiente dentro de um corredor
-        // longo (onde só há dois nós e muitos steps entre eles) e o que diferencia "cheguei lá
-        // por um caminho novo" de "cheguei lá de novo".
-        [SerializeField] private float _newEdgeReward = 0.05f;
+        // Paga o TRAJETO inédito, não o destino: qualquer aresta do grafo, entre quaisquer dois
+        // nós, uma vez por episódio. É o ÚNICO sinal denso do sistema desde que a seta saiu, e
+        // é não-direcional de propósito — "andei por onde nunca andei" paga o mesmo em qualquer
+        // rumo, então ele ensina a variar caminho, não a seguir um.
+        //
+        // Era 0.05 e só entre primários (para uma malha auxiliar densa não inflar a renda).
+        // Agora vale para toda aresta, então o valor caiu para o TETO continuar pequeno:
+        //   120 arestas x 0.02 = 2.4, contra 17.25 de cobertura — o trajeto guia, a chegada manda.
+        // Num mapa com muito mais arestas, reduza; a conta é sempre arestas x valor << cobertura.
+        [SerializeField] private float _newEdgeReward = 0.02f;
 
         // Prêmio por cobrir a fração-alvo do grafo (a lição define o alvo). Encerra o episódio.
         [SerializeField] private float _fullCoverageReward = 5f;
-
-        [Header("-----Shaping de fronteira-----")]
-        // Por aresta de aproximação do não-visitado mais próximo. É um sinal DENSO: sem ele o
-        // agente só recebe algo ao chegar num nó novo, e num mapa grande isso é esparso demais
-        // para o PPO ligar a ação ao resultado.
-        //
-        // Cuidado com a intensidade: alto demais e a política vira "seguir a seta" — funciona,
-        // mas o que foi aprendido é seguir a dica, não explorar. O currículo abaixa esse peso
-        // nas lições finais justamente para o comportamento sobreviver sem ela.
-        [SerializeField] private float _frontierProgressReward = 0.05f;
-
-        // Por METRO de aproximação do próximo passo da fronteira. Este é o termo que faltava: o
-        // _frontierProgressReward acima mede distância em ARESTAS, e distância em arestas só
-        // muda quando o agente troca de nó — ou seja, ele é tão esparso quanto a chegada, e
-        // durante a travessia inteira o agente só recebia penalidade.
-        //
-        // TETO deste valor, e a conta que você deve refazer a cada mapa novo:
-        //
-        //   chegada = peso_do_nó x _nodeCoverageReward
-        //   teto    = chegada / aresta_mediana
-        //
-        // Acima do teto, percorrer a aresta paga mais que chegar ao nó, e o agente otimiza o
-        // ANDAR em vez do CHEGAR. Abaixo dele, o gradual guia e os eventos continuam definindo
-        // o objetivo — que é o arranjo que sobrevive ao currículo desligar a dica
-        // (frontier_hint 0.5 -> 0.0 nas últimas lições).
-        //
-        // Não é farmável: é uma diferença de distâncias, então afastar cobra exatamente o que
-        // aproximar pagou e o vai-e-vem rende zero. O limite acima é conceitual, não de exploit.
-        //
-        // Mesma família do _hiderApproachReward do seeker, que mede exatamente assim: a
-        // diferença de distância euclidiana entre dois steps.
-        [SerializeField] private float _frontierApproachReward = 0.02f;
 
         public float FullCoverageReward => _fullCoverageReward;
 
@@ -148,22 +124,12 @@ namespace Assets.Scripts.Graph
             // Peso dos nós descobertos neste intervalo (zero quando não houve nenhum).
             reward += _nodeCoverageReward * context.NewNodeValue;
 
-            if (context.TraversedNewEdge)
-                reward += _newEdgeReward;
+            // Contagem, e não booleano: com Decision Period 5 e malha densa o agente pode cruzar
+            // duas arestas curtas entre duas decisões, e cada uma tem que pagar a sua.
+            reward += _newEdgeReward * context.NewEdgeCount;
 
             if (context.ChangedNode && !context.EnteredNewNode && _revisitPenalty > 0f)
                 reward -= _revisitPenalty / Mathf.Max(1, context.CurrentNodeVisitCount);
-
-            // Só quando os dois steps mediram a distância até o MESMO alvo (ver
-            // HasFrontierProgress). Esse cuidado é o que impede o shaping de virar ruído a cada
-            // descoberta.
-            if (context.HasFrontierProgress)
-                reward += _frontierProgressReward * context.FrontierDistanceDelta * context.FrontierRewardScale;
-
-            // O sinal denso. Multiplicado pela mesma escala do currículo que o termo em arestas:
-            // os dois são a MESMA muleta, e desligar só um deixaria metade da dependência de pé.
-            if (context.HasFrontierApproach)
-                reward += _frontierApproachReward * context.FrontierApproachDelta * context.FrontierRewardScale;
 
             return reward;
         }

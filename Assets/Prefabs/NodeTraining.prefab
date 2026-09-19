@@ -5934,8 +5934,8 @@ MonoBehaviour:
   - {fileID: 802687728208168476}
   _makeLinksBidirectional: 1
   _nodeShape: 1
-  _defaultPrimaryRadius: 1.8
-  _defaultAuxiliaryRadius: 3
+  _defaultPrimaryRadius: 2.5
+  _defaultAuxiliaryRadius: 4
   _wallLayer:
     serializedVersion: 2
     m_Bits: 8
@@ -8047,7 +8047,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Policies.BehaviorParameters
   m_BrainParameters:
-    VectorObservationSize: 61
+    VectorObservationSize: 69
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
@@ -8131,7 +8131,7 @@ MonoBehaviour:
   _arenaController: {fileID: 7022944098350372843}
   _coverageMeasure: 1
   _neighborSlots: 8
-  _maxNodeDistance: 35
+  _maxNodeDistance: 25
   _maxGraphDistance: 25
   _maxEpisodeSteps: 8000
 --- !u!114 &1010543490052302810

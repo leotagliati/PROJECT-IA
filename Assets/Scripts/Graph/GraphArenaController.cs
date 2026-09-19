@@ -20,27 +20,6 @@ namespace Assets.Scripts.Graph
         [SerializeField] private string _coverageParameterName = "coverage_target";
         [SerializeField, Range(0.05f, 1f)] private float _defaultCoverageTarget = 0.35f;
 
-        // Peso da dica de fronteira. 1 = o agente vê para onde ir; 0 = ele tem que descobrir
-        // sozinho a partir dos vizinhos e do que já visitou. Escala tanto a OBSERVAÇÃO quanto o
-        // shaping de recompensa, de propósito: as duas são a mesma muleta, e desligar só uma
-        // deixa metade da dependência de pé.
-        [SerializeField] private string _frontierParameterName = "frontier_hint";
-        [SerializeField, Range(0f, 1f)] private float _defaultFrontierHint = 1f;
-
-        // DURAÇÃO da dica dentro de cada episódio, em steps de FÍSICA (8000 = episódio inteiro
-        // com _maxEpisodeSteps = 8000; 1500 = os primeiros 30 s). 0 = sem limite, a dica dura o
-        // episódio todo. Depois do limite a escala vai a ZERO — observação, shaping e gizmo.
-        //
-        // É o segundo eixo da muleta, independente da força acima: a força diz "quanto confiar
-        // na seta", a duração diz "por quanto tempo ela existe". Dar a dica só no início do
-        // episódio ensina o agente a se orientar com ela e a TERMINAR sem ela — que é a
-        // situação do jogo final, onde não há seta nenhuma. Cortar a força direto para 0.0
-        // numa lição (run 05) derrubou a recompensa de +15 para -3; cortar a duração deixa a
-        // política ver os dois regimes no MESMO episódio, e a transição fica dentro do que ela
-        // já sabe fazer.
-        [SerializeField] private string _frontierStepsParameterName = "frontier_hint_steps";
-        [SerializeField, Min(0)] private int _defaultFrontierHintSteps = 0;
-
         // Fração dos primários que já NASCE marcada como visitada, sorteada a cada episódio
         // (lida pela GraphExplorationMemory). É a variação de estado inicial: com 0, todo
         // episódio começa com o mapa inteiro por fazer e a sequência ótima a partir de cada
@@ -93,11 +72,6 @@ namespace Assets.Scripts.Graph
 
         // Atualizados a cada ResetEpisode e lidos pelo manager ao montar o step context.
         public float CoverageTarget { get; private set; }
-
-        public float FrontierHintScale { get; private set; }
-
-        /// <summary>Steps de física com a dica ligada por episódio; 0 = o episódio inteiro.</summary>
-        public int FrontierHintSteps { get; private set; }
 
         /// <summary>Fração dos primários que nasce visitada neste episódio (0..0.9).</summary>
         public float PrevisitedFraction { get; private set; }
@@ -204,12 +178,6 @@ namespace Assets.Scripts.Graph
             EnvironmentParameters parameters = Academy.Instance.EnvironmentParameters;
 
             CoverageTarget = Mathf.Clamp01(parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
-            FrontierHintScale = Mathf.Clamp01(parameters.GetWithDefault(_frontierParameterName, _defaultFrontierHint));
-
-            // O currículo entrega float; a contagem é inteira.
-            FrontierHintSteps = Mathf.Max(0, Mathf.RoundToInt(
-                parameters.GetWithDefault(_frontierStepsParameterName, _defaultFrontierHintSteps)));
-
             // Teto em 0.9 e não 1.0: a memória sempre deixa ao menos um nó por descobrir, mas
             // com quase tudo pré-visitado o episódio vira "ache o único nó que falta" — que é
             // outra tarefa, não exploração.
