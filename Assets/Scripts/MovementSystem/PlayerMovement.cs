@@ -131,7 +131,7 @@ public class PlayerMovement : MonoBehaviour
     private void OnDisable()
     {
         PlayerInputProvider.Release();
-        
+
         if (animator != null)
             animator.SetFloat(MoveSpeedHash, AnimIdle);
     }
@@ -175,6 +175,9 @@ public class PlayerMovement : MonoBehaviour
         bool wantsCrouch = crouchToggle
             ? isCrouching != PlayerInputProvider.Player.Crouch.WasPressedThisFrame()
             : PlayerInputProvider.Player.Crouch.IsPressed();
+
+        if (crouchToggle && isCrouching && PlayerInputProvider.Player.Sprint.WasPressedThisFrame())
+            wantsCrouch = false;
 
         if (!wantsCrouch && isCrouching && !HasHeadroom())
             wantsCrouch = true;
