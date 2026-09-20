@@ -12,6 +12,10 @@ using UnityEngine;
 /// caminhada/corrida também entra na visão (é o pescoço que balança). Se somado ao head
 /// bob procedural do CameraJuice ficar demais, baixe os *Bob Amount* lá.
 ///
+/// O agachar entra pelo mesmo caminho: a bacia desce (<see cref="crouchBodyDrop"/>), o
+/// pescoço vai junto e a câmera segue. O CameraJuice aplica só o que faltar para o drop
+/// de câmera dele — com os dois iguais, o corpo é quem leva a câmera para baixo.
+///
 /// Não parenta a câmera no osso de verdade: PlayerCamera, ShoulderPeek e CameraJuice
 /// escrevem a transform dela assumindo a raiz do player como pai, e o rig chega com escala
 /// e eixos locais do Blender. Em vez disso, este componente escreve a posição e a rotação
@@ -38,8 +42,21 @@ public class SpineLook : MonoBehaviour
     // existe no FBX não está na cadeia da coluna — seguir ele deixa a câmera sem pitch.
     [SerializeField] private string followBoneName = "spine.004";
 
+    [Header("Agachar")]
+    [Tooltip("Osso que desce ao agachar: a bacia, raiz da cadeia. Vazio: procura pelo nome abaixo.")]
+    [SerializeField] private Transform hipsBone;
+
+    // Rigify: "spine" é a bacia; thigh.L/R e spine.001 pendem dele, então descer este osso
+    // desce o corpo inteiro.
+    [SerializeField] private string hipsBoneName = "spine";
+
+    [Tooltip("Quanto a bacia desce com o agachamento completo, em metros. Sem IK de perna os pés afundam no chão nessa mesma medida.")]
+    [SerializeField, Min(0f)] private float crouchBodyDrop = 0.45f;
+
     [Header("Referências")]
     [SerializeField] private PlayerCamera playerCamera;
+
+    [SerializeField] private PlayerMovement movement;
 
     [SerializeField] private Camera targetCamera;
 
@@ -61,6 +78,12 @@ public class SpineLook : MonoBehaviour
     /// </summary>
     public Vector3 AnchorLocalPosition { get; private set; }
 
+    /// <summary>
+    /// Quanto a bacia desceu neste frame, em metros. Já está dentro de
+    /// <see cref="AnchorLocalPosition"/>; o CameraJuice desconta isto do drop dele.
+    /// </summary>
+    public float CrouchDrop { get; private set; }
+
     private void Awake()
     {
         if (playerCamera == null)
@@ -69,11 +92,22 @@ public class SpineLook : MonoBehaviour
         if (targetCamera == null)
             targetCamera = GetComponentInChildren<Camera>();
 
+        if (movement == null)
+            movement = GetComponent<PlayerMovement>();
+
         if (spineBone == null && !string.IsNullOrEmpty(spineBoneName))
             spineBone = FindDeep(transform, spineBoneName);
 
         if (followBone == null && !string.IsNullOrEmpty(followBoneName))
             followBone = FindDeep(transform, followBoneName);
+
+        if (hipsBone == null && !string.IsNullOrEmpty(hipsBoneName))
+            hipsBone = FindDeep(transform, hipsBoneName);
+
+        // Sem bacia o agachar continua funcionando: o CameraJuice recebe CrouchDrop = 0 e
+        // desce a câmera sozinho, como antes.
+        if (hipsBone == null)
+            Debug.LogWarning($"{nameof(SpineLook)}: osso '{hipsBoneName}' não encontrado; o corpo não desce ao agachar.", this);
 
         if (spineBone == null || targetCamera == null)
         {
@@ -111,6 +145,14 @@ public class SpineLook : MonoBehaviour
             return;
 
         CurrentBend = playerCamera.Pitch;
+
+        // Bacia antes da coluna: o pescoço herda a descida e a câmera vai junto. Em mundo,
+        // no up da raiz — o rig chega com eixos locais do Blender. CrouchAmount já vem
+        // suavizado do PlayerMovement (é a transição da própria cápsula).
+        CrouchDrop = hipsBone != null && movement != null ? crouchBodyDrop * movement.CrouchAmount : 0f;
+
+        if (CrouchDrop > 0f)
+            hipsBone.position -= transform.up * CrouchDrop;
 
         // Gira em torno do eixo lateral do player, em mundo: o transform.right da raiz já
         // carrega o yaw certo. Pré-multiplicado para a dobra somar à pose da animação em
