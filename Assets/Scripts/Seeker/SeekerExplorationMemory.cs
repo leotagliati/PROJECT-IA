@@ -28,6 +28,7 @@ namespace Assets.Scripts.Seeker
         private int _gridSize;
         private float[] _window;
         private bool _enteredNewCell;
+        private int _visitedCount;
 
         /// <summary>Janela local de células visitadas (1) ou não (0), em ordem linha por linha.</summary>
         public float[] Window => _window;
@@ -36,6 +37,11 @@ namespace Assets.Scripts.Seeker
 
         /// <summary>Se o step atual levou o agente a uma célula onde ele ainda não tinha estado.</summary>
         public bool EnteredNewCell => _enteredNewCell;
+
+        /// <summary>Células distintas pisadas no episódio. Telemetria: o agente não observa isto.</summary>
+        public int VisitedCellCount => _visitedCount;
+
+        public int CellCount => _visited?.Length ?? 0;
 
         /// <summary>
         /// A grade é relativa à arena, não ao mundo: cada cópia do ambiente fica numa posição
@@ -58,6 +64,7 @@ namespace Assets.Scripts.Seeker
 
             System.Array.Clear(_visited, 0, _visited.Length);
             _enteredNewCell = false;
+            _visitedCount = 0;
         }
 
         public void Tick(Vector3 worldPosition)
@@ -73,6 +80,9 @@ namespace Assets.Scripts.Seeker
                 int index = cellZ * _gridSize + cellX;
                 _enteredNewCell = !_visited[index];
                 _visited[index] = true;
+
+                if (_enteredNewCell)
+                    _visitedCount++;
             }
 
             FillWindow(cellX, cellZ);

@@ -74,6 +74,21 @@ namespace Assets.Scripts.Seeker
 
         public int DirectionCount => Directions.Length;
 
+        // ------------------------------------------------------------------ telemetria
+        // Só para o SeekerDebugOverlay desenhar o que a rede recebe.
+
+        public static Vector3 GetDirection(int index) => Directions[index];
+
+        public float DetectionRange => _detectionRange;
+
+        public float VisionRange => _visionRange;
+
+        public int RayCount => _rayCount;
+
+        public Vector3 GetVisionRayDirection(int index) => ConeDirection(index);
+
+        public Vector3 RayOrigin => transform.position + Vector3.up * _originHeightOffset;
+
         private void ScanForWalls()
         {
             _closestWallProximity = 0f;

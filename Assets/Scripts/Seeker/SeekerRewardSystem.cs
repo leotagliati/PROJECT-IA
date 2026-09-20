@@ -3,6 +3,32 @@ using UnityEngine;
 namespace Assets.Scripts.Seeker
 {
     /// <summary>
+    /// Recompensa de um step, termo a termo. Só telemetria (SeekerDebugOverlay): o que o agente
+    /// recebe é a soma, e ela não muda por existir isto.
+    /// </summary>
+    public struct SeekerRewardBreakdown
+    {
+        public float Existential;
+        public float WallProximity;
+        public float WallContact;
+        public float NewCell;
+        public float Sight;
+        public float Approach;
+
+        public readonly float Total => Existential + WallProximity + WallContact + NewCell + Sight + Approach;
+
+        public void Add(in SeekerRewardBreakdown other)
+        {
+            Existential += other.Existential;
+            WallProximity += other.WallProximity;
+            WallContact += other.WallContact;
+            NewCell += other.NewCell;
+            Sight += other.Sight;
+            Approach += other.Approach;
+        }
+    }
+
+    /// <summary>
     /// Calculadora pura de recompensa. Recebe um SeekerStepContext e devolve o delta do step;
     /// não consulta outros sistemas, não decide fim de episódio e não assina eventos de física.
     /// Todo o tuning do agente mora aqui.
@@ -41,26 +67,113 @@ namespace Assets.Scripts.Seeker
         // por agente — por isso o sistema é MonoBehaviour, e não um ScriptableObject compartilhado.
         private bool _wasSeeingHider;
 
+        // ------------------------------------------------------------------ telemetria
+        // Só leitura, para o SeekerDebugOverlay. Nada daqui entra na recompensa.
+
+        private const int HistorySize = 256;
+        private readonly float[] _history = new float[HistorySize];
+        private readonly bool[] _historyTouching = new bool[HistorySize];
+        private SeekerRewardBreakdown _whileTouching;
+        private int _stepsTouching;
+        private int _historyCount;
+        private int _historyNext;
+        private SeekerRewardBreakdown _episodeTotal;
+
         public float HiderFoundReward => _hiderFoundReward;
 
-        public void ResetEpisode() => _wasSeeingHider = false;
+        public float WallDangerThreshold => _wallDangerThreshold;
+
+        /// <summary>Último step avaliado, termo a termo.</summary>
+        public SeekerRewardBreakdown LastStep { get; private set; }
+
+        /// <summary>Soma de todos os steps do episódio atual, termo a termo (sem o +5 de captura, que é evento).</summary>
+        public SeekerRewardBreakdown EpisodeTotal => _episodeTotal;
+
+        public int StepsRecorded => _historyCount;
+
+        /// <summary>Steps do episódio em que o agente estava encostado em parede.</summary>
+        public int StepsTouchingWall => _stepsTouching;
+
+        /// <summary>
+        /// Soma dos termos SÓ nos steps encostado. Se o total aqui é positivo, encostar está sendo
+        /// pago (aproximação ou célula nova cobrindo o contato) — e o agente está certo em bater.
+        /// </summary>
+        public SeekerRewardBreakdown WhileTouchingWall => _whileTouching;
+
+        /// <summary>Step de <paramref name="stepsAgo"/> atrás (1 = último). Falso se não há registro.</summary>
+        public bool TryGetHistory(int stepsAgo, out float total, out bool touching)
+        {
+            total = 0f;
+            touching = false;
+
+            if (stepsAgo < 1 || stepsAgo > _historyCount)
+                return false;
+
+            int index = (_historyNext - stepsAgo + HistorySize) % HistorySize;
+            total = _history[index];
+            touching = _historyTouching[index];
+            return true;
+        }
+
+        /// <summary>Média da recompensa por step nos últimos <paramref name="steps"/> (até 256) do episódio.</summary>
+        public float RecentAverage(int steps)
+        {
+            int count = Mathf.Min(steps, _historyCount);
+            if (count <= 0)
+                return 0f;
+
+            float sum = 0f;
+            for (int i = 1; i <= count; i++)
+                sum += _history[(_historyNext - i + HistorySize) % HistorySize];
+
+            return sum / count;
+        }
+
+        private void Record(in SeekerRewardBreakdown step, bool touchingWall)
+        {
+            LastStep = step;
+            _episodeTotal.Add(step);
+
+            if (touchingWall)
+            {
+                _whileTouching.Add(step);
+                _stepsTouching++;
+            }
+
+            _history[_historyNext] = step.Total;
+            _historyTouching[_historyNext] = touchingWall;
+            _historyNext = (_historyNext + 1) % HistorySize;
+            _historyCount = Mathf.Min(_historyCount + 1, HistorySize);
+        }
+
+        public void ResetEpisode()
+        {
+            _wasSeeingHider = false;
+
+            _episodeTotal = default;
+            LastStep = default;
+            _historyCount = 0;
+            _historyNext = 0;
+            _whileTouching = default;
+            _stepsTouching = 0;
+        }
 
         public float EvaluateStep(in SeekerStepContext context)
         {
-            float reward = 0f;
+            SeekerRewardBreakdown step = default;
 
             if (context.MaxEpisodeSteps > 0)
-                reward -= _existentialPenalty / context.MaxEpisodeSteps;
+                step.Existential = -_existentialPenalty / context.MaxEpisodeSteps;
 
             // Escalado pela lição: num labirinto estar perto de parede é a condição normal de
             // um corredor, então esse termo vira zero e só a colisão continua punida.
             float wallDanger = Mathf.InverseLerp(_wallDangerThreshold, 1f, context.ClosestWallProximity);
-            reward -= _wallProximityPenalty * wallDanger * context.WallProximityScale;
+            step.WallProximity = -_wallProximityPenalty * wallDanger * context.WallProximityScale;
 
             // Não escalada por lição: encostar é ruim nos dois cenários, e agora que é
             // proporcional ao tempo ela se auto-regula em vez de explodir no labirinto.
             if (context.IsTouchingWall)
-                reward -= _wallContactPenalty;
+                step.WallContact = -_wallContactPenalty;
 
             // O que importa aqui e o TOTAL: (celulas alcancaveis) x _newCellReward tem que
             // ficar bem abaixo do +5 de achar o hider, senao cobrir o mapa vira um objetivo
@@ -73,11 +186,11 @@ namespace Assets.Scripts.Seeker
             // andando paga o mesmo. Explorar e sempre bonus liquido — a pergunta e so se e
             // bonus demais.)
             if (context.EnteredNewCell)
-                reward += _newCellReward;
+                step.NewCell = _newCellReward;
 
             // Bônus único no step em que passa a enxergar o hider (borda de subida).
             if (context.IsSeeingHider && !_wasSeeingHider)
-                reward += _hiderSightReward;
+                step.Sight = _hiderSightReward;
 
             _wasSeeingHider = context.IsSeeingHider;
 
@@ -90,10 +203,11 @@ namespace Assets.Scripts.Seeker
 
                 // A distância é euclidiana, então só equivale a "progresso" em espaço aberto.
                 // No labirinto o peso cai, senão esse termo pune o contorno de uma parede.
-                reward += _hiderApproachReward * (previousDistance - currentDistance) * context.ApproachRewardScale;
+                step.Approach = _hiderApproachReward * (previousDistance - currentDistance) * context.ApproachRewardScale;
             }
 
-            return reward;
+            Record(step, context.IsTouchingWall);
+            return step.Total;
         }
     }
 }

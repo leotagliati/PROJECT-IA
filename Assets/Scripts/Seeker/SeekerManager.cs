@@ -50,6 +50,40 @@ public class SeekerManager : Agent
 
     public event Action HiderCaught;
 
+    // ------------------------------------------------------------------ telemetria
+    // Só leitura, para o SeekerDebugOverlay. Não é API para outros sistemas do agente.
+
+    public SeekerMode Mode => _mode;
+
+    public bool IsHunting => _hunting;
+
+    public int ElapsedSteps => _elapsedSteps;
+
+    public int MaxEpisodeSteps => _maxEpisodeSteps;
+
+    public float MaxHiderDistance => _maxHiderDistance;
+
+    /// <summary>Última ação aplicada ao movimento (X/Z em mundo), já zerada fora da caça.</summary>
+    public Vector2 LastAction { get; private set; }
+
+    public SeekerPerceptionSystem Perception => _perceptionSystem;
+
+    public SeekerRewardSystem Rewards => _rewardSystem;
+
+    public SeekerExplorationMemory Exploration => _explorationMemory;
+
+    public SeekerArenaController Arena => _arenaController;
+
+    public SeekerChaseState Chase => _chaseState;
+
+    public SeekerMovementSystem Movement => _movementSystem;
+
+    /// <summary>
+    /// Deslocamento real ÷ deslocamento pedido, média móvel (~20 steps). Perto de 1 o agente
+    /// anda o que manda; perto de 0 está empurrando algo. É a resposta objetiva para "está preso?".
+    /// </summary>
+    public float MovementEfficiency { get; private set; } = 1f;
+
     // Percepção é amostrada uma vez por step de física. Como CollectObservations e
     // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
     // dispara o Tick e o outro reaproveita o mesmo snapshot.
@@ -225,12 +259,23 @@ public class SeekerManager : Agent
         Vector3 currentPosition = transform.position;
 
         AddReward(_rewardSystem.EvaluateStep(BuildStepContext(currentPosition)));
+
+        // Telemetria: a posição atual é o resultado da AÇÃO ANTERIOR (LastAction ainda é ela).
+        float expected = _movementSystem.StepDistance * LastAction.magnitude;
+        if (expected > 1e-4f)
+        {
+            Vector3 delta = currentPosition - _previousStepPosition;
+            float moved = new Vector2(delta.x, delta.z).magnitude;
+            MovementEfficiency = Mathf.Lerp(MovementEfficiency, Mathf.Clamp01(moved / expected), 0.1f);
+        }
+
         _previousStepPosition = currentPosition;
 
         Vector3 direction = _hunting
             ? new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1])
             : Vector3.zero;
         _movementSystem.Move(direction);
+        LastAction = new Vector2(direction.x, direction.z);
 
         if (_animationSystem != null)
             _animationSystem.Tick(direction, _perceptionSystem.IsSeeingHider);
