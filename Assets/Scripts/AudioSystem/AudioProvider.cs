@@ -53,6 +53,21 @@ public static class AudioProvider
         _pool.Muted = _muted;
     }
 
+    /// <summary>
+    /// Para quem toca por conta própria mas quer os clipes da tabela (loops com controle de
+    /// volume).
+    /// </summary>
+    public static AudioLibrary Library
+    {
+        get
+        {
+            AudioPool pool = Pool;
+            return pool == null ? null : pool.Library;
+        }
+    }
+
+    public static bool IsMuted => _muted;
+
     // ------------------------------------------------------------------ API
 
     public static AudioHandle Play(string id, float x, float z, float volumeScale = 1f)
@@ -77,7 +92,6 @@ public static class AudioProvider
         return pool == null ? AudioHandle.None : pool.Play(id, position, null, false, volumeScale);
     }
 
-    /// <summary>Som que segue um objeto enquanto toca (passos, motor, alguém arrastando caixa).</summary>
     public static AudioHandle PlayFollowing(string id, Transform target, float volumeScale = 1f)
     {
         if (_muted || target == null)
@@ -104,7 +118,6 @@ public static class AudioProvider
 
     public static void Stop(AudioHandle handle)
     {
-        // Acesso direto ao campo: parar um som não é motivo para criar o pool.
         if (_pool != null)
             _pool.Stop(handle);
     }
@@ -115,7 +128,6 @@ public static class AudioProvider
             _pool.StopAll();
     }
 
-    /// <summary>Treino headless com N arenas clonadas não tem por que gastar voz nenhuma.</summary>
     public static void SetMuted(bool muted)
     {
         _muted = muted;

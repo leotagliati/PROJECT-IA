@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 039277249c2f49bfb30e3c0724b55676, type: 3}
   m_Name: AudioLibrary
   m_EditorClassIdentifier: 
-  _poolSize: 16
+  _poolSize: 128
   _defaultHeight: 1
   _minDistance: 1
   _maxDistance: 25
@@ -49,3 +49,28 @@ MonoBehaviour:
     Volume: 0.208
     PitchJitter: 0.222
     MaxDistance: 5
+  - Id: seeker_footsteps
+    Clips:
+    - {fileID: 8300000, guid: b061736d1d5bd8642bb01b01a169494f, type: 3}
+    Volume: 0.256
+    PitchJitter: 0.286
+    MaxDistance: 50
+  - Id: seeker_static
+    Clips:
+    - {fileID: 8300000, guid: e476d8fa4f2648843ad0cb9429cd537a, type: 3}
+    Volume: 0.575
+    PitchJitter: 0
+    MaxDistance: 50
+  - Id: seeker_static_chase
+    Clips:
+    - {fileID: 8300000, guid: fa20b66db6cb5484783d655be0430bb7, type: 3}
+    Volume: 0.72
+    PitchJitter: 0
+    MaxDistance: 50
+  - Id: caught
+    Clips:
+    - {fileID: 8300000, guid: fea796f36f247954b93fa7957dbe89e0, type: 3}
+    - {fileID: 8300000, guid: 8f3ac7caea2007647aebccac4e16ac94, type: 3}
+    Volume: 0.8
+    PitchJitter: 0.05
+    MaxDistance: 0

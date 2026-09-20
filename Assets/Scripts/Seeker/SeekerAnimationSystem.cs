@@ -4,16 +4,19 @@ using UnityEngine;
 namespace Assets.Scripts.Seeker
 {
     /// <summary>
-    /// Traduz o step do agente nos bools do Animator (isWalking / isRunning), os mesmos do
-    /// player. Três estados, decididos por duas perguntas que o manager já responde: está
-    /// enxergando o hider (Run) e está se movendo (Walk); nenhum dos dois, Idle.
+    /// Traduz o step do agente no float moveSpeed do Animator, o mesmo contrato do player:
+    /// blend tree 1D com 0 = idle, 1 = walk, 2 = run. O alvo é decidido por duas perguntas que
+    /// o manager já responde: está se movendo (Walk) e está enxergando o hider (Run).
     ///
     /// É cosmético de ponta a ponta: nada aqui pode alterar física, recompensa ou observação.
     /// </summary>
     public class SeekerAnimationSystem : MonoBehaviour
     {
-        private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
-        private static readonly int IsRunningHash = Animator.StringToHash("isRunning");
+        // Mesmos thresholds do PlayerAC: se mudar lá, muda aqui.
+        private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
+        private const float AnimIdle = 0f;
+        private const float AnimWalk = 1f;
+        private const float AnimRun = 2f;
 
         [Header("-----Referências-----")]
         [SerializeField] private Animator _animator;
@@ -25,6 +28,9 @@ namespace Assets.Scripts.Seeker
         [Header("-----Locomoção-----")]
         [SerializeField, Range(0f, 1f)] private float _moveThreshold = 0.1f;
 
+        [Tooltip("Tempo do damp entre um alvo e outro. 0 = troca seca.")]
+        [SerializeField, Min(0f)] private float _blendDampTime = 0.1f;
+
         /// <summary>
         /// Durante o treino são várias arenas em paralelo com timeScale alto, e animar todas
         /// custa CPU sem influenciar em nada o aprendizado. Por padrão o sistema se desliga
@@ -33,14 +39,7 @@ namespace Assets.Scripts.Seeker
         [Header("-----Treino-----")]
         [SerializeField] private bool _animateDuringTraining = false;
 
-        private bool _isWalking;
-        private bool _isRunning;
-
-        // Os bools só são reescritos quando mudam. Como o estado é recalculado todo step,
-        // sem esse guarda seriam duas chamadas por step por agente só para reafirmar o que
-        // já estava lá.
-        private bool _stateSynced;
-
+        private float _target = AnimIdle;
         private bool _active;
 
         public void Initialize()
@@ -66,42 +65,42 @@ namespace Assets.Scripts.Seeker
 
         public void ResetEpisode()
         {
-            _stateSynced = false;
-            Apply(walking: false, running: false);
+            _target = AnimIdle;
+
+            // Sem damp: o respawn teleporta o agente, e um blend de Run para Idle atravessando
+            // o corte ficaria com o seeker "freando" no ponto de spawn.
+            if (_active)
+                _animator.SetFloat(MoveSpeedHash, AnimIdle);
         }
 
         /// <summary>
         /// Chamado uma vez por step, com a ação já montada. Recebe o movimento PEDIDO em vez de
         /// medir o deslocamento real porque a diferença entre os dois é justamente o caso de
         /// empurrar parede — e aí Walk é a leitura certa: o agente está tentando andar.
+        ///
+        /// Só grava o alvo; quem escreve no Animator é o Update. O step roda em cadência de
+        /// física e pode parar de rodar de vez (fim de jogo), e o SetFloat com damp só converge
+        /// se for chamado todo frame com deltaTime.
         /// </summary>
         public void Tick(Vector3 requestedMove, bool isSeeingHider)
         {
-            if (!_active)
-                return;
-
             Vector2 flat = new(requestedMove.x, requestedMove.z);
             bool moving = flat.sqrMagnitude >= _moveThreshold * _moveThreshold;
 
             // Ver o hider só vira Run se o agente também estiver se movendo — parado, Run seria
             // correr no lugar. Idle ganha.
-            bool running = moving && isSeeingHider;
-            bool walking = moving && !running;
-
-            Apply(walking, running);
+            if (!moving)
+                _target = AnimIdle;
+            else
+                _target = isSeeingHider ? AnimRun : AnimWalk;
         }
 
-        private void Apply(bool walking, bool running)
+        private void Update()
         {
-            if (!_active || (_stateSynced && walking == _isWalking && running == _isRunning))
+            if (!_active)
                 return;
 
-            _isWalking = walking;
-            _isRunning = running;
-            _stateSynced = true;
-
-            _animator.SetBool(IsWalkingHash, walking);
-            _animator.SetBool(IsRunningHash, running);
+            _animator.SetFloat(MoveSpeedHash, _target, _blendDampTime, Time.deltaTime);
         }
     }
 }

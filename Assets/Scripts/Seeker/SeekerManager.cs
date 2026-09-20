@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using Assets.Scripts.Seeker;
 using Unity.MLAgents;
@@ -11,6 +12,12 @@ using UnityEngine;
 /// (sentir -> observar -> agir -> avaliar -> terminar). Não calcula recompensa nem lê o mundo;
 /// monta o SeekerStepContext e delega.
 /// </summary>
+public enum SeekerMode
+{
+    Training,
+    Game,
+}
+
 public class SeekerManager : Agent
 {
     // 8 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição
@@ -24,8 +31,12 @@ public class SeekerManager : Agent
     [SerializeField] private SeekerExplorationMemory _explorationMemory;
     [SerializeField] private SeekerArenaController _arenaController;
     [SerializeField] private SeekerAnimationSystem _animationSystem;
+    [SerializeField] private SeekerChaseState _chaseState;
+    [SerializeField] private SeekerAudioSystem _audioSystem;
+    [SerializeField] private SeekerStaticVisual _staticVisual;
 
     [Header("-----Settings-----")]
+    [SerializeField] private SeekerMode _mode = SeekerMode.Training;
     [SerializeField] private int _maxEpisodeSteps = 5000;
     [SerializeField] private float _maxHiderDistance = 20f;
 
@@ -35,6 +46,9 @@ public class SeekerManager : Agent
     private int _elapsedSteps;
     private bool _episodeEnding;
     private bool _touchingWall;
+    private bool _hunting = true;
+
+    public event Action HiderCaught;
 
     // Percepção é amostrada uma vez por step de física. Como CollectObservations e
     // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
@@ -64,6 +78,24 @@ public class SeekerManager : Agent
         if (_animationSystem == null)
             _animationSystem = GetComponentInChildren<SeekerAnimationSystem>();
 
+        if (_animationSystem != null)
+            _animationSystem.Initialize();
+
+        if (_chaseState == null)
+            _chaseState = GetComponentInChildren<SeekerChaseState>();
+
+        if (_audioSystem == null)
+            _audioSystem = GetComponentInChildren<SeekerAudioSystem>();
+
+        if (_audioSystem != null)
+            _audioSystem.Initialize();
+
+        if (_staticVisual == null)
+            _staticVisual = GetComponentInChildren<SeekerStaticVisual>();
+
+        if (_staticVisual != null)
+            _staticVisual.Initialize();
+
         // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
         // usar coordenadas de mundo faria as arenas compartilharem células.
         if (_explorationMemory != null && _arenaController != null)
@@ -73,6 +105,38 @@ public class SeekerManager : Agent
         _initialLocalRotation = transform.localRotation;
 
         ValidateSetup();
+    }
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        if (_mode == SeekerMode.Game)
+            GameManager.StateChanged += HandleGameState;
+    }
+
+    protected override void OnDisable()
+    {
+        base.OnDisable();
+        if (_mode == SeekerMode.Game)
+            GameManager.StateChanged -= HandleGameState;
+    }
+
+    private void HandleGameState(GameState state)
+    {
+        _hunting = state == GameState.Playing;
+        _perceptionSystem.VisionEnabled = _hunting;
+
+        if (state == GameState.Won || state == GameState.Lost)
+        {
+            _episodeEnding = true;
+            if (_animationSystem != null)
+                _animationSystem.Tick(Vector3.zero, false);
+
+            // Tudo do seeker cala aqui — estática e passos. Dali em diante o único áudio é o
+            // da PlayerCaughtSequence; sem isto o jumpscare abre com ele andando ao fundo.
+            if (_audioSystem != null)
+                _audioSystem.Silence();
+        }
     }
 
     public override void OnEpisodeBegin()
@@ -99,6 +163,13 @@ public class SeekerManager : Agent
 
         if (_animationSystem != null)
             _animationSystem.ResetEpisode();
+
+        // Chase antes do áudio: o áudio reflete o Blend no reset.
+        if (_chaseState != null)
+            _chaseState.ResetEpisode();
+
+        if (_audioSystem != null)
+            _audioSystem.ResetEpisode();
 
         // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
         // dedup precisa ser invalidado: sem isso a primeira observação da nova run enxergaria
@@ -156,11 +227,16 @@ public class SeekerManager : Agent
         AddReward(_rewardSystem.EvaluateStep(BuildStepContext(currentPosition)));
         _previousStepPosition = currentPosition;
 
-        Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
+        Vector3 direction = _hunting
+            ? new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1])
+            : Vector3.zero;
         _movementSystem.Move(direction);
 
         if (_animationSystem != null)
             _animationSystem.Tick(direction, _perceptionSystem.IsSeeingHider);
+
+        if (_chaseState != null)
+            _chaseState.Tick(_perceptionSystem.IsSeeingHider);
 
         // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
         // step de física marca de novo; se acabou, ela fica false sozinha.
@@ -169,7 +245,7 @@ public class SeekerManager : Agent
         _perceptionSystem.ForgetIfArrived(currentPosition);
 
         _elapsedSteps++;
-        if (_elapsedSteps >= _maxEpisodeSteps)
+        if (_mode == SeekerMode.Training && _elapsedSteps >= _maxEpisodeSteps)
             FinishEpisode(won: false);
     }
 
@@ -225,11 +301,19 @@ public class SeekerManager : Agent
         if (_episodeEnding)
             return;
 
-        if (other.CompareTag("Goal"))
+        if (!other.CompareTag("Goal"))
+            return;
+
+        if (_mode == SeekerMode.Game)
         {
-            AddReward(_rewardSystem.HiderFoundReward);
-            FinishEpisode(won: true);
+            _episodeEnding = true;
+            HiderCaught?.Invoke();
+            GameManager.Current?.PlayerCaught();
+            return;
         }
+
+        AddReward(_rewardSystem.HiderFoundReward);
+        FinishEpisode(won: true);
     }
 
     private void FinishEpisode(bool won)
@@ -261,6 +345,9 @@ public class SeekerManager : Agent
 
         if (_arenaController == null)
             Debug.LogError($"{name}: SeekerArenaController não encontrado nos pais.", this);
+
+        if (_mode == SeekerMode.Game && GameManager.Current == null)
+            Debug.LogError($"{name}: modo Game sem GameManager na cena.", this);
 
         var behaviorParameters = GetComponent<BehaviorParameters>();
         if (behaviorParameters == null)

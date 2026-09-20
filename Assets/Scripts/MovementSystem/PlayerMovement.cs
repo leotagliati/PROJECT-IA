@@ -34,6 +34,9 @@ public class PlayerMovement : MonoBehaviour
 
     [SerializeField] private float crouchSpeedMultiplier = 0.45f;
 
+    [Tooltip("Ligado: um toque agacha, outro levanta. Desligado: agacha só enquanto segura.")]
+    [SerializeField] private bool crouchToggle = true;
+
     [Tooltip("Duração aproximada da transição de pé para agachado, em segundos.")]
     [SerializeField] private float crouchTransitionTime = 0.14f;
 
@@ -128,6 +131,9 @@ public class PlayerMovement : MonoBehaviour
     private void OnDisable()
     {
         PlayerInputProvider.Release();
+
+        if (animator != null)
+            animator.SetFloat(MoveSpeedHash, AnimIdle);
     }
 
     private void Update()
@@ -163,7 +169,15 @@ public class PlayerMovement : MonoBehaviour
 
     private void UpdateCrouch()
     {
-        bool wantsCrouch = PlayerInputProvider.Player.Crouch.IsPressed();
+        // No toggle o toque inverte o estado atual; no hold o estado é o próprio botão. Nos dois
+        // casos o teto baixo (abaixo) ainda segura o jogador agachado — no toggle o toque é
+        // "gasto" e precisa de outro quando houver espaço, que é o esperado.
+        bool wantsCrouch = crouchToggle
+            ? isCrouching != PlayerInputProvider.Player.Crouch.WasPressedThisFrame()
+            : PlayerInputProvider.Player.Crouch.IsPressed();
+
+        if (crouchToggle && isCrouching && PlayerInputProvider.Player.Sprint.WasPressedThisFrame())
+            wantsCrouch = false;
 
         if (!wantsCrouch && isCrouching && !HasHeadroom())
             wantsCrouch = true;
