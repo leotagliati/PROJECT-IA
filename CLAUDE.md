@@ -68,10 +68,10 @@ delega para componentes filhos, todos serializados no Inspector:
 | Componente | Responsabilidade |
 | --- | --- |
 | `SeekerPerceptionSystem` | Único ponto de amostragem do mundo: 8 raycasts de parede + cone de visão do hider. Expõe um snapshot. |
-| `SeekerExplorationMemory` | Grade de células visitadas **relativa à arena**, e a janela 5x5 observada. |
+| `SeekerExplorationMemory` | Grade de células visitadas **relativa à arena**, e a janela 5x5 observada. Células engolidas por parede (mapa de ocupação da arena) contam como "nada a ganhar". |
 | `SeekerMovementSystem` | Move/gira o Rigidbody a partir de 2 ações contínuas (X/Z). |
 | `SeekerRewardSystem` | Função pura: recebe `SeekerStepContext`, devolve o delta de recompensa. Todo o tuning mora aqui. |
-| `SeekerArenaController` | Dono do *ambiente* (não do agente): spawns, feedback visual, leitura do currículo. Um por arena. |
+| `SeekerArenaController` | Dono do *ambiente* (não do agente): spawns, feedback visual, leitura do currículo e o mapa de ocupação da grade (sondado uma vez por layout, com/sem labirinto). Um por arena. |
 
 `SeekerStepContext` é um `readonly struct` montado pelo manager e é o único input do reward
 system — é o que mantém o cálculo de recompensa testável e desacoplado.
@@ -81,10 +81,11 @@ system — é o que mantém o cálculo de recompensa testável e desacoplado.
 Erros de wiring em ML-Agents não dão exceção; aparecem só como treino que não converge.
 `SeekerManager.ValidateSetup()` existe por isso. Pontos que exigem atenção:
 
-- **`SeekerManager.ObservationCount` (= 38) tem que bater com o `VectorObservationSize` do
+- **`SeekerManager.ObservationCount` (= 41) tem que bater com o `VectorObservationSize` do
   Behavior Parameters** no prefab/cena. Ao mudar as observações, atualize a constante *e* o
   Inspector — senão o vetor roda truncado. Composição: 8 proximidades de parede + 2 flags de
-  frescor + 3 (direção/distância até a última posição conhecida) + janela 5x5 (25).
+  frescor + 3 (direção/distância até a última posição conhecida) + 3 (primeiro passo do
+  caminho até a fronteira de exploração, por BFS na grade, e distância) + janela 5x5 (25).
 - **Parede é identificada por LAYER** (`SeekerPerceptionSystem.WallLayer`), nunca por tag —
   os objetos do Map_8 estão na layer `Wall` mas não levam a tag, e a penalidade de contato
   ficou morta por isso. O **hider é identificado por tag `Goal`**.
@@ -129,6 +130,8 @@ Em `SeekerRewardSystem`, `_newCellReward` precisa ser refeito sempre que a grade
 exploração mudar (`_arenaSize` / `_cellSize` em `SeekerExplorationMemory`): o produto
 `células alcançáveis × _newCellReward` tem que ficar bem abaixo do `_hiderFoundReward` (+5),
 senão cobrir o mapa vira objetivo em si. O arquivo documenta as contas das grades já usadas.
+A contagem de células livres sai no Console no primeiro episódio de cada layout
+(`SeekerArenaController.BakeOccupancy`) — use esse número, não a área da arena.
 
 O `HiderAgent` **não é um `Agent` de ML-Agents** — é um MonoBehaviour com navegação
 cardinal reativa (raycasts de folga + detector de encaixe em quina). Serve de alvo móvel

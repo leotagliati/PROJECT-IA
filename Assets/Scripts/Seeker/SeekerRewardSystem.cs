@@ -14,8 +14,11 @@ namespace Assets.Scripts.Seeker
         public float NewCell;
         public float Sight;
         public float Approach;
+        public float BlockedHeading;
+        public float Stuck;
+        public float FrontierApproach;
 
-        public readonly float Total => Existential + WallProximity + WallContact + NewCell + Sight + Approach;
+        public readonly float Total => Existential + WallProximity + WallContact + NewCell + Sight + Approach + BlockedHeading + Stuck + FrontierApproach;
 
         public void Add(in SeekerRewardBreakdown other)
         {
@@ -25,6 +28,9 @@ namespace Assets.Scripts.Seeker
             NewCell += other.NewCell;
             Sight += other.Sight;
             Approach += other.Approach;
+            BlockedHeading += other.BlockedHeading;
+            Stuck += other.Stuck;
+            FrontierApproach += other.FrontierApproach;
         }
     }
 
@@ -53,6 +59,22 @@ namespace Assets.Scripts.Seeker
         // disso ela domina a decisao e o agente aprende a nao entrar em corredor nenhum.
         [SerializeField] private float _wallContactPenalty = 0.002f;
 
+        // Cobrada quando a ação aponta para uma célula que a janela de observação mostra como
+        // bloqueada. Diferente do contato, é sobre a INTENÇÃO, então a rede consegue associar
+        // a punição a algo que ela vê antes de bater. Mesma ordem de grandeza do contato:
+        // encostar E insistir custa o dobro de só encostar.
+        [SerializeField] private float _blockedHeadingPenalty = 0.002f;
+
+        // Ficar parado (ou oscilar no lugar) não custava nada além do existencial, que é o
+        // mesmo andando ou não — não havia gradiente contra travar. Aqui: se em _stuckWindowSteps
+        // steps o deslocamento LÍQUIDO ficou abaixo de _stuckDistance, paga por step. Com 50
+        // steps (1 s) e 1 m, um agente a 16 u/s tem folga de sobra; só trava de verdade paga.
+        // 0.004 × 500 steps preso = -2, a mesma ordem do existencial do episódio inteiro —
+        // acima disso ele domina e o agente aprende a correr em círculos para não ser cobrado.
+        [SerializeField] private float _stuckPenalty = 0.004f;
+        [SerializeField, Min(1)] private int _stuckWindowSteps = 50;
+        [SerializeField, Min(0f)] private float _stuckDistance = 1f;
+
         [Header("-----Recompensas-----")]
         [SerializeField] private float _hiderSightReward = 0.1f;      // bônus único ao avistar
         [SerializeField] private float _hiderApproachReward = 0.3f;   // por aproximar da última posição
@@ -63,9 +85,20 @@ namespace Assets.Scripts.Seeker
 
         [SerializeField] private float _newCellReward = 0.02f;
 
+        // Por célula de caminho (na grade, respeitando paredes) ganha rumo à fronteira mais
+        // próxima. É shaping baseado em potencial — diferença de distâncias ao mesmo alvo —
+        // então não muda qual política é ótima, só dá gradiente onde a janela é toda 1.
+        // Pequeno de propósito: uma fronteira a 10 células rende +0.05 no caminho todo, da
+        // ordem de dois ou três _newCellReward. 0 desliga.
+        [SerializeField] private float _frontierApproachReward = 0.005f;
+
         // Estado de reward shaping: detecta a borda de subida do avistamento. É por episódio e
         // por agente — por isso o sistema é MonoBehaviour, e não um ScriptableObject compartilhado.
         private bool _wasSeeingHider;
+
+        // Âncora do termo de fronteira: só mede progresso enquanto o alvo é o mesmo.
+        private int _previousFrontierIndex = -1;
+        private int _previousFrontierDistance;
 
         // ------------------------------------------------------------------ telemetria
         // Só leitura, para o SeekerDebugOverlay. Nada daqui entra na recompensa.
@@ -82,6 +115,11 @@ namespace Assets.Scripts.Seeker
         public float HiderFoundReward => _hiderFoundReward;
 
         public float WallDangerThreshold => _wallDangerThreshold;
+
+        /// <summary>Janela do teste de travado. O SeekerManager dimensiona o histórico de posições por aqui.</summary>
+        public int StuckWindowSteps => _stuckWindowSteps;
+
+        public float StuckDistance => _stuckDistance;
 
         /// <summary>Último step avaliado, termo a termo.</summary>
         public SeekerRewardBreakdown LastStep { get; private set; }
@@ -149,6 +187,7 @@ namespace Assets.Scripts.Seeker
         public void ResetEpisode()
         {
             _wasSeeingHider = false;
+            _previousFrontierIndex = -1;
 
             _episodeTotal = default;
             LastStep = default;
@@ -175,6 +214,13 @@ namespace Assets.Scripts.Seeker
             if (context.IsTouchingWall)
                 step.WallContact = -_wallContactPenalty;
 
+            if (context.HeadingIntoBlockedCell)
+                step.BlockedHeading = -_blockedHeadingPenalty;
+
+            // Só com a janela cheia: nos primeiros steps do episódio não há como ter andado.
+            if (context.RecentWindowFilled && context.RecentNetDisplacement < _stuckDistance)
+                step.Stuck = -_stuckPenalty;
+
             // O que importa aqui e o TOTAL: (celulas alcancaveis) x _newCellReward tem que
             // ficar bem abaixo do +5 de achar o hider, senao cobrir o mapa vira um objetivo
             // em si. O numero de celulas depende de _arenaSize e _cellSize da memoria de
@@ -187,6 +233,14 @@ namespace Assets.Scripts.Seeker
             // bonus demais.)
             if (context.EnteredNewCell)
                 step.NewCell = _newCellReward;
+
+            // Mesmo alvo nos dois steps: a diferença é progresso real no caminho. Alvo trocado
+            // (chegou na fronteira, ou outra ficou mais perto) só reancora.
+            if (context.FrontierIndex >= 0 && context.FrontierIndex == _previousFrontierIndex)
+                step.FrontierApproach = _frontierApproachReward * (_previousFrontierDistance - context.FrontierDistanceCells);
+
+            _previousFrontierIndex = context.FrontierIndex;
+            _previousFrontierDistance = context.FrontierDistanceCells;
 
             // Bônus único no step em que passa a enxergar o hider (borda de subida).
             if (context.IsSeeingHider && !_wasSeeingHider)

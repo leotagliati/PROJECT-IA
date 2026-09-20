@@ -178,6 +178,20 @@ namespace Assets.Scripts.Seeker
                 Line("hider: sem pista (obs zeradas) — patrulhando", Dim);
             }
 
+            SeekerExplorationMemory mem = _target.Exploration;
+            if (mem != null)
+            {
+                if (mem.HasFrontier)
+                {
+                    Vector3 step = mem.FrontierStepDirectionWorld;
+                    Line($"fronteira: passo ({step.x:+0.00;-0.00}, {step.z:+0.00;-0.00}) {CompassLabels[CompassIndex(new Vector2(step.x, step.z))].Trim()}  a {mem.FrontierDistanceCells} células  obs {mem.FrontierDistanceNormalized:0.000}", Info);
+                }
+                else
+                {
+                    Line("fronteira: nenhuma célula livre por visitar (obs zeradas)", Warn);
+                }
+            }
+
             if (_target.Chase != null)
                 Line($"perseguição {Flag(_target.Chase.IsChasing)}   blend {_target.Chase.Blend:0.00}   (cosmético, não é observação)", Dim);
 
@@ -202,7 +216,7 @@ namespace Assets.Scripts.Seeker
             int radius = side / 2;
             int unvisited = 0;
 
-            Line($"janela {side}x{side} ('·' não visitada, '█' visitada/fora, 'A' agente)   células do episódio {e.VisitedCellCount}/{e.CellCount}", Dim);
+            Line($"janela {side}x{side} ('·' não visitada, '█' visitada/fora, '#' parede, 'A' agente)   visitadas {e.VisitedCellCount}/{e.CellCount} livres", Dim);
 
             // FillWindow percorre dz de -r..r (linha) e dx de -r..r (coluna). Linha 0 é o sul.
             for (int dz = radius; dz >= -radius; dz--)
@@ -215,6 +229,8 @@ namespace Assets.Scripts.Seeker
 
                     if (dx == 0 && dz == 0)
                         _text.Append(Colored("A ", Info));
+                    else if (e.IsWindowCellBlocked(index))
+                        _text.Append(Colored("# ", Bad));
                     else if (visited)
                         _text.Append(Colored("█ ", Dim));
                     else
@@ -296,6 +312,13 @@ namespace Assets.Scripts.Seeker
                     alignment > 0.5f ? Info : Dim);
             }
 
+            // 2b. As penalidades de intenção e de travamento, como o reward system as vê.
+            if (r.LastStep.BlockedHeading < 0f)
+                Line("ação aponta para célula bloqueada (pagando rumo bloqueado)", Bad);
+
+            Line($"deslocamento líquido em {r.StuckWindowSteps} steps: {_target.RecentNetDisplacementForDebug:0.00} m  (travado abaixo de {r.StuckDistance:0.0})",
+                r.LastStep.Stuck < 0f ? Bad : Good);
+
             // 3. Encostar está sendo pago?
             int steps = Mathf.Max(1, _target.ElapsedSteps);
             float touchingFraction = (float)r.StepsTouchingWall / steps;
@@ -356,6 +379,9 @@ namespace Assets.Scripts.Seeker
             Term("célula nova", last.NewCell, total.NewCell, last.NewCell > 0f ? Good : Dim);
             Term("avistamento", last.Sight, total.Sight, last.Sight > 0f ? Good : Dim);
             Term("aproximação", last.Approach, total.Approach, last.Approach > 0f ? Good : last.Approach < 0f ? Bad : Dim);
+            Term("rumo bloqueado", last.BlockedHeading, total.BlockedHeading, last.BlockedHeading < 0f ? Bad : Dim);
+            Term("travado", last.Stuck, total.Stuck, last.Stuck < 0f ? Bad : Dim);
+            Term("fronteira", last.FrontierApproach, total.FrontierApproach, last.FrontierApproach > 0f ? Good : last.FrontierApproach < 0f ? Bad : Dim);
             Term("total", last.Total, total.Total, Sign(last.Total));
 
             _text.AppendLine();
@@ -421,6 +447,42 @@ namespace Assets.Scripts.Seeker
             Vector2 action = _target.LastAction;
             Vector3 actionWorld = new(action.x, 0f, action.y);
             Debug.DrawRay(origin + Vector3.up * 0.2f, actionWorld * 2f, Info);
+
+            // Janela de exploração no chão: vermelho = bloqueada por parede, verde = ainda não
+            // visitada (o que puxa o agente), nada = já visitada.
+            SeekerExplorationMemory e = _target.Exploration;
+            if (e != null && e.Window != null)
+            {
+                float halfCell = e.CellSize * 0.45f;
+                for (int i = 0; i < e.Window.Length; i++)
+                {
+                    bool blocked = e.IsWindowCellBlocked(i);
+                    if (!blocked && e.Window[i] > 0.5f)
+                        continue;
+
+                    Vector3 c = e.WindowCellWorldCenter(i) + Vector3.up * 0.05f;
+                    Color color = blocked ? Bad : Good;
+                    Vector3 a = c + new Vector3(-halfCell, 0f, -halfCell);
+                    Vector3 b = c + new Vector3(halfCell, 0f, -halfCell);
+                    Vector3 d = c + new Vector3(halfCell, 0f, halfCell);
+                    Vector3 f = c + new Vector3(-halfCell, 0f, halfCell);
+                    Debug.DrawLine(a, b, color); Debug.DrawLine(b, d, color);
+                    Debug.DrawLine(d, f, color); Debug.DrawLine(f, a, color);
+                }
+            }
+
+            // Fronteira: primeiro passo (seta azul curta) e a célula-alvo (losango azul).
+            SeekerExplorationMemory mem = _target.Exploration;
+            if (mem != null && mem.HasFrontier)
+            {
+                Debug.DrawRay(origin + Vector3.up * 0.3f, mem.FrontierStepDirectionWorld * 1.5f, Info);
+                Vector3 f = mem.FrontierCellWorldCenter + Vector3.up * 0.1f;
+                float r = mem.CellSize * 0.3f;
+                Debug.DrawLine(f + Vector3.left * r, f + Vector3.forward * r, Info);
+                Debug.DrawLine(f + Vector3.forward * r, f + Vector3.right * r, Info);
+                Debug.DrawLine(f + Vector3.right * r, f + Vector3.back * r, Info);
+                Debug.DrawLine(f + Vector3.back * r, f + Vector3.left * r, Info);
+            }
 
             // Última posição conhecida e a linha até ela.
             if (p.HasSeenHider)

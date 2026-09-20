@@ -21,8 +21,8 @@ public enum SeekerMode
 public class SeekerManager : Agent
 {
     // 8 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição
-    // conhecida + a janela 5x5 de células já visitadas.
-    public const int ObservationCount = 13 + 25;
+    // conhecida + 3 da fronteira de exploração + a janela 5x5 de células já visitadas.
+    public const int ObservationCount = 16 + 25;
 
     [Header("-----Systems-----")]
     [SerializeField] private SeekerPerceptionSystem _perceptionSystem;
@@ -47,6 +47,12 @@ public class SeekerManager : Agent
     private bool _episodeEnding;
     private bool _touchingWall;
     private bool _hunting = true;
+
+    // Histórico de posições para o teste de travado (deslocamento líquido em N steps).
+    // Dimensionado pela janela do reward system: é ele quem decide o que é "travado".
+    private Vector3[] _recentPositions;
+    private int _recentCount;
+    private int _recentNext;
 
     public event Action HiderCaught;
 
@@ -83,6 +89,9 @@ public class SeekerManager : Agent
     /// anda o que manda; perto de 0 está empurrando algo. É a resposta objetiva para "está preso?".
     /// </summary>
     public float MovementEfficiency { get; private set; } = 1f;
+
+    /// <summary>Deslocamento líquido na janela de travado, como foi entregue ao último step.</summary>
+    public float RecentNetDisplacementForDebug { get; private set; }
 
     // Percepção é amostrada uma vez por step de física. Como CollectObservations e
     // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
@@ -131,12 +140,16 @@ public class SeekerManager : Agent
             _staticVisual.Initialize();
 
         // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
-        // usar coordenadas de mundo faria as arenas compartilharem células.
-        if (_explorationMemory != null && _arenaController != null)
-            _explorationMemory.Configure(_arenaController.transform);
+        // usar coordenadas de mundo faria as arenas compartilharem células. A layer de parede
+        // é a da percepção — a mesma resposta para "isto é parede" em raycast, contato e grade.
+        if (_explorationMemory != null && _arenaController != null && _perceptionSystem != null)
+            _explorationMemory.Configure(_arenaController, _perceptionSystem.WallLayer);
 
         _initialLocalPosition = transform.localPosition;
         _initialLocalRotation = transform.localRotation;
+
+        int window = _rewardSystem != null ? Mathf.Max(1, _rewardSystem.StuckWindowSteps) : 1;
+        _recentPositions = new Vector3[window];
 
         ValidateSetup();
     }
@@ -189,6 +202,8 @@ public class SeekerManager : Agent
         // Âncora do termo de aproximação. Sem reancorar no respawn, o primeiro step do
         // episódio mediria o salto do teleporte como progresso rumo ao hider.
         _previousStepPosition = transform.position;
+        _recentCount = 0;
+        _recentNext = 0;
 
         _movementSystem.ResetMovement();
         _perceptionSystem.ResetHiderMemory();
@@ -243,6 +258,24 @@ public class SeekerManager : Agent
             sensor.AddObservation(0f);
         }
 
+        // Fronteira de exploração: primeiro passo do caminho (BFS na grade, respeitando as
+        // paredes) até a célula não visitada mais próxima, e a distância dele. É o que a janela
+        // não tem quando está toda em 1 — cercado de visitadas e paredes, sem isto a observação
+        // é constante e a política não tem para onde ir. Mesmo referencial do vetor do hider. (3)
+        if (_explorationMemory.HasFrontier)
+        {
+            Vector3 step = _explorationMemory.FrontierStepDirectionWorld;
+            sensor.AddObservation(step.x);
+            sensor.AddObservation(step.z);
+            sensor.AddObservation(_explorationMemory.FrontierDistanceNormalized);
+        }
+        else
+        {
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+        }
+
         // Janela 5x5 de células já visitadas ao redor do agente. (25)
         sensor.AddObservation(_explorationMemory.Window);
     }
@@ -259,6 +292,7 @@ public class SeekerManager : Agent
         Vector3 currentPosition = transform.position;
 
         AddReward(_rewardSystem.EvaluateStep(BuildStepContext(currentPosition)));
+        PushRecentPosition(currentPosition);
 
         // Telemetria: a posição atual é o resultado da AÇÃO ANTERIOR (LastAction ainda é ela).
         float expected = _movementSystem.StepDistance * LastAction.magnitude;
@@ -306,18 +340,58 @@ public class SeekerManager : Agent
         _explorationMemory.Tick(transform.position);
     }
 
-    private SeekerStepContext BuildStepContext(Vector3 currentPosition) => new(
-        _previousStepPosition,
-        currentPosition,
-        _perceptionSystem.IsSeeingHider,
-        _perceptionSystem.HasSeenHider,
-        _perceptionSystem.LastKnownHiderPosition,
-        _perceptionSystem.ClosestWallProximity,
-        _maxEpisodeSteps,
-        _touchingWall,
-        _explorationMemory.EnteredNewCell,
-        _arenaController.ApproachRewardScale,
-        _arenaController.WallProximityScale);
+    private SeekerStepContext BuildStepContext(Vector3 currentPosition)
+    {
+        RecentNetDisplacementForDebug = RecentNetDisplacement(currentPosition);
+
+        return new SeekerStepContext(
+            _previousStepPosition,
+            currentPosition,
+            _perceptionSystem.IsSeeingHider,
+            _perceptionSystem.HasSeenHider,
+            _perceptionSystem.LastKnownHiderPosition,
+            _perceptionSystem.ClosestWallProximity,
+            _maxEpisodeSteps,
+            _touchingWall,
+            _explorationMemory.EnteredNewCell,
+            _arenaController.ApproachRewardScale,
+            _arenaController.WallProximityScale,
+            IsHeadingIntoBlockedCell(),
+            RecentNetDisplacementForDebug,
+            _recentCount >= _recentPositions.Length,
+            _explorationMemory.FrontierIndex,
+            _explorationMemory.FrontierDistanceCells);
+    }
+
+    /// <summary>
+    /// A ação do step anterior (LastAction ainda é ela: avaliação vem antes de agir) apontava
+    /// para célula bloqueada? Olha uma célula à frente da posição em que a ação foi escolhida.
+    /// </summary>
+    private bool IsHeadingIntoBlockedCell()
+    {
+        if (_explorationMemory == null || LastAction.sqrMagnitude < 0.01f)
+            return false;
+
+        Vector3 heading = new Vector3(LastAction.x, 0f, LastAction.y).normalized;
+        return _explorationMemory.IsBlockedAtWorld(_previousStepPosition + heading * _explorationMemory.CellSize);
+    }
+
+    private float RecentNetDisplacement(Vector3 currentPosition)
+    {
+        if (_recentCount < _recentPositions.Length)
+            return 0f;
+
+        // Com o buffer cheio, _recentNext é justamente a posição mais antiga (N steps atrás).
+        Vector3 delta = currentPosition - _recentPositions[_recentNext];
+        return new Vector2(delta.x, delta.z).magnitude;
+    }
+
+    private void PushRecentPosition(Vector3 position)
+    {
+        _recentPositions[_recentNext] = position;
+        _recentNext = (_recentNext + 1) % _recentPositions.Length;
+        _recentCount = Mathf.Min(_recentCount + 1, _recentPositions.Length);
+    }
 
     // Pegar o hider é um evento discreto, então continua por evento.
     private void OnCollisionEnter(Collision collision) => HandleContact(collision.gameObject);
