@@ -21,7 +21,16 @@ public class LockedDoor : MonoBehaviour, IInteractable
     [Tooltip("Toca quando o jogador tenta abrir com cadeado. Vazio = sem som.")]
     [SerializeField] private string lockedSoundId = "lockedDoor";
 
+    [Header("Animação")]
+    [Tooltip("Animator do modelo da porta. Vazio: procura nos filhos — o modelo é filho deste objeto.")]
+    [SerializeField] private Animator doorAnimator;
+
     private bool isOpen;
+
+    // Trigger do DoorAC, que leva de Idle para o clipe de abrir. Nome em hash: o Animator
+    // resolve string toda chamada, e um erro de digitação aqui não dá erro nenhum em runtime —
+    // a porta só não abre.
+    private static readonly int OpenedHash = Animator.StringToHash("Opened");
 
     public int RemainingLocks => locks.Count;
 
@@ -36,6 +45,12 @@ public class LockedDoor : MonoBehaviour, IInteractable
     {
         // Slot vazio no Inspector e cadeado já aberto na cena não contam como tranca.
         locks.RemoveAll(l => l == null || l.IsUnlocked);
+
+        if (doorAnimator == null)
+            doorAnimator = GetComponentInChildren<Animator>();
+
+        if (doorAnimator == null)
+            Debug.LogWarning($"{name}: nenhum Animator no modelo da porta — ela abre sem animar.", this);
     }
 
     void OnEnable()
@@ -77,6 +92,10 @@ public class LockedDoor : MonoBehaviour, IInteractable
     private void OpenDoor()
     {
         isOpen = true;
-        Debug.Log("Door opened succesfully!");
+
+        // Trigger, e não bool: abrir é um evento único e a porta não volta a fechar. Sem
+        // Animator a porta continua "aberta" para o resto do jogo — só não anima.
+        if (doorAnimator != null)
+            doorAnimator.SetTrigger(OpenedHash);
     }
 }
