@@ -8,12 +8,19 @@ namespace Assets.Scripts.Graph
     /// <see cref="GraphStepContext"/> e devolve o delta do step. Todo o tuning mora aqui.
     ///
     /// ORÇAMENTO (faça a conta antes de treinar, é o que determina o comportamento):
-    ///   total_positivo ~= Σ pesos_dos_primários x _nodeCoverageReward
+    ///   total_positivo ~= Σ pesos_dos_primários x pontuação_exploração x _nodeCoverageReward
+    ///                     + auxiliares x pontuação_auxiliar x _nodeCoverageReward (0 no padrão)
     ///                     + arestas_entre_primários x _newEdgeReward
-    ///                     + caminho_percorrido_em_metros x _frontierApproachReward
+    ///                     + caminho_percorrido_em_metros x (_frontierApproachReward + _frontierProgressPerMeter)
     ///                     + _fullCoverageReward
-    ///                     + pings_por_episódio x (_pingReachedReward + arestas x _pingApproachReward)
+    ///                     + pings_por_episódio x (_pingReachedReward x valor_do_ping + metros_de_caminho x _pingApproachPerMeter)
+    /// (as três "pontuação_*" e o valor_do_ping = pontuação_ping x peso moram no NavGraph; 1, 0 e 1 no padrão)
     ///                     + avistamentos x _hiderSpottedReward + metros_aproximados_vendo x _hiderApproachReward
+    ///                     + _hiderCaughtReward (terminal: pegou o hider)
+    /// Nenhum termo conta ARESTAS de caminho: todo shaping de distância é por metro, então
+    /// adensar o grafo (o NavGraphPlacer cobre o chão inteiro com auxiliares) não mexe no
+    /// orçamento. O que conta nós é só a cobertura, e ela conta PRIMÁRIOS — cujo peso total o
+    /// placer mantém fixo (_primaryWeightBudget).
     /// O peso é declarado NÓ A NÓ (NavNode.ExplorationWeight), então a densidade de primários
     /// entra na conta: dois primários de peso 1 na mesma sala pagam o dobro de um. Ao adensar
     /// uma sala, reparta o peso entre os nós dela para o total do mapa não inflar.
@@ -80,8 +87,9 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _revisitPenalty = 0f;
 
         [Header("-----Recompensas de exploração-----")]
-        // O sinal principal, e o ÚNICO conversor de "peso" em "recompensa": descobrir um nó de
-        // peso 1 rende exatamente este valor. Mexer aqui reescala o mapa inteiro de uma vez;
+        // O sinal principal, e o ÚNICO conversor de "valor de descoberta" em "recompensa":
+        // descobrir um nó de valor 1 (pontuação do tipo no NavGraph x peso do nó) rende
+        // exatamente este valor. Auxiliar só entra aqui se o NavGraph der pontuação ao tipo. Mexer aqui reescala o mapa inteiro de uma vez;
         // mexer no peso de um NavNode reescala só ele. Duas alavancas, dois escopos.
         [FormerlySerializedAs("_regionCoverageReward")]
         [SerializeField] private float _nodeCoverageReward = 0.75f;
@@ -95,14 +103,19 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _fullCoverageReward = 5f;
 
         [Header("-----Shaping de fronteira-----")]
-        // Por aresta de aproximação do não-visitado mais próximo. É um sinal DENSO: sem ele o
-        // agente só recebe algo ao chegar num nó novo, e num mapa grande isso é esparso demais
-        // para o PPO ligar a ação ao resultado.
+        // Por METRO de aproximação do não-visitado mais próximo, medido PELO GRAFO a partir do nó
+        // âncora (muda a cada troca de nó). Sem ele o agente só recebe algo ao chegar num nó
+        // novo, e num mapa grande isso é esparso demais para o PPO ligar a ação ao resultado.
+        //
+        // Era 0.05 por ARESTA. 0.05 / 7.4 m (aresta mediana do mapa antigo) = 0.007 por metro:
+        // o mesmo valor no mapa antigo, e o mesmo valor em qualquer densidade de nós. Por aresta,
+        // o grafo coberto pelo placer (2–3x mais nós no corredor) pagaria 2–3x mais pela mesma
+        // caminhada. Nome novo de propósito, para o 0.05 salvo no prefab não virar "0.05/m".
         //
         // Cuidado com a intensidade: alto demais e a política vira "seguir a seta" — funciona,
         // mas o que foi aprendido é seguir a dica, não explorar. O currículo abaixa esse peso
         // nas lições finais justamente para o comportamento sobreviver sem ela.
-        [SerializeField] private float _frontierProgressReward = 0.05f;
+        [SerializeField] private float _frontierProgressPerMeter = 0.007f;
 
         // Por METRO de aproximação do próximo passo da fronteira. Este é o termo que faltava: o
         // _frontierProgressReward acima mede distância em ARESTAS, e distância em arestas só
@@ -127,13 +140,17 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _frontierApproachReward = 0.02f;
 
         [Header("-----Ping-----")]
-        // Por ARESTA de aproximação do nó que está tocando, medida pelo grafo (contornar parede
-        // conta como progresso; linha reta não). Denso na escala do grafo: paga a cada troca de
-        // nó na direção certa, cobra a cada troca na errada — vai-e-vem rende zero. Um ping a
-        // 10 arestas rende no máximo 1.0 no trajeto, contra 2.0 pela chegada: chegar manda.
-        [SerializeField] private float _pingApproachReward = 0.1f;
+        // Por METRO de aproximação do nó que está tocando, medido PELO GRAFO (contornar parede
+        // conta como progresso; linha reta não). Paga a cada troca de nó na direção certa, cobra
+        // a cada troca na errada — vai-e-vem rende zero.
+        //
+        // Era 0.1 por ARESTA (~0.0135/m no mapa antigo). Por aresta, o mesmo trajeto num grafo
+        // denso pagaria mais que a chegada. Com 0.015/m, um ping a 70 m de caminho rende ~1.0 no
+        // trajeto, contra 2.0 pela chegada: chegar continua mandando, em qualquer densidade.
+        [SerializeField] private float _pingApproachPerMeter = 0.015f;
 
-        // Chegou ao nó do ping enquanto ele ainda tocava. Maior que um nó de cobertura (0.75):
+        // Chegou ao nó do ping enquanto ele ainda tocava, vezes o valor do nó (NavGraph: pontuação
+        // do tipo Ping x peso do nó; 1 no padrão). Maior que um nó de cobertura (0.75):
         // atender o ping tem que valer mais que continuar explorando ali perto, senão a
         // política aprende a ignorá-lo. Menor que a conclusão (5): não é o objetivo do episódio.
         [SerializeField] private float _pingReachedReward = 2f;
@@ -158,7 +175,20 @@ namespace Assets.Scripts.Graph
         // tanto quanto descobrir uma sala.
         [SerializeField] private float _hiderApproachReward = 0.05f;
 
+        // PEGOU o hider (GraphHiderPerception.Caught): paga e ENCERRA o episódio, como a
+        // cobertura. Sem este termo a perseguição não tinha fim — o agente ganhava por ver e por
+        // se aproximar, mas o episódio só acabava por cobertura ou tempo, então nas lições de caça
+        // o incentivo final continuava sendo varrer o mapa.
+        //
+        // 10, o dobro da conclusão por cobertura (5): nas lições de caça pegar tem que valer mais
+        // que o resto do mapa que ele deixaria de explorar ao encerrar. Com previsited 0.5 o que
+        // sobra de cobertura é ~23 x 0.5 x 0.75 ≈ 8.6 no máximo, e na prática ele já cobriu parte
+        // disso até achar o hider — 10 + fim da pressão existencial ganha de "explorar e depois pegar".
+        [SerializeField] private float _hiderCaughtReward = 10f;
+
         public float FullCoverageReward => _fullCoverageReward;
+
+        public float HiderCaughtReward => _hiderCaughtReward;
 
         public void ResetEpisode()
         {
@@ -192,7 +222,7 @@ namespace Assets.Scripts.Graph
             // HasFrontierProgress). Esse cuidado é o que impede o shaping de virar ruído a cada
             // descoberta.
             if (context.HasFrontierProgress)
-                reward += _frontierProgressReward * context.FrontierDistanceDelta * context.FrontierRewardScale;
+                reward += _frontierProgressPerMeter * context.FrontierDistanceDelta * context.FrontierRewardScale;
 
             // O sinal denso. Multiplicado pela mesma escala do currículo que o termo em arestas:
             // os dois são a MESMA muleta, e desligar só um deixaria metade da dependência de pé.
@@ -201,10 +231,12 @@ namespace Assets.Scripts.Graph
 
             // Ping: não escala com a lição — ele é objetivo, não muleta.
             if (context.HasPingProgress)
-                reward += _pingApproachReward * context.PingDistanceDelta;
+                reward += _pingApproachPerMeter * context.PingDistanceDelta;
 
+            // Escalado pelo valor do nó (pontuação do tipo Ping no NavGraph x peso do nó): com
+            // pontuação 1 e peso 1, exatamente o prêmio de antes.
             if (context.PingReached)
-                reward += _pingReachedReward;
+                reward += _pingReachedReward * context.PingReachedValue;
 
             if (context.PingMissed)
                 reward -= _pingMissedPenalty;

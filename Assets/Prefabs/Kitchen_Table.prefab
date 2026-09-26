@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 4966435088277501687}
   - component: {fileID: 646825597132164568}
   - component: {fileID: 4244734230271917486}
+  - component: {fileID: 9085616643331205614}
   m_Layer: 0
   m_Name: Kitchen_Table
   m_TagString: Untagged
@@ -112,6 +113,27 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 0.022040984, y: 0.012490803, z: 0.008777325}
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!65 &9085616643331205614
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2625766046815514780}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.024, y: 0.018, z: 0.02}
+  m_Center: {x: 0, y: 0, z: -0.0000000027939677}
 --- !u!1001 &2983846131658904826
 PrefabInstance:
   m_ObjectHideFlags: 0

@@ -32,10 +32,12 @@ namespace Assets.Scripts.Graph
         public readonly int CurrentNodeVisitCount;
 
         /// <summary>
-        /// Redução da distância EM ARESTAS até o não-visitado mais próximo. Positivo = andou na
-        /// direção certa. Só é válido quando <see cref="HasFrontierProgress"/> é true.
+        /// Redução da distância em METROS PELO GRAFO (do nó âncora) até o alvo da fronteira.
+        /// Positivo = andou na direção certa. Só muda quando o agente troca de nó. Válido só
+        /// quando <see cref="HasFrontierProgress"/> é true. Em metros, e não em arestas, para
+        /// o total pago não depender de quantos nós existem no caminho.
         /// </summary>
-        public readonly int FrontierDistanceDelta;
+        public readonly float FrontierDistanceDelta;
 
         /// <summary>
         /// Se o delta de fronteira é comparável entre os dois steps. Vira false quando o alvo
@@ -72,16 +74,23 @@ namespace Assets.Scripts.Graph
         public readonly float FrontierRewardScale;
 
         /// <summary>
-        /// Redução da distância EM ARESTAS até o nó do ping desde a decisão anterior. Positivo =
-        /// aproximou. Só é válido quando <see cref="HasPingProgress"/> é true (mesmo ping ativo
-        /// nas duas decisões).
+        /// Redução da distância em METROS PELO GRAFO até o nó do ping desde a decisão anterior.
+        /// Positivo = aproximou. Só é válido quando <see cref="HasPingProgress"/> é true (mesmo
+        /// ping ativo nas duas decisões).
         /// </summary>
-        public readonly int PingDistanceDelta;
+        public readonly float PingDistanceDelta;
 
         public readonly bool HasPingProgress;
 
         /// <summary>Chegou ao nó do ping neste intervalo.</summary>
         public readonly bool PingReached;
+
+        /// <summary>
+        /// Valor do(s) ping(s) atendido(s) neste intervalo: pontuação do tipo Ping no NavGraph x
+        /// peso do nó (NavGraph.PingValue). 0 quando não houve. O reward system multiplica pelo
+        /// prêmio de chegada.
+        /// </summary>
+        public readonly float PingReachedValue;
 
         /// <summary>Um ping expirou sem visita neste intervalo.</summary>
         public readonly bool PingMissed;
@@ -104,16 +113,17 @@ namespace Assets.Scripts.Graph
             bool traversedNewEdge,
             bool changedNode,
             int currentNodeVisitCount,
-            int frontierDistanceDelta,
+            float frontierDistanceDelta,
             bool hasFrontierProgress,
             float frontierApproachDelta,
             bool hasFrontierApproach,
             int stepsSinceNewNode,
             bool isTouchingWall,
             float frontierRewardScale,
-            int pingDistanceDelta,
+            float pingDistanceDelta,
             bool hasPingProgress,
             bool pingReached,
+            float pingReachedValue,
             bool pingMissed,
             bool hiderSpotted,
             float hiderApproachDelta,
@@ -135,6 +145,7 @@ namespace Assets.Scripts.Graph
             PingDistanceDelta = pingDistanceDelta;
             HasPingProgress = hasPingProgress;
             PingReached = pingReached;
+            PingReachedValue = pingReachedValue;
             PingMissed = pingMissed;
             HiderSpotted = hiderSpotted;
             HiderApproachDelta = hiderApproachDelta;

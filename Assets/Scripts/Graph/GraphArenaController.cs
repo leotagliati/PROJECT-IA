@@ -129,6 +129,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Amplitude do sorteio de peso por nó neste episódio (0..1).</summary>
         public float WeightJitter { get; private set; }
 
+        /// <summary>Pontos de spawn fixos (fallback). Lido pelo NavGraphPlacer para conferir se caem em chão coberto.</summary>
+        internal Transform[] SpawnPoints => _spawnPoints;
+
         /// <summary>Steps de física entre pings neste episódio; 0 = sem ping.</summary>
         public int PingInterval { get; private set; }
 
@@ -216,9 +219,11 @@ namespace Assets.Scripts.Graph
             return true;
         }
 
-        // Sorteia um nó ativo. Auxiliares entram também: são justamente os pontos no meio dos
-        // corredores, e nascer ali é o caso que os spawn points fixos nunca cobriam. A rotação
-        // é sorteada só por variedade visual — as ações são no referencial do mundo.
+        // Sorteia um nó de SPAWN válido (NavGraph.CanSpawnAt: ativo e com o corpo cabendo em
+        // qualquer rotação). Auxiliares entram também: são justamente os pontos no meio dos
+        // corredores, e nascer ali é o caso que os spawn points fixos nunca cobriam. Nó em
+        // corredor estreito fica de fora — ele é âncora, não berço. A rotação é sorteada só por
+        // variedade visual — as ações são no referencial do mundo.
         private bool TryGetNodeSpawn(out Vector3 position, out Quaternion rotation)
         {
             position = Vector3.zero;
@@ -235,7 +240,7 @@ namespace Assets.Scripts.Graph
             for (int attempt = 0; attempt < graph.NodeCount; attempt++)
             {
                 int index = Random.Range(0, graph.NodeCount);
-                if (!graph.IsNodeEnabled(index))
+                if (!graph.CanSpawnAt(index))
                     continue;
 
                 position = graph.NodePosition(index) + Vector3.up * _nodeSpawnHeightOffset;

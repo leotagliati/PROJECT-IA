@@ -1,5 +1,13 @@
 # Exploração local: sem seta, decidindo pelas saídas
 
+> **Estado nesta branch (`feature/node-exploration-vision`, 23/09/2026):** este documento
+> descreve o commit `db9f983`. O commit seguinte (`fc32c15`) **trouxe a seta de fronteira de
+> volta**: `frontier_hint`/`frontier_hint_steps` no currículo de 5 lições, `_newEdgeReward`
+> de novo só entre primários, e o prefab com raios 1,8/3 e `_maxNodeDistance` 35. O valor
+> por saída (`ScoreExits`) e o dropout da dica estão na branch `feature/node-unexplored`
+> (`296d31a`, `docs/graph/node-unexplored.md`). Leia isto como histórico do raciocínio, não
+> como descrição do código atual. Posicionamento de nós com mobília: `posicionamento-de-nos.md`.
+
 Registro das mudanças de 19/09/2026 no GraphExplorer para que a política aprenda a
 **explorar** (a regra) e não uma **rota** (a resposta). Escrito para quem vai retomar o
 treino ou mexer em recompensa/observação depois.

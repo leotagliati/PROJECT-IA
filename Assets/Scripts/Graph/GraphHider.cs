@@ -9,7 +9,7 @@ namespace Assets.Scripts.Graph
     /// perderia a régua ("o seeker melhorou ou o hider piorou?").
     ///
     /// Anda de nó em nó em linha reta (as ligações do grafo são validadas contra parede, então
-    /// a reta entre dois nós ligados é percorrível). Ao CHEGAR num nó primário, avisa: é isso
+    /// a reta entre dois nós ligados é percorrível). Ao CHEGAR num nó de ping (NavGraph.IsPingSource), avisa: é isso
     /// que o <see cref="GraphPingSystem"/> do seeker lê para disparar o ping — "ouvi passos
     /// naquela sala". O seeker nunca recebe a posição do hider; recebe o rastro.
     ///
@@ -18,7 +18,7 @@ namespace Assets.Scripts.Graph
     ///   1 Parado   — nasce num nó e fica. O ping toca uma vez; o seeker aprende a ir até lá.
     ///   2 Anda     — vagueia pelo grafo sem olhar para o seeker. O rastro se move.
     ///   3 Foge     — quando o seeker chega perto, escolhe a saída que mais aumenta a distância
-    ///                em ARESTAS até ele (contornar parede conta; linha reta não).
+    ///                PELO GRAFO até ele, em metros (contornar parede conta; linha reta não).
     /// Um por arena. Substitui o HiderAgent antigo (que andava em cardinais e virava ao bater):
     /// aquele não conhece nós, e sem nó não há ping.
     /// </summary>
@@ -57,9 +57,12 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _fleeRadius = 12f;
 
         [Header("-----Spawn-----")]
-        // Distância mínima, em ARESTAS, do nó de spawn do seeker. 6 no mapa atual (diâmetro
-        // 42) coloca o hider fora da sala inicial sem mandá-lo para o outro lado do mundo.
-        [SerializeField, Min(1)] private int _minSpawnDistance = 6;
+        // Distância mínima, em METROS pelo grafo, do nó de spawn do seeker. 40 m ~ as 6
+        // arestas de antes (mediana 7.4 m): fora da sala inicial sem mandar o hider para o
+        // outro lado do mundo. Em metros para não mudar quando o grafo for adensado.
+        // Nome novo de propósito: o antigo (_minSpawnDistance) era em arestas, e o 6 salvo no
+        // prefab viraria "6 metros" em silêncio.
+        [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
 
         [Header("-----Referências-----")]
         [SerializeField] private NavGraph _graph;
@@ -80,7 +83,7 @@ namespace Assets.Scripts.Graph
         public int CurrentNode => _currentNode;
 
         /// <summary>
-        /// Nó primário em que o hider acabou de chegar, ou -1. Fica de pé até alguém consumir
+        /// Nó de ping em que o hider acabou de chegar, ou -1. Fica de pé até alguém consumir
         /// com <see cref="ConsumeArrival"/> — é o "barulho" que o GraphPingSystem transforma
         /// em ping. Um por chegada: pisar no mesmo nó parado não toca de novo.
         /// </summary>
@@ -145,8 +148,8 @@ namespace Assets.Scripts.Graph
 
             Place(_graph.NodePosition(_currentNode));
 
-            // Nascer num primário já é um barulho: o seeker ganha o primeiro ping de graça.
-            if (_graph.IsNodePrimary(_currentNode))
+            // Nascer num nó de ping já é um barulho: o seeker ganha o primeiro ping de graça.
+            if (_graph.IsPingSource(_currentNode))
                 PendingArrival = _currentNode;
 
             if (mode == Mode.Static)
@@ -196,7 +199,7 @@ namespace Assets.Scripts.Graph
             _currentNode = _targetNode;
             _targetNode = -1;
 
-            if (_graph.IsNodePrimary(_currentNode))
+            if (_graph.IsPingSource(_currentNode))
                 PendingArrival = _currentNode;
 
             _pauseLeft = _maxPauseSteps > 0 ? Random.Range(0, _maxPauseSteps + 1) : 0;
@@ -220,14 +223,14 @@ namespace Assets.Scripts.Graph
                 {
                     int seekerNode = _graph.FindNearestReachableNode(_seeker.position);
                     int best = -1;
-                    int bestDistance = -1;
+                    float bestDistance = -1f;
 
                     foreach (int neighbor in neighbors)
                     {
                         if (!_graph.IsNodeEnabled(neighbor))
                             continue;
 
-                        int distance = seekerNode >= 0 && _graph.TryFindPathTo(neighbor, seekerNode, out _, out int d) ? d : 0;
+                        float distance = seekerNode >= 0 && _graph.TryFindPathTo(neighbor, seekerNode, out _, out float d) ? d : 0f;
                         if (distance > bestDistance)
                         {
                             bestDistance = distance;
@@ -262,8 +265,9 @@ namespace Assets.Scripts.Graph
             _targetNode = chosen;
         }
 
-        // Nó ativo a pelo menos _minSpawnDistance arestas do nó mais próximo do seeker. Sorteio
-        // com rejeição; se o mapa for pequeno demais para a distância pedida, aceita qualquer um.
+        // Nó de SPAWN válido (ativo e com folga, NavGraph.CanSpawnAt) a pelo menos
+        // _minSpawnDistanceMeters do nó mais próximo do seeker. Sorteio com rejeição; se o mapa
+        // for pequeno demais para a distância pedida, aceita qualquer um com folga.
         private int PickSpawnNode(Vector3 seekerPosition)
         {
             int seekerNode = _graph.FindNearestReachableNode(seekerPosition);
@@ -273,7 +277,7 @@ namespace Assets.Scripts.Graph
             for (int attempt = 0; attempt < count * 2; attempt++)
             {
                 int candidate = Random.Range(0, count);
-                if (!_graph.IsNodeEnabled(candidate) || candidate == seekerNode)
+                if (!_graph.CanSpawnAt(candidate) || candidate == seekerNode)
                     continue;
 
                 fallback = candidate;
@@ -281,7 +285,7 @@ namespace Assets.Scripts.Graph
                 if (seekerNode < 0)
                     return candidate;
 
-                if (_graph.TryFindPathTo(candidate, seekerNode, out _, out int distance) && distance >= _minSpawnDistance)
+                if (_graph.TryFindPathTo(candidate, seekerNode, out _, out float distance) && distance >= _minSpawnDistanceMeters)
                     return candidate;
             }
 

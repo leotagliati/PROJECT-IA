@@ -106,8 +106,8 @@ namespace Assets.Scripts.Graph
         public bool EnteredNewNode { get; private set; }
 
         /// <summary>
-        /// Soma dos PESOS dos nós inéditos alcançados desde o último <see cref="ClearStepFlags"/>.
-        /// O peso é o do próprio nó (NavNode.ExplorationWeight); auxiliar entra como zero.
+        /// Soma dos VALORES dos nós inéditos alcançados desde o último <see cref="ClearStepFlags"/>:
+        /// pontuação do tipo x peso (NavGraph.DiscoveryValue), com o sorteio do episódio.
         /// </summary>
         public float EnteredNewNodeValue { get; private set; }
 
@@ -150,7 +150,8 @@ namespace Assets.Scripts.Graph
         /// <summary>Primeiro nó do caminho até ele — é para cá que o agente deve andar AGORA.</summary>
         public int FrontierNextStep { get; private set; } = -1;
 
-        public int FrontierDistance { get; private set; }
+        /// <summary>Distância em METROS pelo grafo, do nó âncora até o alvo da fronteira.</summary>
+        public float FrontierDistance { get; private set; }
 
         /// <summary>
         /// Se a dica de fronteira está sendo ENTREGUE ao agente agora (força > 0 e dentro da
@@ -208,17 +209,18 @@ namespace Assets.Scripts.Graph
             HasFrontier = false;
             FrontierTarget = -1;
             FrontierNextStep = -1;
-            FrontierDistance = 0;
+            FrontierDistance = 0f;
             _frontierDirty = true;
+            OffNodeSteps = 0;
+            TickedSteps = 0;
         }
 
         /// <summary>
         /// Denominador da cobertura por peso: a soma dos pesos dos primários ATIVOS. Um nó
         /// desligado por uma lição sai da conta, senão o alvo de cobertura vira inatingível.
         ///
-        /// Auxiliares ficam fora (NodeWeight devolve 0 para eles). É isso que torna a malha de
-        /// navegação GRÁTIS: você adensa o quanto quiser para o agente não se perder, e nem o
-        /// valor de um nó nem o denominador da cobertura se mexem.
+        /// Auxiliares e pings ficam fora, mesmo quando a pontuação do tipo deles é maior que 0:
+        /// adensar a malha para o agente não se perder nunca mexe no denominador da cobertura.
         /// </summary>
         private void RecomputeTotalWeight()
         {
@@ -228,13 +230,16 @@ namespace Assets.Scripts.Graph
             {
                 // Pré-visitado sai do denominador dos DOIS medidores: ele não pode ser
                 // coletado, então contá-lo tornaria o alvo de cobertura inatingível.
-                if (!_graph.IsNodeEnabled(i) || _previsited[i])
+                //
+                // Só EXPLORAÇÃO: auxiliar e ping podem pagar ao ser descobertos (pontuação do
+                // tipo no NavGraph), mas a cobertura — a barra que encerra o episódio — é "quanto
+                // dos pontos de vantagem eu vi". Com centenas de ladrilhos auxiliares pagando, a
+                // barra passaria a medir quanto CHÃO ele pisou.
+                if (!_graph.IsNodeEnabled(i) || _previsited[i] || !_graph.IsNodePrimary(i))
                     continue;
 
                 _totalWeight += _episodeWeight[i];
-
-                if (_graph.IsNodePrimary(i))
-                    _enabledNodeCount++;
+                _enabledNodeCount++;
             }
         }
 
@@ -272,10 +277,24 @@ namespace Assets.Scripts.Graph
             }
         }
 
+        /// <summary>
+        /// Steps de física do episódio em que o agente estava FORA de qualquer área de nó. É a
+        /// métrica que diz se o grafo cobre o chão (Exploration/OffNodeFraction no TensorBoard):
+        /// fora de nó a observação de vizinhos fica presa na âncora antiga. Com o grafo gerado
+        /// pelo NavGraphPlacer isto deveria ficar perto de zero.
+        /// </summary>
+        public int OffNodeSteps { get; private set; }
+
+        public int TickedSteps { get; private set; }
+
         public void Tick(Vector3 worldPosition)
         {
             int node = _graph.FindNodeAt(worldPosition);
             IsAtNode = node >= 0;
+
+            TickedSteps++;
+            if (!IsAtNode)
+                OffNodeSteps++;
 
             // Fora de qualquer raio, CurrentNodeIndex NÃO volta para -1: ele continua sendo o
             // último nó alcançado. É essa persistência que dá uma âncora no grafo enquanto o
@@ -343,24 +362,26 @@ namespace Assets.Scripts.Graph
             // onde ele passou e o que impede a fronteira de reprocessá-lo. O que muda é o resto.
             _visited[node] = true;
 
-            // Auxiliar não paga nem conta. Ele já fez o trabalho dele — servir de âncora e de
-            // caminho. Sair daqui é o que mantém a malha grátis.
+            // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
+            // nó, e cada um tem que pagar o seu. O valor já vem com a pontuação do TIPO
+            // (NavGraph.DiscoveryValue): auxiliar paga 0 por padrão e ping paga 0 sempre (ele
+            // paga ao ser atendido), então a malha continua grátis a menos que você a pontue.
+            float weight = _episodeWeight[node];
+            EnteredNewNodeValue += weight;
+
+            // Só EXPLORAÇÃO conta para a cobertura e é "nó novo" (porteira da fronteira e
+            // relógio da estagnação). Auxiliar e ping já fizeram o trabalho deles.
             if (!_graph.IsNodePrimary(node))
                 return;
 
             _visitedNodeCount++;
             EnteredNewNode = true;
-
-            // Somado, e não atribuído: entre duas decisões o agente pode cruzar mais de um
-            // nó, e cada um tem que pagar o seu.
-            float weight = _episodeWeight[node];
-            EnteredNewNodeValue += weight;
             _collectedWeight += weight;
         }
 
         /// <summary>
-        /// Sorteia o peso de cada nó para o episódio: autorado x U[1 - jitter, 1 + jitter],
-        /// nunca negativo. Com jitter 0 é o peso autorado. A SOMA esperada não muda (o fator
+        /// Sorteia o valor de cada nó para o episódio: valor de descoberta (pontuação do tipo x
+        /// peso, NavGraph.DiscoveryValue) x U[1 - jitter, 1 + jitter], nunca negativo. Com jitter 0 é o peso autorado. A SOMA esperada não muda (o fator
         /// tem média 1), então o teto de recompensa do mapa fica o mesmo — o que muda é QUEM
         /// vale mais a cada episódio.
         /// </summary>
@@ -372,7 +393,7 @@ namespace Assets.Scripts.Graph
             for (int i = 0; i < _graph.NodeCount; i++)
             {
                 float factor = jitter > 0f ? Random.Range(1f - jitter, 1f + jitter) : 1f;
-                _episodeWeight[i] = Mathf.Max(0f, _graph.NodeWeight(i) * factor);
+                _episodeWeight[i] = Mathf.Max(0f, _graph.DiscoveryValue(i) * factor);
                 _maxEpisodeWeight = Mathf.Max(_maxEpisodeWeight, _episodeWeight[i]);
             }
         }
@@ -380,7 +401,7 @@ namespace Assets.Scripts.Graph
         /// <summary>
         /// Peso do nó neste episódio, NORMALIZADO pelo maior peso do mapa (0..1). É o que a
         /// observação entrega por vizinho: "quanto vale esta saída em relação ao nó que mais
-        /// vale". Auxiliar e nó desligado dão 0.
+        /// vale". Nó desligado dá 0; auxiliar e ping dão o valor de descoberta deles (0 por padrão).
         /// </summary>
         public float NormalizedEpisodeWeight(int node)
         {
@@ -399,7 +420,7 @@ namespace Assets.Scripts.Graph
             // MESMO lugar do começo ao fim de uma travessia — e o que mantém o shaping de
             // aproximação comparável entre dois steps.
             if (FrontierTarget >= 0 && !_visited[FrontierTarget]
-                && _graph.TryFindPathTo(CurrentNodeIndex, FrontierTarget, out int keptStep, out int keptDistance))
+                && _graph.TryFindPathTo(CurrentNodeIndex, FrontierTarget, out int keptStep, out float keptDistance))
             {
                 HasFrontier = true;
                 FrontierNextStep = keptStep;
@@ -408,11 +429,11 @@ namespace Assets.Scripts.Graph
             }
 
             HasFrontier = _graph.TryFindNearestUnvisited(
-                CurrentNodeIndex, _visited, _frontierCandidates, out int target, out int nextStep, out int distance);
+                CurrentNodeIndex, _visited, _frontierCandidates, out int target, out int nextStep, out float distance);
 
             FrontierTarget = HasFrontier ? target : -1;
             FrontierNextStep = HasFrontier ? nextStep : -1;
-            FrontierDistance = HasFrontier ? distance : 0;
+            FrontierDistance = HasFrontier ? distance : 0f;
         }
 
         public bool IsVisited(int node) => _visited[node];
@@ -457,11 +478,7 @@ namespace Assets.Scripts.Graph
             if (CurrentNodeIndex >= 0)
             {
                 Gizmos.color = Color.yellow;
-                GraphGizmos.DrawGroundArea(
-                    _graph.Shape,
-                    _graph.NodePosition(CurrentNodeIndex),
-                    _graph.NodeRadius(CurrentNodeIndex),
-                    height: 0.12f);
+                _graph.DrawNodeArea(CurrentNodeIndex, 0.12f, 1);
             }
 
             if (_drawFrontier && HasFrontier && FrontierHintVisible)
@@ -485,7 +502,6 @@ namespace Assets.Scripts.Graph
                     continue;
 
                 Vector3 position = _graph.NodePosition(i);
-                float radius = _graph.NodeRadius(i);
 
                 // Auxiliar: só um traço fino do disco, visitado ou não. Ele é cenário para a
                 // leitura que interessa — quais PONTOS DE VANTAGEM já foram cobertos. Pintar a
@@ -498,7 +514,7 @@ namespace Assets.Scripts.Graph
                     Color aux = _visited[i] ? VisitedColor : PendingColor;
                     aux.a *= 0.4f;
                     Gizmos.color = aux;
-                    GraphGizmos.DrawGroundArea(_graph.Shape, position, radius, height: 0.03f, segments: 14);
+                    _graph.DrawNodeArea(i, 0.03f, 1);
                     continue;
                 }
 
@@ -509,7 +525,7 @@ namespace Assets.Scripts.Graph
                     if (_drawPendingNodes)
                     {
                         Gizmos.color = PendingColor;
-                        GraphGizmos.DrawGroundArea(_graph.Shape, position, radius, height: 0.04f);
+                        _graph.DrawNodeArea(i, 0.04f, 1);
                     }
 
                     continue;
@@ -524,7 +540,7 @@ namespace Assets.Scripts.Graph
                 if (_previsited[i])
                 {
                     Gizmos.color = PrevisitedColor;
-                    GraphGizmos.DrawGroundAreaFilled(_graph.Shape, position, radius, height: 0.06f);
+                    _graph.DrawNodeArea(i, 0.06f, 3);
                     continue;
                 }
 
@@ -534,7 +550,7 @@ namespace Assets.Scripts.Graph
                 float heat = Mathf.Clamp01((_visitCount[i] - 1f) / Mathf.Max(1, _heatSaturationVisits));
 
                 Gizmos.color = Color.Lerp(VisitedColor, RevisitedColor, heat);
-                GraphGizmos.DrawGroundAreaFilled(_graph.Shape, position, radius, height: 0.06f);
+                _graph.DrawNodeArea(i, 0.06f, 3);
                 Gizmos.DrawSphere(position, 0.3f);
             }
         }
