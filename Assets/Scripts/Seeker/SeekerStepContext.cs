@@ -53,6 +53,31 @@ namespace Assets.Scripts.Seeker
         /// </summary>
         public readonly float WallProximityScale;
 
+        /// <summary>
+        /// Se a ação do step anterior apontava para uma célula bloqueada por parede (ou para
+        /// fora da arena). É intenção, não contato: pega o empurrão antes de ele encostar, e
+        /// usa o mesmo mapa que a janela de observação — a rede tem como prever a punição.
+        /// </summary>
+        public readonly bool HeadingIntoBlockedCell;
+
+        /// <summary>
+        /// Distância (no plano) entre a posição atual e a de N steps atrás. LÍQUIDA, e não caminho
+        /// percorrido: tremer no lugar ou oscilar contra uma parede soma caminho e dá zero aqui.
+        /// </summary>
+        public readonly float RecentNetDisplacement;
+
+        /// <summary>Falso nos primeiros N steps do episódio, quando ainda não há "N steps atrás".</summary>
+        public readonly bool RecentWindowFilled;
+
+        /// <summary>
+        /// Célula-alvo da fronteira de exploração (-1 sem fronteira) e o comprimento do caminho
+        /// até ela, em células. O índice existe para o reward system só medir progresso enquanto
+        /// o alvo é o MESMO: quando a fronteira troca de célula a distância salta, e isso não é
+        /// nem progresso nem retrocesso.
+        /// </summary>
+        public readonly int FrontierIndex;
+        public readonly int FrontierDistanceCells;
+
         public SeekerStepContext(
             Vector3 previousStepPosition,
             Vector3 currentPosition,
@@ -64,7 +89,12 @@ namespace Assets.Scripts.Seeker
             bool isTouchingWall,
             bool enteredNewCell,
             float approachRewardScale,
-            float wallProximityScale)
+            float wallProximityScale,
+            bool headingIntoBlockedCell,
+            float recentNetDisplacement,
+            bool recentWindowFilled,
+            int frontierIndex,
+            int frontierDistanceCells)
         {
             IsTouchingWall = isTouchingWall;
             EnteredNewCell = enteredNewCell;
@@ -77,6 +107,11 @@ namespace Assets.Scripts.Seeker
             MaxEpisodeSteps = maxEpisodeSteps;
             ApproachRewardScale = approachRewardScale;
             WallProximityScale = wallProximityScale;
+            HeadingIntoBlockedCell = headingIntoBlockedCell;
+            RecentNetDisplacement = recentNetDisplacement;
+            RecentWindowFilled = recentWindowFilled;
+            FrontierIndex = frontierIndex;
+            FrontierDistanceCells = frontierDistanceCells;
         }
     }
 }

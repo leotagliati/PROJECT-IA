@@ -112,7 +112,12 @@ public class CameraJuice : MonoBehaviour
 
         // A descida do agachamento já vem suavizada do PlayerMovement (é a própria
         // transição da cápsula), então a câmera acompanha a altura do corpo sem defasar.
+        // O SpineLook pode já ter descido a bacia — e a âncora do pescoço com ela — então
+        // aqui entra só o que faltar para o drop total. Com os dois iguais, sobra zero.
         float crouchDrop = crouchCameraDrop * movement.CrouchAmount;
+
+        if (spineLook != null && spineLook.isActiveAndEnabled)
+            crouchDrop = Mathf.Max(0f, crouchDrop - spineLook.CrouchDrop);
 
         // Com SpineLook, a base é o pescoço do modelo (já escrita neste frame, ele roda
         // antes); sem ele, a posição fixa do prefab. Reatribuir inteiro, e não somar, é o

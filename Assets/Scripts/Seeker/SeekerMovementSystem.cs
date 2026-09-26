@@ -8,6 +8,9 @@ namespace Assets.Scripts.Seeker
         [SerializeField] private float _moveSpeed = 5f;
         [SerializeField] private float _turnSpeed = 720f;
 
+        /// <summary>Deslocamento por step de física com ação de magnitude 1. Telemetria.</summary>
+        public float StepDistance => _moveSpeed * Time.fixedDeltaTime;
+
         public void Awake()
         {
             if (_rigidbody == null)

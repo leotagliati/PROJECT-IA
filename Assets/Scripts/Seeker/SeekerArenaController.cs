@@ -26,12 +26,38 @@ namespace Assets.Scripts.Seeker
         [SerializeField, Range(0f, 1f)] private float _mazeApproachScale = 0.25f;
         [SerializeField, Range(0f, 1f)] private float _mazeWallProximityScale = 0f;
 
+        [Header("-----Grade de exploração-----")]
+        // A memória de exploração do agente não sabe de parede: uma célula do outro lado dela
+        // aparece como "não visitada" e vira atrativo — o agente empurra a parede para chegar
+        // lá. A arena, que é quem conhece o layout, sonda a grade uma vez por layout e entrega
+        // as células bloqueadas; a memória as trata como "nada a ganhar".
+        [Tooltip("Altura, local à arena, em que as células são sondadas. Da ordem da altura dos colliders de parede, e acima do chão.")]
+        [SerializeField] private float _occupancyProbeHeight = 0.5f;
+
+        [Tooltip("Fração dos 9 pontos de sonda de uma célula dentro de parede para ela contar como bloqueada. 0.5: uma parede fina atravessando a célula NÃO bloqueia (ela é alcançável dos dois lados); célula engolida pela parede bloqueia.")]
+        [SerializeField, Range(0.1f, 1f)] private float _blockedFraction = 0.5f;
+
         [Header("-----Feedback-----")]
         // Só para debug visual: durante o delay o agente segue recebendo decisões que não viram
         // experiência útil. Mantenha em 0 para treinar.
         [SerializeField] private float _episodeEndDelay = 0f;
 
         private Color _initialFloorColor;
+        private bool _mazeOn;
+
+        // Um mapa por layout: o labirinto liga e desliga por episódio, e sondar 2800 células
+        // a cada reset seria desperdício. Reprocessa se a grade pedida mudar.
+        private readonly OccupancyMap[] _occupancy = new OccupancyMap[2];
+
+        private sealed class OccupancyMap
+        {
+            public float CellSize;
+            public int GridSize;
+            public int WallLayer;
+            public bool[] Blocked;
+        }
+
+        public bool MazeEnabled => _mazeOn;
 
         public float EpisodeEndDelay => _episodeEndDelay;
 
@@ -106,6 +132,81 @@ namespace Assets.Scripts.Seeker
 
             if (_maze != null)
                 _maze.SetActive(mazeOn);
+
+            _mazeOn = mazeOn;
+        }
+
+        /// <summary>
+        /// Preenche <paramref name="blocked"/> (indexado como a memória: z * gridSize + x, grade
+        /// centrada na arena) com as células engolidas por parede no layout ATUAL. Chamar depois
+        /// de ResetEpisode, que é quando o labirinto do episódio já está ligado ou desligado.
+        /// </summary>
+        public void FillBlockedCells(float arenaSize, float cellSize, int gridSize, LayerMask wallLayer, bool[] blocked)
+        {
+            int key = _mazeOn ? 1 : 0;
+            OccupancyMap map = _occupancy[key];
+
+            if (map == null || map.CellSize != cellSize || map.GridSize != gridSize || map.WallLayer != wallLayer.value)
+            {
+                map = new OccupancyMap
+                {
+                    CellSize = cellSize,
+                    GridSize = gridSize,
+                    WallLayer = wallLayer.value,
+                    Blocked = new bool[gridSize * gridSize],
+                };
+                BakeOccupancy(map, arenaSize, wallLayer);
+                _occupancy[key] = map;
+            }
+
+            System.Array.Copy(map.Blocked, blocked, Mathf.Min(map.Blocked.Length, blocked.Length));
+        }
+
+        private void BakeOccupancy(OccupancyMap map, float arenaSize, LayerMask wallLayer)
+        {
+            // SetActive no labirinto registra os colliders na física na hora, mas transforms
+            // movidos neste mesmo frame só chegam lá no próximo step — sincroniza antes de sondar.
+            Physics.SyncTransforms();
+
+            float half = arenaSize * 0.5f;
+            float cell = map.CellSize;
+            float radius = cell * 0.15f;
+            int needed = Mathf.Max(1, Mathf.CeilToInt(_blockedFraction * 9f));
+            int blockedCount = 0;
+
+            for (int z = 0; z < map.GridSize; z++)
+            {
+                for (int x = 0; x < map.GridSize; x++)
+                {
+                    // Centro da célula no espaço da arena, mesma convenção de ToCell na memória.
+                    float cx = -half + (x + 0.5f) * cell;
+                    float cz = -half + (z + 0.5f) * cell;
+                    int hits = 0;
+
+                    // 3x3 pontos a ±cell/3 do centro: cobre a célula sem encostar nas vizinhas.
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            Vector3 local = new(cx + dx * cell / 3f, _occupancyProbeHeight, cz + dz * cell / 3f);
+                            Vector3 world = transform.TransformPoint(local);
+
+                            if (Physics.CheckSphere(world, radius, wallLayer, QueryTriggerInteraction.Ignore))
+                                hits++;
+                        }
+                    }
+
+                    bool isBlocked = hits >= needed;
+                    map.Blocked[z * map.GridSize + x] = isBlocked;
+                    if (isBlocked)
+                        blockedCount++;
+                }
+            }
+
+            // Esta contagem é o que calibra _newCellReward: (livres × recompensa) tem que ficar
+            // bem abaixo do +5 de captura. Fica no log de propósito para não precisar adivinhar.
+            int free = map.Blocked.Length - blockedCount;
+            Debug.Log($"{name}: grade {map.GridSize}x{map.GridSize} ({(_mazeOn ? "labirinto" : "sala aberta")}): {free} células livres, {blockedCount} bloqueadas por parede.", this);
         }
 
         /// <summary>
