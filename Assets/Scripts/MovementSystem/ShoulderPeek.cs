@@ -12,6 +12,9 @@ public class ShoulderPeek : MonoBehaviour
     [SerializeField] private Camera targetCamera;
     [SerializeField] private PlayerMovement movement;
 
+    [Tooltip("Vazio: procura no mesmo objeto. Quando existe, o corpo faz parte da inclinada em arco e a câmera recebe só o que faltar.")]
+    [SerializeField] private SpineLook spineLook;
+
     [Header("Look Back Settings")]
     [SerializeField, Range(0f, 180f)] private float lookBackAngle = 135f;
     [SerializeField] private float lookBackRoll = 2.5f;
@@ -66,6 +69,13 @@ public class ShoulderPeek : MonoBehaviour
     /// <summary>Deslocamento lateral atual em metros. Negativo = esquerda.</summary>
     public float LeanOffset => currentLean;
 
+    /// <summary>
+    /// Inclinada atual como fração do máximo, com sinal (+1 = todo à direita). Já vem
+    /// suavizada e encolhida quando uma parede corta a espiada — o SpineLook arqueia o corpo
+    /// por este número, então o corpo nunca inclina mais do que a câmera conseguiu sair.
+    /// </summary>
+    public float LeanAmount => leanDistance > 0.0001f ? currentLean / leanDistance : 0f;
+
     /// <summary>Modo ativo agora. Animator e IA podem reagir a isso.</summary>
     public PeekMode CurrentMode => currentMode;
 
@@ -79,6 +89,9 @@ public class ShoulderPeek : MonoBehaviour
 
         if (movement == null)
             movement = GetComponent<PlayerMovement>();
+
+        if (spineLook == null)
+            spineLook = GetComponent<SpineLook>();
     }
 
     private void OnEnable()
@@ -311,10 +324,23 @@ public class ShoulderPeek : MonoBehaviour
             Mathf.Abs(currentRoll) < 0.01f)
             return;
 
+        // O arco do corpo (SpineLook, ordem -10) já levou a câmera parte do caminho para o
+        // lado, e pode ter inclinado um pouco a vista junto; aqui entra só o que falta. Sem
+        // SpineLook ativo os dois descontos são zero e a câmera faz tudo, como antes de o
+        // corpo participar.
+        float lean = currentLean;
+        float roll = currentRoll;
+
+        if (spineLook != null && spineLook.isActiveAndEnabled)
+        {
+            lean -= spineLook.PeekLateralApplied;
+            roll -= spineLook.PeekRollApplied;
+        }
+
         // O CameraJuice reatribui localPosition inteiro todo frame (bob + dip), então
         // somar aqui não acumula. Vector3.right é o lado do player: a câmera só carrega
         // pitch, o yaw mora no transform raiz.
-        cameraTransform.localPosition += Vector3.right * currentLean;
+        cameraTransform.localPosition += Vector3.right * lean;
 
         // Yaw pré-multiplicado: entra no espaço do player, antes do pitch. Pós-multiplicado
         // ele giraria no espaço já inclinado e, olhando para cima, o "olhar para trás"
@@ -323,7 +349,7 @@ public class ShoulderPeek : MonoBehaviour
         cameraTransform.localRotation =
             Quaternion.Euler(0f, currentYaw, 0f) *
             cameraTransform.localRotation *
-            Quaternion.Euler(0f, 0f, currentRoll);
+            Quaternion.Euler(0f, 0f, roll);
     }
 
     /// <summary>
