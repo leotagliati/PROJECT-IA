@@ -55,8 +55,15 @@ namespace Assets.Scripts.Graph
         //   [7]      cobertura total
         //   [8]      RESERVADO — era a cobertura da região atual; regiões saíram do sistema
         //   [9..11]  direção + distância ao próximo passo da fronteira
-        //   [12]     distância em ARESTAS até a fronteira
-        //   [13..15] PING: ativo, distância em arestas até o nó que toca, quente/frio (-1/0/+1)
+        //   [12]     distância PELO GRAFO até a fronteira, em metros / diâmetro do mapa
+        //   [13..15] PING: ativo, distância pelo grafo até o nó que toca (metros / diâmetro),
+        //            quente/frio (-1/0/+1)
+        //
+        // [12] e [14] eram em ARESTAS / _maxGraphDistance. Mudaram para METROS / diâmetro do
+        // mapa (NavGraph.PathDiameter, calculado sozinho): o tamanho do vetor é o mesmo, mas o
+        // SIGNIFICADO mudou — modelos .onnx treinados antes dessa mudança não servem mais.
+        // Motivo: com o grafo coberto pelo NavGraphPlacer a densidade de nós muda a cada
+        // regeneração, e contar arestas fazia a mesma distância valer outro número.
         //   [16..20] VISÃO: vendo, já viu, direção + distância à última posição em que viu o hider
         //
         // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
@@ -118,9 +125,6 @@ namespace Assets.Scripts.Graph
         // maior aresta é 34, um terço das arestas chegava à rede como o mesmo número.
         [SerializeField] private float _maxNodeDistance = 35f;
 
-        // Normalizador da distância em ARESTAS até a fronteira. Da ordem do diâmetro do grafo.
-        [SerializeField] private int _maxGraphDistance = 20;
-
         [Header("-----Settings-----")]
         // Em steps de FÍSICA, não em decisões: com TakeActionsBetweenDecisions ligado no
         // DecisionRequester (que é como a cena está montada), OnActionReceived roda todo
@@ -145,7 +149,7 @@ namespace Assets.Scripts.Graph
         // Distância de fronteira na decisão anterior. O delta entre decisões é o que vira
         // shaping — medir isso dentro da memória daria o delta de um step de física, que é
         // uma fração do que o agente controla com uma ação.
-        private int _frontierDistanceAtLastDecision;
+        private float _frontierDistanceAtLastDecision;
         private bool _hadFrontierAtLastDecision;
 
         // Estado do shaping denso: qual nó era o próximo passo da fronteira no step anterior e a
@@ -161,6 +165,9 @@ namespace Assets.Scripts.Graph
         private Vector3 _sortOrigin;
 
         public int ObservationSize => _neighborSlots * FloatsPerNeighbor + GlobalObservations;
+
+        /// <summary>Normalizador de distância a nó. O NavGraphPlacer usa como alcance do teste "tem nó à vista?".</summary>
+        public float MaxNodeDistance => _maxNodeDistance;
 
         private float CurrentCoverage => _coverageMeasure == CoverageMeasure.NodeWeight
             ? _memory.VisitedWeightFraction
@@ -303,7 +310,7 @@ namespace Assets.Scripts.Graph
             // para trás — e é exatamente essa a situação em que ele se perdia.
             //
             // Roda uma vez por DECISÃO (não por step de física): com Decision Period 5 são ~10
-            // consultas por segundo por agente, e o SphereCast dentro dela só dispara enquanto
+            // consultas por segundo por agente, e o CapsuleCast dentro dela só dispara enquanto
             // pode melhorar a resposta.
             int nearest = _graph.FindNearestReachableNode(position);
             AddDirectionAndDistance(sensor, position, nearest >= 0 ? _graph.NodePosition(nearest) : position, nearest >= 0);
@@ -329,7 +336,7 @@ namespace Assets.Scripts.Graph
 
             // Distância em ARESTAS até o alvo: diz se a fronteira é "logo ali" ou "do outro lado
             // do mapa", informação que a direção sozinha não carrega.
-            sensor.AddObservation(showFrontier ? Mathf.Clamp01((float)_memory.FrontierDistance / _maxGraphDistance) : 0f);
+            sensor.AddObservation(showFrontier ? Mathf.Clamp01(_memory.FrontierDistance / _graph.PathDiameter) : 0f);
 
             // ---- Ping (3) ----
             // Ativo, distância em arestas (mesmo normalizador da fronteira) e quente/frio. Sem
@@ -337,7 +344,7 @@ namespace Assets.Scripts.Graph
             // quente/frio a cada troca de nó — dado, não resposta.
             bool pingActive = _ping != null && _ping.IsActive;
             sensor.AddObservation(pingActive ? 1f : 0f);
-            sensor.AddObservation(pingActive ? Mathf.Clamp01((float)_ping.Distance / _maxGraphDistance) : 0f);
+            sensor.AddObservation(pingActive ? Mathf.Clamp01(_ping.Distance / _graph.PathDiameter) : 0f);
             sensor.AddObservation(pingActive ? _ping.HotCold : 0f);
 
             // ---- Visão (5) ----
@@ -484,6 +491,16 @@ namespace Assets.Scripts.Graph
             Vector3 direction = new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1]);
             _movementSystem.Move(direction);
 
+            // Pegou o hider: o outro bônus terminal (ver GraphRewardSystem._hiderCaughtReward).
+            // Antes da cobertura: nas lições de caça a captura é o objetivo, e se as duas
+            // acontecerem no mesmo step ela é a que explica o fim do episódio.
+            if (_perception != null && _perception.Caught)
+            {
+                AddReward(_rewardSystem.HiderCaughtReward);
+                FinishEpisode(covered: true);
+                return;
+            }
+
             if (CurrentCoverage >= _arenaController.CoverageTarget)
             {
                 AddReward(_rewardSystem.FullCoverageReward);
@@ -505,9 +522,9 @@ namespace Assets.Scripts.Graph
             bool frontierComparable =
                 _hadFrontierAtLastDecision && _memory.HasFrontier && !_memory.EnteredNewNode;
 
-            int delta = frontierComparable
+            float delta = frontierComparable
                 ? _frontierDistanceAtLastDecision - _memory.FrontierDistance
-                : 0;
+                : 0f;
 
             // Aproximação em metros do próximo passo da fronteira. Aqui a porteira é OUTRA: não
             // interessa se o agente entrou num nó novo, e sim se os dois steps mediram a
@@ -531,7 +548,7 @@ namespace Assets.Scripts.Graph
             bool pingComparable =
                 _ping != null && _ping.IsActive && _ping.TargetNode == _pingTargetAtLastDecision;
 
-            int pingDelta = pingComparable ? _pingDistanceAtLastDecision - _ping.Distance : 0;
+            float pingDelta = pingComparable ? _pingDistanceAtLastDecision - _ping.Distance : 0f;
 
             return new GraphStepContext(
                 _maxEpisodeSteps,
@@ -550,6 +567,7 @@ namespace Assets.Scripts.Graph
                 pingDelta,
                 pingComparable,
                 _ping != null && _ping.Reached,
+                _ping != null ? _ping.ReachedValue : 0f,
                 _ping != null && _ping.Missed,
                 _perception != null && _perception.Spotted,
                 hiderDelta,
@@ -568,16 +586,16 @@ namespace Assets.Scripts.Graph
             _hiderDistanceAtLastDecision = _wasSeeingAtLastDecision ? _perception.CurrentDistance : 0f;
         }
 
-        // Ping na decisão anterior: qual nó tocava e a que distância em arestas. O delta só é
-        // comparável quando é o MESMO ping nas duas decisões — ao chegar (ou expirar) o alvo
-        // some, e um ping novo em outro lugar do mapa faria a distância saltar.
+        // Ping na decisão anterior: qual nó tocava e a que distância em metros pelo grafo. O
+        // delta só é comparável quando é o MESMO ping nas duas decisões — ao chegar (ou expirar)
+        // o alvo some, e um ping novo em outro lugar do mapa faria a distância saltar.
         private int _pingTargetAtLastDecision = -1;
-        private int _pingDistanceAtLastDecision;
+        private float _pingDistanceAtLastDecision;
 
         private void RememberPing()
         {
             _pingTargetAtLastDecision = _ping != null && _ping.IsActive ? _ping.TargetNode : -1;
-            _pingDistanceAtLastDecision = _ping != null ? _ping.Distance : 0;
+            _pingDistanceAtLastDecision = _ping != null ? _ping.Distance : 0f;
         }
 
         /// <summary>
@@ -623,6 +641,7 @@ namespace Assets.Scripts.Graph
         {
             _episodeEnding = true;
             _arenaController.ShowOutcome(covered);
+            RecordEpisodeStats();
 
             float delay = _arenaController.EpisodeEndDelay;
             if (delay <= 0f)
@@ -632,6 +651,29 @@ namespace Assets.Scripts.Graph
             }
 
             StartCoroutine(EndEpisodeAfterDelay(delay));
+        }
+
+        /// <summary>
+        /// Métricas do episódio no TensorBoard, SEPARADAS da recompensa: o Cumulative Reward muda
+        /// a cada ajuste de peso, estas não. Compare runs por elas.
+        ///   Exploration/Coverage         cobertura ao fim do episódio (a medida que decide o alvo)
+        ///   Exploration/OffNodeFraction  fração dos steps FORA de qualquer área de nó. Perto de 0
+        ///                                = o grafo cobre o chão; alto = rode o NavGraphPlacer.
+        ///   Hunt/Seen, Hunt/Caught       só nos episódios com hider: viu alguma vez / pegou
+        /// </summary>
+        private void RecordEpisodeStats()
+        {
+            StatsRecorder stats = Academy.Instance.StatsRecorder;
+            stats.Add("Exploration/Coverage", CurrentCoverage);
+
+            if (_memory.TickedSteps > 0)
+                stats.Add("Exploration/OffNodeFraction", (float)_memory.OffNodeSteps / _memory.TickedSteps);
+
+            if (_perception != null && _arenaController.HiderMode != GraphHider.Mode.None)
+            {
+                stats.Add("Hunt/Seen", _perception.HasSeen ? 1f : 0f);
+                stats.Add("Hunt/Caught", _perception.Caught ? 1f : 0f);
+            }
         }
 
         private IEnumerator EndEpisodeAfterDelay(float delay)

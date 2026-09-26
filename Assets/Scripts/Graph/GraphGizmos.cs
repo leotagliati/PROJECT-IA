@@ -59,6 +59,28 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
+        /// Retângulo alinhado aos eixos do mundo, com meia-largura <paramref name="half"/> em X
+        /// (x) e Z (y). É a área da forma Retângulo do NavGraph e das áreas bloqueadas.
+        /// </summary>
+        public static void DrawGroundRect(Vector3 center, Vector2 half, float height = 0.05f)
+        {
+            if (half.x <= 0f || half.y <= 0f)
+                return;
+
+            Vector3 o = new(center.x, center.y + height, center.z);
+
+            Vector3 a = o + new Vector3(-half.x, 0f, -half.y);
+            Vector3 b = o + new Vector3(half.x, 0f, -half.y);
+            Vector3 c = o + new Vector3(half.x, 0f, half.y);
+            Vector3 d = o + new Vector3(-half.x, 0f, half.y);
+
+            Gizmos.DrawLine(a, b);
+            Gizmos.DrawLine(b, c);
+            Gizmos.DrawLine(c, d);
+            Gizmos.DrawLine(d, a);
+        }
+
+        /// <summary>
         /// Círculo no plano do chão. A altura é um empurrãozinho para cima para não brigar em
         /// z-fighting com o piso quando o nó está em y = 0.
         /// </summary>

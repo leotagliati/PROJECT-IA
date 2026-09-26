@@ -34,6 +34,14 @@ namespace Assets.Scripts.Graph
         // no chão e o raio acusaria degrau como parede.
         [SerializeField] private float _eyeHeight = 0.5f;
 
+        [Header("-----Captura-----")]
+        // Distância planar (m) entre os CENTROS em que o hider conta como pego, com linha livre de
+        // parede. O corpo do seeker tem 1.7 de largura (meia-largura 0.85) e o hider é menor, então
+        // encostar dá ~1.3–1.7 entre centros; 2.5 aceita "alcançou" sem exigir trombar de frente
+        // — trombar faria a política aprender a acertar o hider em alta velocidade, e a pegada
+        // natural é chegar perto. Não exige o cone: estando ao alcance do braço, pegou.
+        [SerializeField, Min(0.5f)] private float _captureDistance = 2.5f;
+
         [Header("-----Avistar-----")]
         // Steps de física sem ver que precisam passar para uma nova aquisição de visão contar
         // como "avistou de novo" (e pagar de novo). 250 = 5 s. Sem isto, ficar numa quina
@@ -64,6 +72,12 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public bool Spotted { get; private set; }
 
+        /// <summary>
+        /// Pegou o hider (ao alcance de _captureDistance, com linha livre de parede). Fica de pé
+        /// até o ResetEpisode: é um evento TERMINAL, o manager paga e encerra o episódio.
+        /// </summary>
+        public bool Caught { get; private set; }
+
         public void Configure(NavGraph graph)
         {
             _graph = graph;
@@ -82,6 +96,7 @@ namespace Assets.Scripts.Graph
             HasSeen = false;
             LastSeenPosition = Vector3.zero;
             CurrentDistance = 0f;
+            Caught = false;
             _lastSeenStep = int.MinValue;
             _step = 0;
             ClearStepFlags();
@@ -111,6 +126,26 @@ namespace Assets.Scripts.Graph
             }
 
             IsSeeing = seeing;
+
+            if (!Caught && _hider != null && _hider.IsActive && IsWithinReach(seeker, _hider.transform.position))
+                Caught = true;
+        }
+
+        private bool IsWithinReach(Transform seeker, Vector3 hiderPosition)
+        {
+            Vector3 delta = hiderPosition - seeker.position;
+            if (new Vector2(delta.x, delta.z).magnitude > _captureDistance)
+                return false;
+
+            // Linha livre: pegar através de uma parede fina não conta.
+            LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+            if (walls.value == 0)
+                return true;
+
+            Vector3 eye = seeker.position + Vector3.up * _eyeHeight;
+            Vector3 target = hiderPosition + Vector3.up * _eyeHeight;
+            Vector3 ray = target - eye;
+            return !Physics.Raycast(eye, ray.normalized, ray.magnitude, walls, QueryTriggerInteraction.Ignore);
         }
 
         private bool CanSee(Transform seeker, Vector3 hiderPosition)
