@@ -281565,6 +281565,14 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 290878221}
     m_Modifications:
+    - target: {fileID: 133982376053209728, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 73ebcbc6e6763804db5a94ff4221175f, type: 2}
+    - target: {fileID: 511023368668119702, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 73ebcbc6e6763804db5a94ff4221175f, type: 2}
     - target: {fileID: 572788143576534877, guid: d188b06eea4d3974eb400da4ea8ea40d, type: 3}
       propertyPath: _mode
       value: 1
@@ -291968,7 +291976,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2bd06837d5555ec40ba0a6666de0296b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  disableOnCaught: []
+  disableOnCaught:
+  - {fileID: 2047866912}
+  - {fileID: 2047866901}
+  - {fileID: 2047866898}
   flashlight: {fileID: 0}
   playerCamera: {fileID: 0}
   turnDuration: 0.24
@@ -292037,6 +292048,7 @@ MonoBehaviour:
   heavyThreshold: 0.3
   calmDuckAtFull: 1
   pitchDriftRate: 0.12
+  fadeOutOnGameOver: 0.25
 --- !u!1001 &2048473619
 PrefabInstance:
   m_ObjectHideFlags: 0

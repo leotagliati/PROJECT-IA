@@ -27,10 +27,13 @@ public class PlayerBreathing : MonoBehaviour
     // audível, deriva contínua não. A amplitude é o PitchJitter da entrada na library.
     [Tooltip("Velocidade da deriva de pitch (ciclos de ruído por segundo).")]
     [SerializeField, Min(0f)] private float pitchDriftRate = 0.12f;
+    [SerializeField, Min(0.01f)] private float fadeOutOnGameOver = 0.25f;
 
     private Voice _calm;
     private Voice _heavy;
     private float _exertion;
+    private float _masterGain = 1f;
+    private bool _gameOver;
 
     private class Voice
     {
@@ -97,12 +100,59 @@ public class PlayerBreathing : MonoBehaviour
         };
     }
 
+    private void OnEnable() => GameManager.StateChanged += HandleGameState;
+
+    private void OnDisable()
+    {
+        GameManager.StateChanged -= HandleGameState;
+        Silence();
+    }
+
+    private void HandleGameState(GameState state)
+    {
+        if (state == GameState.Won || state == GameState.Lost)
+            BeginFadeOut();
+    }
+
+    private void BeginFadeOut()
+    {
+        if (_gameOver)
+            return;
+
+        _gameOver = true;
+        Debug.Log($"{name}: respiração saindo (fim de jogo / movimento desligado).", this);
+    }
+
+    /// <summary>Para e desliga as fontes. Volume zero não basta: a fonte continua ativa e tocando.</summary>
+    private void Silence()
+    {
+        foreach (Voice voice in new[] { _calm, _heavy })
+        {
+            if (voice == null || voice.Source == null)
+                continue;
+
+            voice.Source.Stop();
+            voice.Source.enabled = false;
+        }
+    }
+
     private void Update()
     {
+        // Além do evento, consulta por frame: PlayerMovement desligado é o que a captura (e
+        // qualquer cutscene) faz com o jogador, venha o fim de onde vier.
+        if (!movement.isActiveAndEnabled
+            || (GameManager.Current != null && GameManager.Current.IsOver))
+        {
+            BeginFadeOut();
+        }
+
+        // PlayerMovement desligado (captura, cutscene) não zera o CurrentState: ele fica
+        // congelado no último valor, e congelado em Running o fôlego seguiria enchendo.
         // Pulo no meio da corrida não é descanso: o estado vira Jumping, mas o sprint segue.
         PlayerState state = movement.CurrentState;
-        bool sprinting = state == PlayerState.Running
-                      || (state == PlayerState.Jumping && movement.SprintHeld);
+        bool sprinting = movement.isActiveAndEnabled
+                      && (state == PlayerState.Running
+                          || (state == PlayerState.Jumping && movement.SprintHeld));
 
         _exertion = sprinting
             ? Mathf.MoveTowards(_exertion, 1f, Time.deltaTime / timeToExhaust)
@@ -111,8 +161,15 @@ public class PlayerBreathing : MonoBehaviour
         float heavyGain = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(heavyThreshold, 1f, _exertion));
         float calmGain = 1f - heavyGain * calmDuckAtFull;
 
+        if (_gameOver)
+            _masterGain = Mathf.MoveTowards(_masterGain, 0f, Time.deltaTime / fadeOutOnGameOver);
+
         Apply(_calm, calmGain);
         Apply(_heavy, heavyGain);
+
+        // O OnDisable chama o Silence.
+        if (_gameOver && _masterGain <= 0f)
+            enabled = false;
     }
 
     private void Apply(Voice voice, float gain)
@@ -120,7 +177,7 @@ public class PlayerBreathing : MonoBehaviour
         if (voice == null)
             return;
 
-        voice.Source.volume = voice.BaseVolume * gain;
+        voice.Source.volume = voice.BaseVolume * gain * _masterGain;
 
         float noise = Mathf.PerlinNoise(voice.NoiseSeed, Time.time * pitchDriftRate) * 2f - 1f;
         voice.Source.pitch = 1f + noise * voice.PitchJitter;
