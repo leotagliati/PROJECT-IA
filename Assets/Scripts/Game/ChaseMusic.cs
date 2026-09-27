@@ -36,6 +36,12 @@ public class ChaseMusic : MonoBehaviour
 
     [SerializeField, Min(0.01f)] private float _fadeOutOnGameOver = 0.25f;
 
+    /// <summary>
+    /// Disparado junto com o som do susto, já filtrado pelo cooldown. Quem reage ao susto
+    /// (efeito de tela) escuta isto em vez de refazer a detecção, para som e imagem baterem juntos.
+    /// </summary>
+    public event System.Action JumpscareTriggered;
+
     private AudioSource _jumpscareSource;
     private AudioSource _themeSource;
     private AudioLibrary.SoundEntry _jumpscare;
@@ -146,6 +152,8 @@ public class ChaseMusic : MonoBehaviour
 
         _jumpscareSource.pitch = 1f + Random.Range(-_jumpscare.PitchJitter, _jumpscare.PitchJitter);
         _jumpscareSource.PlayOneShot(_jumpscare.Clips[Random.Range(0, _jumpscare.Clips.Length)], _jumpscare.Volume);
+
+        JumpscareTriggered?.Invoke();
     }
 
     private void UpdateTheme(bool chasing)

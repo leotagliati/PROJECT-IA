@@ -129342,6 +129342,10 @@ PrefabInstance:
       propertyPath: handOffset.z
       value: 0.67
       objectReference: {fileID: 0}
+    - target: {fileID: 3473301174491884793, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: raycastDistance
+      value: 3.5
+      objectReference: {fileID: 0}
     - target: {fileID: 9165839263031781084, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -144123,6 +144127,7 @@ GameObject:
   - component: {fileID: 1012911238}
   - component: {fileID: 1012911240}
   - component: {fileID: 1012911241}
+  - component: {fileID: 1012911242}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -144195,6 +144200,32 @@ MonoBehaviour:
   _jumpscareCooldown: 6
   _fadeIn: 0.5
   _fadeOut: 2
+  _fadeOutOnGameOver: 0.25
+--- !u!114 &1012911242
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1012911237}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1304272b308193d4eab63aeca8b65485, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _camera: {fileID: 0}
+  _chaseMusic: {fileID: 0}
+  _seekers: []
+  _volumeLayer: SeenFX
+  _burstDuration: 0.9
+  _burstFlicker: 0.446
+  _burstGrain: 1
+  _burstChromatic: 1
+  _burstDistortion: 0.352
+  _burstVignette: 0.5
+  _chaseGrain: 0.789
+  _chaseChromatic: 0.577
+  _chaseVignette: 0.35
   _fadeOutOnGameOver: 0.25
 --- !u!1001 &1012996243
 PrefabInstance:
@@ -292003,9 +292034,9 @@ MonoBehaviour:
   flashlight: {fileID: 0}
   playerCamera: {fileID: 0}
   turnDuration: 0.24
-  lookHeight: 3.52
-  fovMultiplier: 0.842
-  shakeAmplitude: 2.83
+  lookHeight: 1.01
+  fovMultiplier: 0.576
+  shakeAmplitude: 2.04
   stingerSoundId: caught
 --- !u!114 &2047866898 stripped
 MonoBehaviour:
