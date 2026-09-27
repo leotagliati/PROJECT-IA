@@ -4,14 +4,22 @@ public class PlayerBreathing : MonoBehaviour
 {
     [SerializeField] private PlayerMovement movement;
 
+    [Tooltip("Vazio = procura junto do PlayerMovement. Com stamina, o ofegante segue a barra.")]
+    [SerializeField] private PlayerStamina stamina;
+
     [SerializeField] private string calmId = "breath";
     [SerializeField] private string heavyId = "breath_heavy";
 
     [Header("-----Fôlego-----")]
-    [Tooltip("Segundos correndo sem parar até o fôlego acabar por completo.")]
+    // A barra desce e sobe em linha reta e dá um salto quando o jogador sai de exausto (o
+    // cansaço vai de 1 para 1 - recoverThreshold): sem suavizar, o ofegante pula junto.
+    [Tooltip("Com stamina: segundos para o ofegante acompanhar uma mudança da barra.")]
+    [SerializeField, Min(0.01f)] private float staminaFollowTime = 0.6f;
+
+    [Tooltip("Sem stamina: segundos correndo sem parar até o fôlego acabar por completo.")]
     [SerializeField, Min(0.01f)] private float timeToExhaust = 5f;
 
-    [Tooltip("Segundos parado/andando até recuperar do fôlego zerado.")]
+    [Tooltip("Sem stamina: segundos parado/andando até recuperar do fôlego zerado.")]
     [SerializeField, Min(0.01f)] private float timeToRecover = 7f;
 
     // Abaixo disso o ofegante fica mudo: um sprint curto (desviar de uma quina) não pode
@@ -47,6 +55,9 @@ public class PlayerBreathing : MonoBehaviour
     {
         if (movement == null)
             movement = GetComponentInParent<PlayerMovement>();
+
+        if (stamina == null && movement != null)
+            stamina = movement.GetComponent<PlayerStamina>();
 
         if (AudioProvider.IsMuted || movement == null)
         {
@@ -139,17 +150,7 @@ public class PlayerBreathing : MonoBehaviour
             BeginFadeOut();
         }
 
-        // PlayerMovement desligado (captura, cutscene) não zera o CurrentState: ele fica
-        // congelado no último valor, e congelado em Running o fôlego seguiria enchendo.
-        // Pulo no meio da corrida não é descanso: o estado vira Jumping, mas o sprint segue.
-        PlayerState state = movement.CurrentState;
-        bool sprinting = movement.isActiveAndEnabled
-                      && (state == PlayerState.Running
-                          || (state == PlayerState.Jumping && movement.SprintHeld));
-
-        _exertion = sprinting
-            ? Mathf.MoveTowards(_exertion, 1f, Time.deltaTime / timeToExhaust)
-            : Mathf.MoveTowards(_exertion, 0f, Time.deltaTime / timeToRecover);
+        UpdateExertion();
 
         float heavyGain = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(heavyThreshold, 1f, _exertion));
         float calmGain = 1f - heavyGain * calmDuckAtFull;
@@ -163,6 +164,30 @@ public class PlayerBreathing : MonoBehaviour
         // O OnDisable chama o Silence.
         if (_gameOver && _masterGain <= 0f)
             enabled = false;
+    }
+
+    private void UpdateExertion()
+    {
+        if (stamina != null && stamina.isActiveAndEnabled)
+        {
+            // Uma fonte de verdade para "cansado": o ofegante é o quanto da barra foi gasto, e
+            // exausto é sempre o máximo — é o momento em que o jogador tenta correr e não consegue.
+            float target = stamina.IsExhausted ? 1f : 1f - stamina.Normalized;
+            _exertion = Mathf.MoveTowards(_exertion, target, Time.deltaTime / staminaFollowTime);
+            return;
+        }
+
+        // PlayerMovement desligado (captura, cutscene) não zera o CurrentState: ele fica
+        // congelado no último valor, e congelado em Running o fôlego seguiria enchendo.
+        // Pulo no meio da corrida não é descanso: o estado vira Jumping, mas o sprint segue.
+        PlayerState state = movement.CurrentState;
+        bool sprinting = movement.isActiveAndEnabled
+                      && (state == PlayerState.Running
+                          || (state == PlayerState.Jumping && movement.SprintHeld));
+
+        _exertion = sprinting
+            ? Mathf.MoveTowards(_exertion, 1f, Time.deltaTime / timeToExhaust)
+            : Mathf.MoveTowards(_exertion, 0f, Time.deltaTime / timeToRecover);
     }
 
     private void Apply(Voice voice, float gain)

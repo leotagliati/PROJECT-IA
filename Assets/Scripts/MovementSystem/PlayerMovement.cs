@@ -28,6 +28,9 @@ public class PlayerMovement : MonoBehaviour
 
     [SerializeField] private float groundedGraceTime = 0.1f;
 
+    [Tooltip("Vazio = procura no mesmo objeto. Sem stamina, corre sem limite.")]
+    [SerializeField] private PlayerStamina stamina;
+
     [Header("Crouch")]
     [Tooltip("Altura da cápsula agachado. A de pé é a que estiver no CharacterController.")]
     [SerializeField] private float crouchHeight = 0.5f;
@@ -89,7 +92,8 @@ public class PlayerMovement : MonoBehaviour
     public Vector2 MoveInput => moveInput;
 
     /// <summary>
-    /// Corrida pedida e permitida agora — agachado nunca corre. Diferente de
+    /// Corrida pedida e permitida agora — agachado ou exausto (<see cref="PlayerStamina"/>)
+    /// nunca corre. Diferente de
     /// <see cref="CurrentState"/> ser Running: continua verdadeiro no ar, onde o estado
     /// vira Jumping.
     /// </summary>
@@ -112,6 +116,9 @@ public class PlayerMovement : MonoBehaviour
     {
 
         controller = GetComponent<CharacterController>();
+
+        if (stamina == null)
+            stamina = GetComponent<PlayerStamina>();
 
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
@@ -153,7 +160,9 @@ public class PlayerMovement : MonoBehaviour
 
         UpdateCrouch();
 
-        sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed() && !isCrouching;
+        sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed()
+                  && !isCrouching
+                  && (stamina == null || stamina.CanSprint);
 
         UpdateState();
 

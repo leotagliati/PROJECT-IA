@@ -58571,6 +58571,65 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 37f533e1990504f4496d50abc0803119, type: 3}
+--- !u!1 &402675910
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 402675911}
+  - component: {fileID: 402675912}
+  m_Layer: 5
+  m_Name: StaminaBar
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &402675911
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 402675910}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1761216367}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: -257.2898, y: -214.52992}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &402675912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 402675910}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1526cd94a5bde04489783c51529c0a79, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  stamina: {fileID: 0}
+  fill: {fileID: 0}
+  size: {x: 220, y: 8}
+  bottomMargin: 70
+  backgroundColor: {r: 0, g: 0, b: 0, a: 0.45}
+  sortingOrder: 1
+  normalColor: {r: 0.9, g: 0.9, b: 0.9, a: 0.85}
+  exhaustedColor: {r: 0.8, g: 0.15, b: 0.15, a: 0.85}
+  hideWhenFull: 1
+  hideDelay: 1
+  fadeDuration: 0.4
 --- !u!1001 &403529233
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -129397,6 +129456,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2047866912}
+    - targetCorrespondingSourceObject: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2047866913}
   m_SourcePrefab: {fileID: 100100000, guid: 97d293e2457059e49816e795df1a13db, type: 3}
 --- !u!1001 &899808242
 PrefabInstance:
@@ -144253,7 +144315,7 @@ MonoBehaviour:
   _burstGrain: 1
   _burstChromatic: 1
   _burstDistortion: 0.352
-  _burstVignette: 0.5
+  _burstVignette: 0.728
   _chaseGrain: 0.789
   _chaseChromatic: 0.577
   _chaseVignette: 0.35
@@ -248562,6 +248624,7 @@ RectTransform:
   m_Children:
   - {fileID: 943480973}
   - {fileID: 2090129782}
+  - {fileID: 402675911}
   - {fileID: 523163109}
   - {fileID: 106318365}
   m_Father: {fileID: 0}
@@ -292129,14 +292192,33 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   movement: {fileID: 2047866901}
+  stamina: {fileID: 0}
   calmId: breath
   heavyId: breath_heavy
+  staminaFollowTime: 0.6
   timeToExhaust: 5
   timeToRecover: 7
   heavyThreshold: 0.3
   calmDuckAtFull: 1
   pitchDriftRate: 0.12
   fadeOutOnGameOver: 0.25
+--- !u!114 &2047866913
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 316642973}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b6dd59e711d739c4e9439895db8e55dc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  movement: {fileID: 0}
+  sprintDuration: 10
+  refillDuration: 6
+  regenDelay: 1
+  recoverThreshold: 0.3
 --- !u!1001 &2048473619
 PrefabInstance:
   m_ObjectHideFlags: 0
