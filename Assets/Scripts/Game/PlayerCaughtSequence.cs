@@ -12,10 +12,21 @@ public class PlayerCaughtSequence : MonoBehaviour
     [SerializeField] private Camera playerCamera;
 
     [Header("Virada")]
-    [SerializeField] private float turnDuration = 0.4f;
-    [SerializeField] private float lookHeight = 1.6f;
+    [Tooltip("Para onde a câmera aponta ao ser pego (a cabeça do seeker, por exemplo). " +
+             "Vazio: a câmera não vira, só dá o zoom.")]
+    [SerializeField] private Transform lookTarget;
+
+    [SerializeField, Min(0.01f)] private float turnDuration = 0.4f;
+
+    [Tooltip("Tempo encarando o alvo depois da virada, antes da tela preta. Sem isso o corte cai " +
+             "no mesmo frame em que a virada termina e a virada passa despercebida.")]
+    [SerializeField, Min(0f)] private float holdDuration = 0.35f;
+
     [SerializeField, Range(0.3f, 1f)] private float fovMultiplier = 0.8f;
-    [SerializeField] private float shakeAmplitude = 0.03f;
+
+    // Tremor de ROTAÇÃO: tremor de posição, a curta distância da captura, tira o alvo de quadro.
+    [Tooltip("Tremor da câmera, em graus.")]
+    [SerializeField, Min(0f)] private float shakeAmplitude = 1.5f;
 
     [Header("Áudio")]
     [Tooltip("Vazio = sem som.")]
@@ -46,6 +57,9 @@ public class PlayerCaughtSequence : MonoBehaviour
                 GetComponentInChildren<InteractionController>(),
             };
         }
+
+        if (lookTarget == null)
+            Debug.LogWarning($"{name}: lookTarget vazio — ao ser pego a câmera só dá zoom.", this);
     }
 
     private void OnEnable() => GameManager.StateChanged += HandleState;
@@ -69,43 +83,54 @@ public class PlayerCaughtSequence : MonoBehaviour
         if (flashlight != null)
             flashlight.InputLocked = true;
 
-        if (!string.IsNullOrEmpty(stingerSoundId))
-            AudioProvider.PlayFollowing(stingerSoundId, playerCamera.transform);
-
-        SeekerManager seeker = FindFirstObjectByType<SeekerManager>();
         Transform cam = playerCamera.transform;
-        Vector3 basePosition = cam.position;
+
+        if (!string.IsNullOrEmpty(stingerSoundId))
+            AudioProvider.PlayFollowing(stingerSoundId, cam);
+
         Quaternion from = cam.rotation;
         float fromFov = playerCamera.fieldOfView;
         float toFov = fromFov * fovMultiplier;
 
+        // O alvo é lido todo frame: o seeker ainda se mexe um pouco depois do contato.
         for (float t = 0f; t < turnDuration; t += Time.deltaTime)
         {
             float k = Mathf.SmoothStep(0f, 1f, t / turnDuration);
 
-            if (seeker != null)
-                cam.rotation = Quaternion.Slerp(from, LookAtSeeker(seeker, basePosition), k);
-
+            cam.rotation = Quaternion.Slerp(from, LookRotation(cam, from), k) * Shake(k);
             playerCamera.fieldOfView = Mathf.Lerp(fromFov, toFov, k);
-            cam.position = basePosition + UnityEngine.Random.insideUnitSphere * (shakeAmplitude * k);
             yield return null;
         }
 
-        // O loop termina com t < turnDuration, então o último frame fica um pouco antes do
-        // alvo e com o shake no máximo. Hoje o corte esconde isso; se a tela preta atrasar
-        // ou sair, é este snap que garante a câmera parada e olhando pro seeker.
-        if (seeker != null)
-            cam.rotation = LookAtSeeker(seeker, basePosition);
+        // Encarando, com o tremor morrendo.
+        for (float t = 0f; t < holdDuration; t += Time.deltaTime)
+        {
+            cam.rotation = LookRotation(cam, from) * Shake(1f - t / holdDuration);
+            playerCamera.fieldOfView = toFov;
+            yield return null;
+        }
 
+        // Os loops param com t um pouco antes do fim, ainda com resto de tremor: se a tela preta
+        // atrasar ou sair, é este snap que garante a câmera parada no alvo.
+        cam.rotation = LookRotation(cam, from);
         playerCamera.fieldOfView = toFov;
-        cam.position = basePosition;
 
         CutToBlack?.Invoke();
     }
 
-    private Quaternion LookAtSeeker(SeekerManager seeker, Vector3 eye)
+    private Quaternion LookRotation(Transform cam, Quaternion fallback)
     {
-        Vector3 target = seeker.transform.position + Vector3.up * lookHeight;
-        return Quaternion.LookRotation(target - eye);
+        if (lookTarget == null)
+            return fallback;
+
+        Vector3 direction = lookTarget.position - cam.position;
+
+        // Alvo em cima do olho (seeker atravessando a câmera): LookRotation de vetor nulo loga erro.
+        return direction.sqrMagnitude > 0.0001f ? Quaternion.LookRotation(direction) : fallback;
+    }
+
+    private Quaternion Shake(float strength)
+    {
+        return Quaternion.Euler(UnityEngine.Random.insideUnitSphere * (shakeAmplitude * strength));
     }
 }
