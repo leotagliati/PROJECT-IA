@@ -86,3 +86,15 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0.05
     MaxDistance: 5
+  - Id: breath
+    Clips:
+    - {fileID: 8300000, guid: a1085843894b5cf42b1ebe7f317e38d9, type: 3}
+    Volume: 0.08
+    PitchJitter: 0.06
+    MaxDistance: 0
+  - Id: breath_heavy
+    Clips:
+    - {fileID: 8300000, guid: 3f9bc7098fc188d4d945526c8f3f657f, type: 3}
+    Volume: 0.14
+    PitchJitter: 0.06
+    MaxDistance: 0

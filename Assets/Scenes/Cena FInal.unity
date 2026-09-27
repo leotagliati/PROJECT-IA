@@ -129359,6 +129359,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2047866904}
+    - targetCorrespondingSourceObject: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2047866912}
   m_SourcePrefab: {fileID: 100100000, guid: 97d293e2457059e49816e795df1a13db, type: 3}
 --- !u!1001 &899808242
 PrefabInstance:
@@ -292014,6 +292017,26 @@ MonoBehaviour:
   - {fileID: 2047866898}
   flashlight: {fileID: 0}
   stingerSoundId: 
+--- !u!114 &2047866912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 316642973}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 650964c586ff41d4d8987471f3db89ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  movement: {fileID: 2047866901}
+  calmId: breath
+  heavyId: breath_heavy
+  timeToExhaust: 5
+  timeToRecover: 7
+  heavyThreshold: 0.3
+  calmDuckAtFull: 1
+  pitchDriftRate: 0.12
 --- !u!1001 &2048473619
 PrefabInstance:
   m_ObjectHideFlags: 0
