@@ -29,10 +29,18 @@ public class PlayerCaughtSequence : MonoBehaviour
     [SerializeField, Min(0f)] private float shakeAmplitude = 1.5f;
 
     [Header("Áudio")]
-    [Tooltip("Vazio = sem som.")]
+    [Tooltip("Ataque do seeker. Vazio = sem som.")]
     [SerializeField] private string stingerSoundId = "caught";
 
+    // Entrada própria, e não mais um clipe dentro de "caught": clipes da mesma entrada são
+    // sorteados, e o grito tem que tocar JUNTO com o ataque, não no lugar dele.
+    [Tooltip("Grito do jogador. Vazio = sem grito.")]
+    [SerializeField] private string screamSoundId = "player_scream";
+
     public event Action CutToBlack;
+
+    private AudioHandle stingerHandle;
+    private AudioHandle screamHandle;
 
     private void Awake()
     {
@@ -66,6 +74,15 @@ public class PlayerCaughtSequence : MonoBehaviour
 
     private void OnDisable() => GameManager.StateChanged -= HandleState;
 
+    // O AudioPool sobrevive à troca de cena (DontDestroyOnLoad) e o GameManager recarrega a
+    // cena antes do grito (~5s) acabar: sem isto, a partida nova abriria com o fim do grito.
+    // Handle de slot já roubado é no-op no Stop.
+    private void OnDestroy()
+    {
+        AudioProvider.Stop(stingerHandle);
+        AudioProvider.Stop(screamHandle);
+    }
+
     private void HandleState(GameState state)
     {
         if (state == GameState.Lost)
@@ -86,7 +103,10 @@ public class PlayerCaughtSequence : MonoBehaviour
         Transform cam = playerCamera.transform;
 
         if (!string.IsNullOrEmpty(stingerSoundId))
-            AudioProvider.PlayFollowing(stingerSoundId, cam);
+            stingerHandle = AudioProvider.PlayFollowing(stingerSoundId, cam);
+
+        if (!string.IsNullOrEmpty(screamSoundId))
+            screamHandle = AudioProvider.PlayFollowing(screamSoundId, cam);
 
         Quaternion from = cam.rotation;
         float fromFov = playerCamera.fieldOfView;
