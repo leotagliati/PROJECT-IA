@@ -114,14 +114,7 @@ public class PlayerBreathing : MonoBehaviour
             BeginFadeOut();
     }
 
-    private void BeginFadeOut()
-    {
-        if (_gameOver)
-            return;
-
-        _gameOver = true;
-        Debug.Log($"{name}: respiração saindo (fim de jogo / movimento desligado).", this);
-    }
+    private void BeginFadeOut() => _gameOver = true;
 
     /// <summary>Para e desliga as fontes. Volume zero não basta: a fonte continua ativa e tocando.</summary>
     private void Silence()
