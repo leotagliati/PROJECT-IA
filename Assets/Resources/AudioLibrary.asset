@@ -63,8 +63,8 @@ MonoBehaviour:
     MaxDistance: 50
   - Id: seeker_static_chase
     Clips:
-    - {fileID: 8300000, guid: fa20b66db6cb5484783d655be0430bb7, type: 3}
-    Volume: 0.72
+    - {fileID: 8300000, guid: ba2fd9ffb0d8955478e75c59eb9f6224, type: 3}
+    Volume: 1
     PitchJitter: 0
     MaxDistance: 50
   - Id: caught
@@ -97,4 +97,16 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 3f9bc7098fc188d4d945526c8f3f657f, type: 3}
     Volume: 0.14
     PitchJitter: 0.06
+    MaxDistance: 0
+  - Id: jumpscare
+    Clips:
+    - {fileID: 8300000, guid: fba03a2216955754ca913a0a22be724b, type: 3}
+    Volume: 0.242
+    PitchJitter: 0.03
+    MaxDistance: 0
+  - Id: chase_theme
+    Clips:
+    - {fileID: 8300000, guid: ba2fd9ffb0d8955478e75c59eb9f6224, type: 3}
+    Volume: 0.237
+    PitchJitter: 0
     MaxDistance: 0

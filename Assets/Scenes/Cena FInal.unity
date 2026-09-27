@@ -144122,6 +144122,7 @@ GameObject:
   - component: {fileID: 1012911239}
   - component: {fileID: 1012911238}
   - component: {fileID: 1012911240}
+  - component: {fileID: 1012911241}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -144175,6 +144176,25 @@ MonoBehaviour:
   _fadeOutOnChase: 0.4
   _resumeDelay: 3
   _fadeInOnResume: 4
+  _fadeOutOnGameOver: 0.25
+--- !u!114 &1012911241
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1012911237}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5183051536a355a4f827cefa98ca99dd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _jumpscareId: jumpscare
+  _chaseThemeId: chase_theme
+  _seekers: []
+  _jumpscareCooldown: 6
+  _fadeIn: 0.5
+  _fadeOut: 2
   _fadeOutOnGameOver: 0.25
 --- !u!1001 &1012996243
 PrefabInstance:
