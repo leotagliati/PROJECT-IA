@@ -74,3 +74,9 @@ MonoBehaviour:
     Volume: 0.8
     PitchJitter: 0.05
     MaxDistance: 0
+  - Id: theme
+    Clips:
+    - {fileID: 8300000, guid: 158c0ea372e29eb46bd3fae6ea1a89c7, type: 3}
+    Volume: 0.16
+    PitchJitter: 0
+    MaxDistance: 0
