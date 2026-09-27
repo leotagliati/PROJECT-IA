@@ -80,3 +80,9 @@ MonoBehaviour:
     Volume: 0.16
     PitchJitter: 0
     MaxDistance: 0
+  - Id: key_pickup
+    Clips:
+    - {fileID: 8300000, guid: 2484d7c79047e9745be6a33bde5809fc, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.05
+    MaxDistance: 5
