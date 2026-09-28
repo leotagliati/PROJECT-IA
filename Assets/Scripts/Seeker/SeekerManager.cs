@@ -156,9 +156,18 @@ public class SeekerManager : Agent
 
     protected override void OnEnable()
     {
-        base.OnEnable();
+        // Assina ANTES do base: com o Academy já de pé (cena recarregada), o base.OnEnable roda
+        // Initialize + OnEpisodeBegin na hora, e uma exceção ali pulava a assinatura. Sem ela o
+        // seeker nunca ouvia o Preparing e caçava com o _hunting inicial (true) desde o spawn.
         if (_mode == SeekerMode.Game)
             GameManager.StateChanged += HandleGameState;
+
+        base.OnEnable();
+
+        // Não depende só do evento: sincroniza com o estado atual. O GameManager (ordem -100)
+        // já passou pelo Awake aqui; o Preparing do Start dele chega depois e confirma.
+        if (_mode == SeekerMode.Game && GameManager.Current != null)
+            HandleGameState(GameManager.Current.State);
     }
 
     protected override void OnDisable()

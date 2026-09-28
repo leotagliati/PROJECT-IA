@@ -63,8 +63,8 @@ MonoBehaviour:
     MaxDistance: 50
   - Id: seeker_static_chase
     Clips:
-    - {fileID: 8300000, guid: fa20b66db6cb5484783d655be0430bb7, type: 3}
-    Volume: 0.72
+    - {fileID: 8300000, guid: ba2fd9ffb0d8955478e75c59eb9f6224, type: 3}
+    Volume: 1
     PitchJitter: 0
     MaxDistance: 50
   - Id: caught
@@ -73,4 +73,46 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 8f3ac7caea2007647aebccac4e16ac94, type: 3}
     Volume: 0.8
     PitchJitter: 0.05
+    MaxDistance: 0
+  - Id: theme
+    Clips:
+    - {fileID: 8300000, guid: 158c0ea372e29eb46bd3fae6ea1a89c7, type: 3}
+    Volume: 0.16
+    PitchJitter: 0
+    MaxDistance: 0
+  - Id: key_pickup
+    Clips:
+    - {fileID: 8300000, guid: 2484d7c79047e9745be6a33bde5809fc, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.05
+    MaxDistance: 5
+  - Id: breath
+    Clips:
+    - {fileID: 8300000, guid: a1085843894b5cf42b1ebe7f317e38d9, type: 3}
+    Volume: 0.08
+    PitchJitter: 0.06
+    MaxDistance: 0
+  - Id: breath_heavy
+    Clips:
+    - {fileID: 8300000, guid: 3f9bc7098fc188d4d945526c8f3f657f, type: 3}
+    Volume: 0.14
+    PitchJitter: 0.06
+    MaxDistance: 0
+  - Id: jumpscare
+    Clips:
+    - {fileID: 8300000, guid: fba03a2216955754ca913a0a22be724b, type: 3}
+    Volume: 0.242
+    PitchJitter: 0.03
+    MaxDistance: 0
+  - Id: chase_theme
+    Clips:
+    - {fileID: 8300000, guid: ba2fd9ffb0d8955478e75c59eb9f6224, type: 3}
+    Volume: 0.237
+    PitchJitter: 0
+    MaxDistance: 0
+  - Id: player_scream
+    Clips:
+    - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
     MaxDistance: 0

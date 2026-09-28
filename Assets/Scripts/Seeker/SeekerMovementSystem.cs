@@ -11,10 +11,23 @@ namespace Assets.Scripts.Seeker
         /// <summary>Deslocamento por step de física com ação de magnitude 1. Telemetria.</summary>
         public float StepDistance => _moveSpeed * Time.fixedDeltaTime;
 
+        // Resolvido no uso, e não só no Awake: com o Academy já inicializado (cena recarregada),
+        // o Agent chama OnEpisodeBegin → ResetMovement de dentro do OnEnable do pai, antes do
+        // Awake deste filho. A exceção abortava o OnEnable do SeekerManager no meio.
+        private Rigidbody Body
+        {
+            get
+            {
+                if (_rigidbody == null)
+                    _rigidbody = transform.parent.GetComponent<Rigidbody>();
+
+                return _rigidbody;
+            }
+        }
+
         public void Awake()
         {
-            if (_rigidbody == null)
-                _rigidbody = this.transform.parent.GetComponent<Rigidbody>();
+            _ = Body;
         }
 
         public void Move(Vector3 direction)
@@ -25,19 +38,21 @@ namespace Assets.Scripts.Seeker
 
             Vector3 clamped = Vector3.ClampMagnitude(flat, 1f);
 
+            Rigidbody body = Body;
             Vector3 movement = _moveSpeed * Time.fixedDeltaTime * clamped;
-            _rigidbody.MovePosition(_rigidbody.position + movement);
+            body.MovePosition(body.position + movement);
 
             Quaternion target = Quaternion.LookRotation(flat.normalized, Vector3.up);
-            Quaternion next = Quaternion.RotateTowards(_rigidbody.rotation, target, _turnSpeed * Time.fixedDeltaTime);
+            Quaternion next = Quaternion.RotateTowards(body.rotation, target, _turnSpeed * Time.fixedDeltaTime);
 
-            _rigidbody.MoveRotation(next);
+            body.MoveRotation(next);
         }
 
         public void ResetMovement()
         {
-            _rigidbody.linearVelocity = Vector3.zero;
-            _rigidbody.angularVelocity = Vector3.zero;
+            Rigidbody body = Body;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
         }
     }
 }

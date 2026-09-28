@@ -15,6 +15,16 @@ public class GameManager : MonoBehaviour
 {
     [SerializeField] private float preparationSeconds = 15f;
 
+    // O reload mora aqui, e não nas telas de fim: a partida recomeça mesmo com uma UI mal
+    // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
+    // Os tempos cobrem a sequência de cada fim mais a leitura da mensagem.
+    [Header("Reinício automático")]
+    [Tooltip("Segundos depois de ser pego até recarregar a cena (virada ~0,6s + mensagem).")]
+    [SerializeField, Min(0f)] private float reloadDelayAfterLost = 4f;
+
+    [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
+    [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
+
     public static GameManager Current { get; private set; }
 
     public static event Action<GameState> StateChanged;
@@ -79,6 +89,9 @@ public class GameManager : MonoBehaviour
             return;
 
         SetState(outcome);
+
+        float delay = outcome == GameState.Won ? reloadDelayAfterWon : reloadDelayAfterLost;
+        Invoke(nameof(Restart), delay);
     }
 
     private void SetState(GameState next)
