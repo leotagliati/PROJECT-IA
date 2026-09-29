@@ -1,0 +1,264 @@
+# ================================================================================================
+# GraphExplorer - mapa da Node_4: EXPLORAR e depois PATRULHAR, sem seta (27/09/2026)
+#
+#   mlagents-learn config/graph_node4_patrol.yaml --run-id=node4_patrol_01
+#
+# Mesmo mapa, rede e licoes de exploracao do graph_node4_noarrow.yaml, mais uma licao final de
+# PATRULHA. Vetor de observacao = 102 (os .onnx de antes, 69/77/93, nao servem).
+#
+# O QUE MUDOU EM RELACAO AO node4_noarrow_03:
+#   - corpo medido do CapsuleCollider (NavGraph "usar tamanho do agente"): o grafo so aprova
+#     passagem por onde o corpo cabe de verdade;
+#   - PATRULHA (value_recovery_seconds): no visitado cai a 0 e recupera o valor em N segundos;
+#     voltar paga no maximo 30% da primeira visita (x recuperacao^2), descobrir sempre vale mais;
+#   - TEDIO DE SALA (area_boredom): ficar ~30 s numa sala (NavNode._areaId) a deixa chata - paga
+#     menos, custa por step acima de 0.7 e o agente ve o tedio de cada saida;
+#   - revisita precoce (loop): -0.05 por chegada em primario visitado ha < 15 s, a partir da
+#     4a seguida (vale em TODAS as licoes);
+#   - metricas novas: Exploration/WallContactFraction e Exploration/EarlyRevisits.
+#
+# ANTES DE RODAR (no Unity, Prefab Mode do NodeTraining4):
+#   - NavGraphPlacer > "11. Numerar salas" (sem salas o tedio nao faz nada - o Console avisa);
+#   - NavGraph > "Validar ligacoes" (com o corpo medido, aresta vermelha = vao estreito demais);
+#   - pesos: "10. Pesos por area" se ainda nao aplicou (soma continua 23, thresholds valem).
+#
+# LICOES (os CINCO parametros de curriculo tem completion_criteria IDENTICOS de proposito: o
+# ML-Agents avalia cada um sozinho. Mexeu num threshold, mexa nos cinco):
+#
+#   Licao      alvo   pre   jitter  recuperacao  tedio   threshold
+#   Perto      0.3    0     0       0 (off)      0       5.5
+#   Metade     0.6    0.25  0.25    0            0       7.0
+#   Quase      0.9    0.5   0.5     0            0       6.0
+#   Patrulha   1.1    0     0.5     90 s (+30 s de carencia)  1   (final)
+#
+# Os thresholds de exploracao sao os do graph_node4_noarrow.yaml (conta la). A revisita precoce
+# tira no maximo ~-2 num episodio muito ruim - nao muda a conta de um episodio que explora bem.
+#
+# PATRULHA: alvo 1.1 = SEM fim por cobertura (vai ate o timeout, 8000 steps / 160 s). Todos os
+# nos comecam ineditos (pre 0): o episodio comeca explorando e vira patrulha quando o mapa acaba.
+# Teto aprox.: cobertura 23 x 0.75 = 17.25 + revisitas (limite teorico ~+14, na pratica bem
+# menos) - existencial 2. Sem threshold (licao final).
+#
+# Como ler o TensorBoard:
+#   - exploracao: Exploration/Coverage subindo e Lesson Number avancando, como antes;
+#   - paredes: Exploration/WallContactFraction caindo (o _03 nao tinha como medir);
+#   - loops: Exploration/EarlyRevisits caindo;
+#   - na Patrulha o Cumulative Reward SOBE (revisitas pagam) e o Episode Length fica em 1600
+#     (sem fim por cobertura) - isso e esperado, nao e o agente travando.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.015, como no noarrow: sem seta a unica forma de achar as saidas boas no comeco e
+      # tentar - entropia baixa cedo demais congela a politica no primeiro corredor.
+      beta: 0.015
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false    # as observacoes ja saem em [-1, 1] / [0, 1] do GraphExplorerManager
+      hidden_units: 256   # mesma rede do noarrow: a caca vai partir DESTE cerebro com
+      num_layers: 2       # --initialize-from, e isso exige a mesma arquitetura
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # Horizonte longo: episodios de ate 1600 decisoes; na patrulha o valor de voltar a uma
+        # sala so aparece ~60 s depois de sair dela.
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    # 15M: 3 licoes de exploracao que avancam por desempenho + a patrulha, que precisa de tempo
+    # proprio. ~15 h a ~270 steps/s com 9 arenas. Continue com --resume se ainda subir no fim.
+    max_steps: 15000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes (sem curriculo) ----
+  # Seta desligada o treino inteiro. TEM que estar aqui: sem isto o GraphArenaController usa o
+  # default do Inspector (_defaultFrontierHint = 1) e a seta volta.
+  frontier_hint: 0.0
+  frontier_hint_steps: 0
+  # Sem ping e sem hider: caca e o proximo treino, com --initialize-from.
+  ping_interval: 0
+  hider_mode: 0
+  hider_speed: 0.0
+
+  # ---- Curriculo ----
+  # Fracao do que resta descobrir que encerra o episodio em sucesso (+5). Acima de 1 = sem fim
+  # por cobertura (patrulha).
+  coverage_target:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.5
+          require_reset: true
+        value: 0.3
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.6
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.9
+      - name: Patrulha
+        value: 1.1
+
+  # Anti-decoreba: fracao dos primarios que ja nasce visitada. Na Patrulha volta a 0 - o mapa
+  # inteiro comeca inedito e o episodio passa de explorar para patrulhar sozinho.
+  previsited_fraction:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.5
+      - name: Patrulha
+        value: 0.0
+
+  # Peso de cada no x U[1-j, 1+j] por episodio (a soma esperada nao muda).
+  weight_jitter:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.5
+      - name: Patrulha
+        value: 0.5
+
+  # Segundos para um no visitado recuperar o valor inteiro. 0 = desligado (exploracao pura:
+  # visitado nunca mais paga no episodio).
+  value_recovery_seconds:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.0
+      - name: Patrulha
+        value: 90.0
+
+  # Tedio de sala: 1 liga, 0 desliga. So na patrulha - na exploracao nao faz sentido cansar de
+  # uma sala que ainda tem o que ver.
+  area_boredom:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.5
+          require_reset: true
+        value: 0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0
+      - name: Patrulha
+        value: 1

@@ -1,0 +1,95 @@
+# ================================================================================================
+# GraphExplorer - Node_4 - E4 SEGUIR O HIDER QUE ANDA
+#
+#   mlagents-learn config/graph_node4_e4_seguir.yaml --run-id=node4_e4_01 --initialize-from=node4_e3_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
+# seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
+# Vetor 118, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+# Herda o E3: o hider ANDA e faz barulho cada vez menos (o seeker passa a deduzir pela suspeita).
+# Assist 0.7 -> 0.5.
+#
+#   Licao        vel   barulho threshold  min. episodios
+#   AndaDevagar  1.0   0.6     13.0       300
+#   Anda         2.2   0.4     (final)
+#
+# Reward ~ 3 + 17 x taxa de captura: 13 ~ 60%. PASSA QUANDO (na Anda): Hunt/Caught > 0.5. 4M steps.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
+      # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 4000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  frontier_hint: 0.0
+  frontier_hint_steps: 0
+  coverage_target: 1.1
+  previsited_fraction: 0.0
+  weight_jitter: 0.5
+  value_recovery_seconds: 0.0
+  area_boredom: 0
+  ping_interval: 0
+  ping_reward_scale: 0.0
+  discovery_reward_scale: 0.3
+  steer_assist: 0.5
+  hider_mode: 2
+
+  # ---- Curriculo ----
+  # m/s do hider. O seeker anda a 6.
+  hider_speed:
+    curriculum:
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 1.0
+      - name: Anda
+        value: 2.2
+
+  # Chance de cada chegada do hider virar ping.
+  hider_noise:
+    curriculum:
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 0.6
+      - name: Anda
+        value: 0.4

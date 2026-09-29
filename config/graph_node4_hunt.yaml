@@ -1,0 +1,181 @@
+# ================================================================================================
+# GraphExplorer - mapa da Node_4: PATRULHA + CACA (ping, hider, visao, captura) (28/09/2026)
+#
+#   mlagents-learn config/graph_node4_hunt.yaml --run-id=node4_hunt_01 --initialize-from=node4_patrol_02
+#
+# Parte do cerebro do node4_patrol_02 (7M steps, chegou na licao Patrulha: ~87% de cobertura,
+# reward ~14.6). --initialize-from exige a MESMA rede e o MESMO vetor: 256 x 2 e 102 floats. Os
+# blocos de ping [13..15] e visao [16..20] ja existiam no vetor (em zero no patrol) - por isso da
+# para continuar dali sem retreinar do zero.
+#
+# O QUE MUDOU DESDE O patrol_02:
+#   - recuperacao mais lenta: no visitado fica 30 s em ZERO (carencia) e so entao recupera, em
+#     90 s (value_recovery_seconds); o tedio de sala fica 20 s parado depois de sair e desce em
+#     2 min. A patrulha estava eficiente demais em circuitos curtos;
+#   - bonus por pegar CEDO (GraphRewardSystem._hiderCaughtEarlyBonus = 15 x fracao do episodio
+#     que sobra). Sem ele pegar nao compensava: a captura (+10) encerra o episodio e cortava a
+#     renda de patrulha (~0.1/s) - pegar aos 60 s deixava ~10 na mesa. Agora: 25 no inicio, 10
+#     no fim.
+#
+# PATRULHA LIGADA O TEMPO TODO (constantes abaixo): e assim que o inimigo procura no jogo final.
+# Sem fim por cobertura (alvo 1.1); o episodio acaba na CAPTURA ou no timeout (160 s).
+#
+# LICOES POR RELOGIO (measure: progress), e nao por reward: com patrulha + ping + captura a
+# conta de threshold por reward e chute, e um threshold errado prende o treino numa licao. Os
+# TRES parametros de curriculo (ping_interval, hider_mode, hider_speed) tem completion_criteria
+# IDENTICOS de proposito - o ML-Agents avalia cada um sozinho.
+#
+#   Licao         progresso   ping         hider        velocidade
+#   PingSolto     0 - 15%     ~40 s        -            -
+#   HiderParado   15 - 30%    rastro       parado       -
+#   HiderAnda     30 - 50%    rastro       anda         1.0 m/s
+#   HiderFoge     50 - 75%    rastro       foge         2.2 m/s
+#   FogeRapido    75 - 100%   rastro       foge         3.2 m/s
+#
+# Com hider ligado o ping aleatorio desliga: os pings vem dos passos do hider (o rastro).
+#
+# Como ler o TensorBoard:
+#   - Hunt/Seen e Hunt/Caught (fracao dos episodios): o que importa aqui;
+#   - Environment/Episode Length CAINDO = pegando mais rapido (captura encerra o episodio);
+#   - Exploration/Coverage vai cair um pouco quando ele comecar a caçar - e esperado;
+#   - Cumulative Reward sobe a cada captura; nao compare com o patrol_02 (outra conta).
+# ATENCAO (night_04): o ping paga +2 a cada chegada no rastro. Se Cumulative Reward subir mas
+# Hunt/Caught nao, ele esta colhendo rastro em vez de pegar - baixe _pingReachedReward.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      # Um pouco abaixo do patrol (0.0003): parte de um cerebro que ja explora e patrulha, e
+      # passo grande no comeco desmancha isso antes de a caca pagar alguma coisa.
+      learning_rate: 0.0002
+      # 0.01 (patrol: 0.015): a exploracao do mapa ja foi aprendida; entropia alta so faria
+      # ele esquecer as rotas enquanto aprende a caçar.
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256   # TEM que ser igual ao patrol_02 (--initialize-from)
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    # 12M, ~12 h a ~270 steps/s: cinco licoes por relogio, a ultima (fuga rapida) com 3M.
+    max_steps: 12000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes: patrulha ligada, sem seta ----
+  frontier_hint: 0.0
+  frontier_hint_steps: 0
+  coverage_target: 1.1          # > 1 = sem fim por cobertura
+  previsited_fraction: 0.0
+  weight_jitter: 0.5
+  value_recovery_seconds: 90.0  # depois de 30 s de carencia (GraphExplorationMemory)
+  area_boredom: 1
+
+  # ---- Curriculo da caca ----
+  # Steps de fisica entre pings aleatorios (x U[0.5, 1.5]). 2000 = ~40 s. So vale na PingSolto:
+  # com hider ligado os pings vem do rastro dele.
+  ping_interval:
+    curriculum:
+      - name: PingSolto
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.15
+        value: 2000
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.30
+        value: 2000
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.50
+        value: 2000
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.75
+        value: 2000
+      - name: FogeRapido
+        value: 2000
+
+  # 0 nenhum / 1 parado / 2 anda / 3 foge (GraphHider.Mode).
+  hider_mode:
+    curriculum:
+      - name: PingSolto
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.15
+        value: 0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.30
+        value: 1
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.50
+        value: 2
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.75
+        value: 3
+      - name: FogeRapido
+        value: 3
+
+  # m/s do hider. 0 = padrao do GraphHider. O seeker anda a 5 m/s: 3.2 ainda e pegavel, mas so
+  # cortando caminho (o Arthur achou 3.5 rapido demais).
+  hider_speed:
+    curriculum:
+      - name: PingSolto
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.15
+        value: 0.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.30
+        value: 0.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.50
+        value: 1.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          threshold: 0.75
+        value: 2.2
+      - name: FogeRapido
+        value: 3.2

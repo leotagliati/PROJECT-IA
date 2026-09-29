@@ -1,0 +1,347 @@
+# ================================================================================================
+# GraphExplorer - mapa da Node_4: PROCURA + PING, do zero (28/09/2026)
+#   hider parado -> anda devagar -> anda -> foge -> foge rapido
+#
+#   mlagents-learn config/graph_node4_search.yaml --run-id=node4_search_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/procura-e-ping.md.
+# Vetor 118, 4 acoes, rede 256 x 2.
+#
+# O seeker carrega um MAPA DE SUSPEITA (GraphSuspicionMap): onde o hider pode estar. Espalha com
+# o tempo, zera onde ele olha, concentra no ping (barulho) e na visao. Paga por suspeita limpa;
+# o objetivo e a captura (10 + 15 x fracao do episodio que sobrava).
+#
+# LICOES (os QUATRO parametros de curriculo tem completion_criteria IDENTICOS de proposito):
+#
+#   Licao        hider   vel   barulho assist descob seta threshold  min. episodios
+#   Parado       parado  -     1.0     1.0    1.0    1.0  18.0       300
+#   AndaDevagar  anda    1.0   0.6     1.0    0.6    0.5  13.0       300
+#   Anda         anda    2.2   0.4     0.7    0.3    0    12.0       300
+#   Foge         foge    2.2   0.3     0.5    0.3    0    11.0       300
+#   FogeRapido   foge    3.2   0.25    0.3    0.3    0    (final)
+#
+# SETA NO COMECO (frontier_hint 1.0 -> 0.5 -> 0): search_03 nao saia da sala de spawn nem com a
+# descoberta cheia - andando aleatorio ele nunca achava a porta, nunca via recompensa positiva e
+# aprendia a ficar parado (cobertura 2% -> 0.2%). A seta da o gradiente por METRO ate o proximo
+# nao-visitado (_frontierApproachReward), que e o que tira ele da sala. Some na Anda. Threshold
+# da Parado 18: a seta soma ~+3 por episodio a um explorador sem captura (~14 -> ~17).
+#
+# DESCOBERTA 1.0 NA PARADO: search_01/02 comecaram com 0.3 e ficaram em cobertura ~2% - do zero,
+# sem nada positivo ao alcance, so as punicoes (estagnacao, parede) falavam. Com a descoberta
+# cheia ele aprende a andar e explorar como nos runs de exploracao; threshold 16 porque explorar
+# muito SEM pegar chega a ~14 (0.9 x 17.25 + suspeita ~2.7 - ~4), entao 16 ainda exige captura.
+#
+# CONSTANTES: sem seta, sem fim por cobertura (1.1), sem pre-visitados, jitter 0.5, patrulha e
+# tedio DESLIGADOS (a suspeita substitui os dois), ping aleatorio desligado (quem pinga e o
+# hider) e ping_reward_scale 0 (ping so informa; pago, o rastro virava renda - night_04).
+# discovery_reward_scale desce a 0.3 depois da Parado: procurar ja e explorar, e a descoberta
+# cheia competiria com a captura.
+#
+# THRESHOLDS (estimativa):
+#   - episodio SEM captura: descoberta ~2.6 + suspeita ~3 - existencial 2 - parede ~1 + avistar
+#     ~0.5 = ~+3;
+#   - COM captura no meio do episodio: ~+20;
+#   - reward ~ 3 + 17 x taxa de captura: 13 ~ 60% de captura, 11 ~ 45% nas licoes de fuga.
+#   Sem capturar nenhuma licao passa. min_lesson_length 300: capturar encerra, episodios curtos.
+#
+# 15M steps. TensorBoard: Hunt/Caught (o que importa), Search/Cleared (suspeita limpa por
+# episodio - se subir e Hunt/Caught nao, ele procura sem fechar a caca), Episode Length caindo.
+#
+# ANTES DE RODAR: Add Component > Graph Suspicion Map no agente, VectorObservationSize 118,
+# Play sem erro no Console.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.015: sem seta a unica forma de achar as saidas boas no comeco e tentar.
+      beta: 0.015
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 15000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  # Seta com duracao inteira quando ligada (a forca vem do curriculo, frontier_hint).
+  frontier_hint_steps: 0
+  coverage_target: 1.1
+  previsited_fraction: 0.0
+  weight_jitter: 0.5
+  value_recovery_seconds: 0.0
+  area_boredom: 0
+  ping_interval: 0
+  ping_reward_scale: 0.0
+
+  # ---- Curriculo ----
+  # 0 nenhum / 1 parado / 2 anda / 3 foge (GraphHider.Mode).
+  hider_mode:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 1
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 2
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 2
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 3
+      - name: FogeRapido
+        value: 3
+
+  # m/s do hider (0 = padrao do GraphHider). O seeker anda a 6 m/s.
+  hider_speed:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 0.0
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 1.0
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 2.2
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 2.2
+      - name: FogeRapido
+        value: 3.2
+
+  # Chance de cada chegada do hider num no virar ping (barulho). 1 = toda chegada.
+  hider_noise:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 1.0
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 0.6
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 0.4
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 0.3
+      - name: FogeRapido
+        value: 0.25
+
+  # Steering assistido (0..1): fracao da velocidade contra a parede removida perto dela. 1 = desliza.
+  steer_assist:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 1.0
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 1.0
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 0.7
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 0.5
+      - name: FogeRapido
+        value: 0.3
+
+  # Escala da recompensa de descoberta. 1.0 na Parado: do zero ele precisa aprender a andar e explorar (search_01/02: cobertura 2% com 0.3).
+  discovery_reward_scale:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 1.0
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 0.6
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 0.3
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 0.3
+      - name: FogeRapido
+        value: 0.3
+
+  # Seta para o nao-visitado mais proximo (observacao + shaping por metro). So no comeco: tira ele da sala de spawn.
+  frontier_hint:
+    curriculum:
+      - name: Parado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 18.0
+          require_reset: true
+        value: 1.0
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 0.5
+      - name: Anda
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 12.0
+          require_reset: true
+        value: 0.0
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 0.0
+      - name: FogeRapido
+        value: 0.0
