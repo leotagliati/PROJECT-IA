@@ -1,0 +1,166 @@
+# ================================================================================================
+# GraphExplorer - Node_4 - E1 ANDAR E EXPLORAR (do zero)
+#
+#   mlagents-learn config/graph_node4_e1_explorar.yaml --run-id=node4_e1_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
+# seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
+# Vetor 118, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+# So o movimento novo (6 m/s, acel. 15, olhar separado, steer assist) + exploracao, com a seta
+# ligada (frontier_hint 1.0, apontando para a melhor saida - _frontierFollowsExits). E o que ja
+# funcionou no patrol_02 (Perto/Metade/Quase), sem hider. Se ESTA nao aprender, o problema e
+# movimento ou punicao, isolado.
+#
+#   Licao   alvo  pre   jit   assist threshold  min. episodios
+#   Perto   0.3   0     0     1.0    7.5        80
+#   Metade  0.6   0.25  0.25  1.0    9.5        80
+#   Quase   0.9   0.5   0.5   0.7    (final)
+#
+# THRESHOLDS (~75% de um episodio bom): Perto = descoberta ~5 + conclusao 5 + seta ~1 - ~1 = ~10;
+# Metade = ~7.8 + 5 + 1.5 - 2 = ~12. A punicao de parede/batida ficou ~2 mais cara na fase 4.
+#
+# PASSA QUANDO (na licao Quase): Exploration/Coverage > 0.6, WallContactFraction < 0.2, Episode
+# Length caindo (termina antes do timeout). 5M steps; se passar antes, Ctrl+C e siga.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
+      # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 5000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  frontier_hint: 1.0
+  hider_mode: 0
+  hider_speed: 0.0
+  hider_noise: 1.0
+  ping_interval: 0
+  value_recovery_seconds: 0.0
+  area_boredom: 0
+  ping_reward_scale: 1.0
+  discovery_reward_scale: 1.0
+  frontier_hint_steps: 0
+
+  # ---- Curriculo ----
+  # Fracao do que resta descobrir que encerra o episodio (+5).
+  coverage_target:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.3
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.5
+          require_reset: true
+        value: 0.6
+      - name: Quase
+        value: 0.9
+
+  # Anti-decoreba: fracao dos primarios que ja nasce visitada.
+  previsited_fraction:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.5
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        value: 0.5
+
+  # Peso de cada no x U[1-j, 1+j] por episodio.
+  weight_jitter:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.5
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        value: 0.5
+
+  # Steering assistido (0..1). 1 = desliza na parede.
+  steer_assist:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.5
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        value: 0.7

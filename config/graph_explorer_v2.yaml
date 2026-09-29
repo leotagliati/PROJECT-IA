@@ -1,0 +1,751 @@
+# ================================================================================================
+# GraphExplorer v2 - curriculo novo (23/09/2026)
+#
+# Por que um arquivo novo e nao mexer no graph_explorer_curriculum.yaml: esta versao vai com
+# mudancas de codigo que INVALIDAM os .onnx antigos (distancias de caminho em metros, captura do
+# hider, movimento com inercia) - entao e treino do ZERO, com run-id novo:
+#
+#   mlagents-learn config/graph_explorer_v2.yaml --run-id=graph_v2_01
+#
+# O QUE FOI MANTIDO (os pontos fortes do curriculo anterior):
+#   - promocao por DESEMPENHO ('reward'), nunca por relogio ('progress') - ver run 05;
+#   - escada suave da seta de fronteira (forca e duracao), chegando a zero;
+#   - anti-decoreba: spawn em no aleatorio, pre-visitados e peso sorteado por episodio;
+#   - ping e hider scriptado (parado -> anda -> foge), sem self-play.
+#
+# O QUE MUDOU:
+#   1. A seta chega a ZERO ANTES de qualquer ping ou hider (licao SemSeta). No arquivo antigo a
+#      ultima licao tirava a seta E mudava o hider para "foge" ao mesmo tempo - duas mudancas
+#      numa promocao, e se a recompensa cai nao da para saber qual causou.
+#   2. Uma licao de ping SEM hider (Ouvir): aprender "o barulho vale ir ate la" antes de o
+#      barulho virar o rastro de alguem.
+#   3. CAPTURA: pegar o hider paga +10 e encerra o episodio (GraphRewardSystem._hiderCaughtReward).
+#      Antes o episodio so acabava por cobertura ou tempo, e nas licoes de caca o incentivo final
+#      continuava sendo varrer o mapa. Nas licoes de caca a cobertura-alvo vai a 1.0 para a
+#      captura ser o fim normal do episodio.
+#   4. Uma mudanca por licao, sempre que possivel.
+#
+# AJUSTE "ETAPAS MENORES E MAIS RAPIDAS" (depois do primeiro run, graph_v2_01, parado aos 20k):
+#   - min_lesson_length 150 -> 80 episodios. Com 9 arenas a ~185 steps/s e episodios de ate 1600
+#     decisoes, 150 episodios eram ~240k steps (~20 min) de piso por licao mesmo quando ela ja
+#     estava dominada; 80 = ~130k (~11 min). O signal_smoothing continua filtrando sorte.
+#   - thresholds ~65% do teto estimado da licao (eram ~75%): promove quando a MAIORIA dos
+#     episodios ja sai bem, sem esperar a curva estabilizar no topo. Se a recompensa despencar
+#     logo depois de uma promocao, aquela licao foi rapida demais: suba so o threshold dela.
+#   - o salto Explorar -> MaisDoMapa mudava cinco coisas de uma vez (alvo 0.6 -> 0.9, seta
+#     0.7 -> 0.4, seta com prazo, pre-visitados e jitter 0.25 -> 0.5). Agora vai por meio-termo
+#     (alvo 0.75, seta 0.5, pre e jitter 0.4) e o resto chega na SetaCurta.
+#   - summary_freq 20000 -> 10000: o primeiro ponto no TensorBoard sai em ~1 min, nao ~2.
+#
+# THRESHOLDS (estimativa; a conta e a mesma do arquivo antigo e continua valendo porque):
+#   - o peso total dos primarios e FIXO em 23 (NavGraphPlacer._primaryWeightBudget; o menu
+#     "8. Normalizar pesos" garante isso em qualquer grafo gerado) -> cobertura rende ate
+#     23 x 0.75 = 17.25, +5 de conclusao;
+#   - o shaping agora e por METRO, com valores convertidos pela aresta mediana do mapa antigo
+#     (7.4 m), entao no mesmo mapa ele paga o mesmo que antes - e adensar o grafo nao muda nada;
+#   - penalidades ~ -2 a -2.5 por episodio.
+#   Navegar     (0.3, seta 1.0)                       ~11.7 de teto  -> 7.5  (run 11 mediu 11.25)
+#   Explorar    (0.6, seta 0.7, pre 0.25)             ~13.9          -> 9.0
+#   MaisDoMapa  (0.75, seta 0.5 ate 4000, pre 0.4)    ~12.5          -> 8.0
+#   SetaCurta   (0.9, seta 0.25 ate 2000, pre 0.5)    ~11            -> 7.0
+#   SemSeta     (0.9, sem seta)                       ~10.3 com sucesso; ~5 sem -> 6.5
+#   Ouvir       (+ ping a cada ~3000 steps)           +2 chegar, ~+1 caminho, -0.5 perder, ~2/ep -> 8.5
+#   PegarParado (hider parado, captura +10)           ~17 pegando, ~6 sem pegar -> 11.0 (~50% de captura)
+#   Perseguir   (hider anda a 1.5 m/s)                idem, captura mais dificil -> 10.0
+#   Cacar       (hider foge a 3.0 m/s)                final, sem threshold
+# Como ajustar olhando o TensorBoard (Environment/Lesson Number, Cumulative Reward, Hunt/Caught):
+#   - licao nao avanca em ~1M steps com a curva ja achatada -> threshold alto: baixe (nos OITO);
+#   - avanca antes de a curva estabilizar -> threshold baixo: suba (nos OITO).
+#   Errar para MAIS e mais seguro: ficar preso numa licao facil custa tempo, ser promovido cedo
+#   custa a politica.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.01          # entropia mais alta que a do seeker: segura a politica explorando ACOES
+                          # enquanto ela ainda nao sabe explorar o MAPA
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false    # as observacoes ja saem em [-1, 1] / [0, 1] do GraphExplorerManager
+      # 256, e nao 128: a mesma rede agora aprende tres comportamentos (explorar, atender ping,
+      # perseguir) que dependem de blocos diferentes da observacao. O custo e pequeno (69
+      # entradas) e o treino e do zero de qualquer forma.
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+      # Sem LSTM de proposito: a memoria de visitados e a ultima posicao vista do hider ja vem
+      # prontas na observacao.
+    reward_signals:
+      extrinsic:
+        # Horizonte longo: episodios de ate 1600 decisoes e recompensa espalhada pelo mapa.
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 1000000
+    # Nove licoes que so avancam por desempenho. ~30 h a ~270 steps/s com 9 arenas; o que sobra
+    # depois da ultima e refino na caca. Os schedules lineares decaem sobre max_steps.
+    max_steps: 30000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ATENCAO: os OITO parametros abaixo formam UMA licao conceitual cada (nove licoes), mas o
+  # ML-Agents avalia o curriculo de cada parametro de forma independente. Os completion_criteria
+  # dos oito sao IDENTICOS de proposito - e a unica forma de garantir que avancem juntos. Se mexer
+  # num threshold, mexa nos outros sete.
+  #
+  # Licoes: Navegar -> Explorar -> MaisDoMapa -> SetaCurta -> SemSeta -> Ouvir -> PegarParado
+  #         -> Perseguir -> Cacar
+
+  # Fracao do que RESTA descobrir (pre-visitados fora) que encerra o episodio em sucesso (+5).
+  # Sobe 0.3 -> 0.6 -> 0.9: alvo alto desde o inicio faz todo episodio terminar em timeout e o
+  # agente nunca ve o sinal de conclusao. Nas licoes de CACA vai a 1.0 de proposito: cobrir o
+  # mapa inteiro em 160 s e raro, entao quem encerra o episodio e a CAPTURA (+10) - a cobertura
+  # vira o que ele faz para ACHAR o hider, nao o objetivo em si.
+  coverage_target:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.3
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.6
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.75
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.9
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.9
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0.9
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 1.0
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 1.0
+      - name: Cacar
+        value: 1.0
+
+  # Forca da seta de fronteira (observacao [9..12] + shaping, escalados juntos: sao a mesma
+  # muleta). Escada suave 1.0 -> 0.7 -> 0.4 -> 0.2 -> 0: no run 05 o corte 0.5 -> 0.0 num salto
+  # derrubou a recompensa de +15 para -3. Chega a ZERO na licao SemSeta e fica zero em tudo o que
+  # vem depois - a caca e aprendida sem seta nenhuma, que e como o jogo final vai ser.
+  frontier_hint:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.7
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.5
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.25
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.0
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0.0
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0.0
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 0.0
+      - name: Cacar
+        value: 0.0
+
+  # Por quanto tempo a seta existe DENTRO do episodio, em steps de fisica (0 = episodio inteiro;
+  # 8000 steps = 160 s). Cortar a duracao antes da forca deixa a politica ver os dois regimes no
+  # mesmo episodio: sai do spawn com seta e termina sozinha.
+  frontier_hint_steps:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 4000
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 2000
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: Cacar
+        value: 0
+
+  # Fracao dos primarios que ja nasce visitada, sorteada por episodio: o estado inicial muda
+  # sempre, e a unica coisa que funciona em todos e a REGRA (olhar a flag "visitado" das saidas),
+  # nao uma rota decorada. Para em 0.5: acima disso o episodio vira "ache o ultimo no".
+  previsited_fraction:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.25
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.4
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.5
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.5
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0.5
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0.5
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 0.5
+      - name: Cacar
+        value: 0.5
+
+  # Variacao do peso de cada no por episodio (autorado x U[1-j, 1+j]); o agente le o peso do
+  # vizinho na observacao. Obriga a LER o valor em vez de decorar "aquela sala paga mais". Media
+  # 1, entao o teto de recompensa nao muda.
+  weight_jitter:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.25
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.4
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.5
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.5
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0.5
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0.5
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 0.5
+      - name: Cacar
+        value: 0.5
+
+  # Ping aleatorio ("um barulho numa sala"), em steps de fisica entre um e outro (sorteado
+  # 0.5x-1.5x); 0 = sem ping. So liga DEPOIS de ele explorar sem seta (licao Ouvir): ser
+  # interrompido antes de saber explorar so atrapalha. Nas licoes com hider fica 0 porque o ping
+  # passa a ser os PASSOS do hider (cada chegada dele num primario toca ali).
+  ping_interval:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 3000
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: Cacar
+        value: 0
+
+  # Hider scriptado: 0 nenhum, 1 parado, 2 anda, 3 foge. Entra so depois de explorar e ouvir.
+  # Parado primeiro: o agente aprende que seguir o rastro TERMINA em captura (+10, encerra o
+  # episodio) antes de o alvo comecar a se mexer.
+  hider_mode:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 1
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 2
+      - name: Cacar
+        value: 3
+
+  # Velocidade do hider (m/s; 0 = padrao do prefab). Sempre abaixo da do seeker (5): hider mais
+  # rapido e impegavel e o sinal de captura nunca aparece. 1.5 andando, 3.0 fugindo.
+  hider_speed:
+    curriculum:
+      - name: Navegar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.0
+      - name: MaisDoMapa
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.0
+      - name: SetaCurta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.0
+      - name: SemSeta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.0
+      - name: Ouvir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.5
+          require_reset: true
+        value: 0.0
+      - name: PegarParado
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 11.0
+          require_reset: true
+        value: 0.0
+      - name: Perseguir
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 10.0
+          require_reset: true
+        value: 1.5
+      - name: Cacar
+        value: 3.0
