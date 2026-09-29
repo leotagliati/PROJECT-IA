@@ -1,0 +1,46 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 720, "title": "A — Canto inferior esquerdo" },
+    { "file": "OptionB.dc.html", "x": 1420, "y": 0, "w": 1280, "h": 720, "title": "B — Centro simétrico" },
+    { "file": "OptionC.dc.html", "x": 0, "y": 1060, "w": 1280, "h": 720, "title": "C — Lateral direita" },
+    { "file": "OptionD.dc.html", "x": 1420, "y": 1060, "w": 1280, "h": 720, "title": "D — Diegético, na parede" }
+  ],
+  "annotations": [
+    {
+      "id": "nota-a",
+      "x": 0,
+      "y": -210,
+      "w": 620,
+      "text": "A — Canto inferior esquerdo\nA cena fica inteira visível e o texto ocupa a área que já estava escura. É a leitura mais cinematográfica das quatro.\nTroca: o canto muda de peso entre 16:9 e ultrawide, e o olho pousa primeiro na luz, não no menu."
+    },
+    {
+      "id": "nota-b",
+      "x": 1420,
+      "y": -210,
+      "w": 620,
+      "text": "B — Centro simétrico\nHierarquia imediata: título, respiro, menu. A luz vem da porta ao fundo, então o primeiro plano fica escuro e o texto nunca disputa contraste.\nTroca: é a composição mais previsível, e o centro é justamente onde a cena seria mais interessante."
+    },
+    {
+      "id": "nota-c",
+      "x": 0,
+      "y": 850,
+      "w": 620,
+      "text": "C — Lateral direita\nA cena inteira ocupa a esquerda e o menu vira uma coluna alinhada à direita. Assimetria com bastante ar.\nTroca: texto alinhado à direita é mais lento de varrer, e a lista fica presa a um comprimento máximo de rótulo."
+    },
+    {
+      "id": "nota-d",
+      "x": 1420,
+      "y": 850,
+      "w": 620,
+      "text": "D — Diegético, na parede\nO menu está na parede, em perspectiva, e a luz piscando passa por cima dele. É o mais memorável e o que mais compra a ideia de que o menu é o jogo.\nTroca: legibilidade depende da parede e do flicker; cada cena de fundo nova exige refazer o enquadramento."
+    },
+    {
+      "id": "nota-sistema",
+      "x": 2140,
+      "y": -210,
+      "w": 560,
+      "text": "Sistema comum às quatro: título em Special Elite, menu em Barlow Condensed com tracking largo, sem caixa nem borda. Selecionado = mais claro + um traço âmbar de 26px. Âmbar #d9a441 é a única cor de destaque, e vem da lâmpada da cena.\nO nome PROJECT-IA é o placeholder do ProjectSettings."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

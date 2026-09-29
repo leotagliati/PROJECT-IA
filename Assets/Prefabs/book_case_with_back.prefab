@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 3352517120553833390}
   - component: {fileID: 8125049633878715942}
   - component: {fileID: 7141023878049769231}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -97,7 +97,7 @@ GameObject:
   - component: {fileID: 7593576790855893928}
   - component: {fileID: 468882869568907027}
   - component: {fileID: 3892156677854896651}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -183,7 +183,7 @@ GameObject:
   - component: {fileID: 8849447098832425091}
   - component: {fileID: 3143407937395029787}
   - component: {fileID: 5958778274159347481}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books_alt2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -269,7 +269,7 @@ GameObject:
   - component: {fileID: 8874002731679158083}
   - component: {fileID: 1585505525296150305}
   - component: {fileID: 3821919126922777031}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -355,7 +355,7 @@ GameObject:
   - component: {fileID: 4608444273262943950}
   - component: {fileID: 1686935099031869845}
   - component: {fileID: 8384478085040403726}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books_alt2 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -441,7 +441,7 @@ GameObject:
   - component: {fileID: 4930937117245351939}
   - component: {fileID: 7738774396878300637}
   - component: {fileID: 6855387845643199419}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books_alt
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -527,7 +527,7 @@ GameObject:
   - component: {fileID: 5594535715606836749}
   - component: {fileID: 7689165359823271468}
   - component: {fileID: 3509920097386671870}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -613,7 +613,7 @@ GameObject:
   - component: {fileID: 9127786944166647688}
   - component: {fileID: 3792782582747344981}
   - component: {fileID: 7426097512792521513}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: books_alt (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -700,7 +700,7 @@ GameObject:
   - component: {fileID: 8559554095670547078}
   - component: {fileID: 6176542164482318208}
   - component: {fileID: 3556789654415788663}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: book_case_with_back
   m_TagString: Untagged
   m_Icon: {fileID: 0}

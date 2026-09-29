@@ -3,28 +3,24 @@ using UnityEngine.InputSystem;
 
 public class PlayerCamera : MonoBehaviour
 {
-    private PlayerInputActions playerInput;
-
-    [Header("Configurações")]
+    [Header("Settings")]
     public Camera playerCamera; // Referência da nossa câmera
     public float mouseSensitivity = 30f; // Sensibilidade do mouse
 
     private Vector2 lookInput;
     private float xRotation = 0f;
 
-    private void Awake()
-    {
-        playerInput = new PlayerInputActions();
-    }
+    /// <summary>Pitch atual em graus. Positivo = olhando para baixo (convenção do Euler X do Unity).</summary>
+    public float Pitch => xRotation;
 
     private void OnEnable()
     {
-        playerInput.Enable();
+        PlayerInputProvider.Acquire();
     }
 
     private void OnDisable()
     {
-        playerInput.Disable();
+        PlayerInputProvider.Release();
     }
 
     private void Start()
@@ -36,7 +32,7 @@ public class PlayerCamera : MonoBehaviour
 
     private void Update()
     {
-        lookInput = playerInput.Player.Look.ReadValue<Vector2>();
+        lookInput = PlayerInputProvider.Player.Look.ReadValue<Vector2>();
 
 
         float mouseX = lookInput.x * mouseSensitivity * Time.deltaTime;

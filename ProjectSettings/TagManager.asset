@@ -13,9 +13,9 @@ TagManager:
   - Wall
   - Water
   - UI
-  - 
-  - 
-  - 
+  - Outline
+  - Obstacle
+  - SeenFX
   - 
   - 
   - 
@@ -45,7 +45,7 @@ TagManager:
     locked: 0
   m_RenderingLayers:
   - Default
-  - Light Layer 1
+  - Outline
   - Light Layer 2
   - Light Layer 3
   - Light Layer 4

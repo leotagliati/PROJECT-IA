@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500&family=Special+Elite&display=swap">
+  <style>
+    body { margin: 0; background: #060606; }
+    a { color: #d9a441; } a:hover { color: #f0c073; }
+
+    .stage { position: absolute; inset: 0; overflow: hidden; background: #070706; }
+
+    .wall { position: absolute; left: 0; right: 0; top: 0; height: 412px;
+            background: linear-gradient(180deg, #0d0e0d 0%, #121211 58%, #15140f 100%); }
+    .floor { position: absolute; left: 0; right: 0; top: 412px; bottom: 0;
+             background: linear-gradient(180deg, #100f0c 0%, #080807 68%, #050504 100%); }
+    .baseboard { position: absolute; left: 0; right: 0; top: 406px; height: 8px; background: #1a1914; }
+
+    .prop { position: absolute; background: #080807; }
+
+    .lit { position: absolute; inset: 0; animation-duration: 4.1s;
+           animation-iteration-count: infinite; animation-timing-function: steps(1, end); }
+    @keyframes flick {
+      0%, 2% { opacity: 1; }
+      3% { opacity: .5; }
+      4% { opacity: .95; }
+      6% { opacity: .28; }
+      8% { opacity: 1; }
+      39% { opacity: 1; }
+      40% { opacity: .62; }
+      41% { opacity: 1; }
+      70% { opacity: .4; }
+      71% { opacity: .9; }
+      72% { opacity: 1; }
+      87% { opacity: .78; }
+      88% { opacity: 1; }
+      100% { opacity: 1; }
+    }
+
+    .bulb { position: absolute; width: 9px; height: 13px; border-radius: 50% 50% 45% 45%;
+            background: #ffe6b0; box-shadow: 0 0 14px 6px rgba(217,164,65,.75), 0 0 60px 26px rgba(217,164,65,.28); }
+    .cord { position: absolute; width: 1px; background: #1d1c17; }
+    .pool { position: absolute; border-radius: 50%;
+            background: radial-gradient(ellipse at center, rgba(217,164,65,.30) 0%, rgba(217,164,65,.12) 42%, rgba(217,164,65,0) 72%); }
+    .wash { position: absolute; border-radius: 50%;
+            background: radial-gradient(ellipse at center, rgba(217,164,65,.15) 0%, rgba(217,164,65,0) 70%); }
+    .rim { position: absolute; background: rgba(226,181,104,.5); }
+
+    .grain { position: absolute; inset: -50%; pointer-events: none; mix-blend-mode: overlay;
+             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+             animation: drift .5s steps(2, end) infinite; }
+    @keyframes drift { 0% { transform: translate(0,0); } 50% { transform: translate(-7px,4px); } 100% { transform: translate(5px,-6px); } }
+
+    .dither { position: absolute; inset: 0; pointer-events: none; opacity: .16;
+              background-image: repeating-conic-gradient(#000 0% 25%, transparent 0% 50%); background-size: 3px 3px; }
+    .scan { position: absolute; inset: 0; pointer-events: none; opacity: .3;
+            background: repeating-linear-gradient(180deg, rgba(0,0,0,.55) 0px, rgba(0,0,0,.55) 1px, transparent 1px, transparent 3px); }
+    .vignette { position: absolute; inset: 0; pointer-events: none;
+                background: radial-gradient(ellipse 76% 68% at 34% 54%, transparent 0%, rgba(0,0,0,.55) 66%, rgba(0,0,0,.94) 100%); }
+
+    .title { font-family: 'Special Elite', 'Courier New', monospace; color: #cfc9bd; }
+    .menu { font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; }
+  </style>
+</helmet>
+
+<div class="stage" style="width: 1280px; height: 720px;">
+
+  <div class="wall"></div>
+  <div class="baseboard"></div>
+  <div class="floor"></div>
+
+  <!-- cena empurrada para a esquerda: a direita fica reservada ao texto -->
+  <div class="prop" style="left: 96px; top: 262px; width: 330px; height: 150px;"></div>
+  <div class="prop" style="left: 130px; top: 216px; width: 116px; height: 46px;"></div>
+  <div class="prop" style="left: 268px; top: 232px; width: 40px; height: 30px;"></div>
+  <div class="prop" style="left: 452px; top: 372px; width: 288px; height: 20px;"></div>
+  <div class="prop" style="left: 468px; top: 392px; width: 9px; height: 86px;"></div>
+  <div class="prop" style="left: 716px; top: 392px; width: 9px; height: 86px;"></div>
+  <div class="prop" style="left: 520px; top: 356px; width: 88px; height: 16px;"></div>
+  <div class="prop" style="left: 640px; top: 364px; width: 42px; height: 8px; border-radius: 3px;"></div>
+  <div class="prop" style="left: 0px; top: 430px; width: 210px; height: 290px; background: #040403;"></div>
+  <div class="prop" style="left: 806px; top: 150px; width: 150px; height: 262px; background: #030303;"></div>
+
+  <div class="lit" style="animation-name: {{flickerName}};">
+    <div class="cord" style="left: 362px; top: 0; height: 108px;"></div>
+    <div class="bulb" style="left: 358px; top: 106px;"></div>
+    <div class="wash" style="left: 92px; top: -92px; width: 540px; height: 440px;"></div>
+    <div class="pool" style="left: 60px; top: 404px; width: 660px; height: 254px;"></div>
+
+    <div class="rim" style="left: 452px; top: 372px; width: 288px; height: 1px;"></div>
+    <div class="rim" style="left: 468px; top: 392px; width: 1px; height: 86px; opacity: .5;"></div>
+    <div class="rim" style="left: 96px; top: 262px; width: 330px; height: 1px; opacity: .55;"></div>
+    <div class="rim" style="left: 425px; top: 262px; width: 1px; height: 150px; opacity: .35;"></div>
+    <div class="rim" style="left: 130px; top: 216px; width: 116px; height: 1px; opacity: .45;"></div>
+    <div class="rim" style="left: 520px; top: 356px; width: 88px; height: 1px; opacity: .7;"></div>
+    <div class="rim" style="left: 0px; top: 430px; width: 210px; height: 2px; opacity: .3;"></div>
+    <div class="rim" style="left: 804px; top: 150px; width: 3px; height: 262px; opacity: .28;"></div>
+  </div>
+
+  <!-- ---- interface ------------------------------------------------- -->
+
+  <div class="title" style="position: absolute; right: 104px; top: 168px; font-size: 15px; letter-spacing: .62em; color: #6f6a61;">PROJECT-IA</div>
+  <div style="position: absolute; right: 104px; top: 202px; width: 92px; height: 1px; background: #3a3730;"></div>
+
+  <div class="menu" style="position: absolute; right: 104px; top: 262px; display: flex; flex-direction: column; gap: 22px; align-items: flex-end;">
+    <div style="display: flex; align-items: center; gap: 18px;">
+      <div style="font-size: 27px; font-weight: 400; letter-spacing: .34em; text-transform: uppercase; color: #e8dcc4;">Continuar</div>
+      <div style="width: 26px; height: 1px; background: #d9a441;"></div>
+    </div>
+    <div style="font-size: 27px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7d786e; margin-right: 44px;">Novo jogo</div>
+    <div style="font-size: 27px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7d786e; margin-right: 44px;">Opções</div>
+    <div style="font-size: 27px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: #7d786e; margin-right: 44px;">Sair</div>
+  </div>
+
+  <div class="title" style="position: absolute; right: 104px; bottom: 76px; font-size: 12px; letter-spacing: .3em; color: #454138;">v0.1 [BUILD INTERNA]</div>
+
+  <div class="dither"></div>
+  <div class="scan"></div>
+  <div class="grain" style="opacity: {{grain}};"></div>
+  <div class="vignette"></div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"flicker":{"editor":"boolean","default":true},"grain":{"editor":"range","default":0.42,"min":0,"max":1,"step":0.02},"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      flickerName: this.props.flicker === false ? 'none' : 'flick',
+      grain: this.props.grain ?? 0.42
+    };
+  }
+}
+</script>
+</body>
+</html>

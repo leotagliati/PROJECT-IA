@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 1594707586217578613}
   - component: {fileID: 502306996535354163}
   - component: {fileID: 5148036472415044168}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: couch_large_red (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}

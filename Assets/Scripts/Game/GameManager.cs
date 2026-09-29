@@ -1,0 +1,119 @@
+using System;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public enum GameState
+{
+    Preparing,
+    Playing,
+    Won,
+    Lost,
+}
+
+[DefaultExecutionOrder(-100)]
+public class GameManager : MonoBehaviour
+{
+    [SerializeField] private float preparationSeconds = 15f;
+
+    // O reload mora aqui, e não nas telas de fim: a partida recomeça mesmo com uma UI mal
+    // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
+    // Os tempos cobrem a sequência de cada fim mais a leitura da mensagem.
+    [Header("Reinício automático")]
+    [Tooltip("Segundos depois de ser pego até recarregar a cena (virada ~0,6s + mensagem).")]
+    [SerializeField, Min(0f)] private float reloadDelayAfterLost = 4f;
+
+    [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
+    [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
+
+    public static GameManager Current { get; private set; }
+
+    public static event Action<GameState> StateChanged;
+
+    public GameState State { get; private set; } = GameState.Preparing;
+    public bool IsPlaying => State == GameState.Playing;
+    public bool IsOver => State == GameState.Won || State == GameState.Lost;
+
+    public float PreparationRemaining { get; private set; }
+
+    public float ElapsedTime { get; private set; }
+
+    void Awake()
+    {
+        if (Current != null && Current != this)
+        {
+            Debug.LogError($"{name}: já existe um GameManager na cena ({Current.name}).", this);
+            enabled = false;
+            return;
+        }
+
+        Current = this;
+    }
+
+    void Start()
+    {
+        PreparationRemaining = Mathf.Max(0f, preparationSeconds);
+        if (PreparationRemaining <= 0f)
+            State = GameState.Playing;
+
+        StateChanged?.Invoke(State);
+    }
+
+    void Update()
+    {
+        switch (State)
+        {
+            case GameState.Preparing:
+                PreparationRemaining -= Time.deltaTime;
+                if (PreparationRemaining <= 0f)
+                {
+                    PreparationRemaining = 0f;
+                    SetState(GameState.Playing);
+                }
+                break;
+
+            case GameState.Playing:
+                ElapsedTime += Time.deltaTime;
+                break;
+        }
+    }
+
+    public void PlayerCaught() => Finish(GameState.Lost);
+
+    public void PlayerEscaped() => Finish(GameState.Won);
+
+    public void Restart() => SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+
+    private void Finish(GameState outcome)
+    {
+        if (IsOver)
+            return;
+
+        SetState(outcome);
+
+        float delay = outcome == GameState.Won ? reloadDelayAfterWon : reloadDelayAfterLost;
+        Invoke(nameof(Restart), delay);
+    }
+
+    private void SetState(GameState next)
+    {
+        if (next == State)
+            return;
+
+        State = next;
+        Debug.Log($"GameManager: {next}", this);
+        StateChanged?.Invoke(next);
+    }
+
+    void OnDestroy()
+    {
+        if (Current == this)
+            Current = null;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        Current = null;
+        StateChanged = null;
+    }
+}

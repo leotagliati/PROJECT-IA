@@ -17,14 +17,15 @@ namespace Assets.Scripts.Seeker
         [SerializeField] private string _hiderTag = "Goal";
         [SerializeField] private bool _isSeeingHider = false;
 
-        // Distância para considerar que o agente "chegou" à última posição conhecida.
-        [SerializeField] private float _arrivalThreshold = 0.5f;
+        [SerializeField] private float _arrivalThreshold = 1f;
 
         private bool _hasSeenHider;
         private Vector3 _lastKnownHiderPosition;
         private float _closestWallProximity;
 
         public bool IsSeeingHider => _isSeeingHider;
+
+        public bool VisionEnabled { get; set; } = true;
 
         public bool HasSeenHider => _hasSeenHider;
 
@@ -33,6 +34,12 @@ namespace Assets.Scripts.Seeker
         public float[] WallProximities => _wallProximities;
 
         public float ClosestWallProximity => _closestWallProximity;
+
+        /// <summary>
+        /// Máscara que define o que é parede. Exposta para que a detecção de CONTATO use o
+        /// mesmo critério dos raycasts — uma fonte de verdade só para "isto é uma parede".
+        /// </summary>
+        public LayerMask WallLayer => _wallLayer;
 
         /// <summary>
         /// Oito direções no referencial do MUNDO — o mesmo das ações (X/Z), então o agente não
@@ -67,6 +74,21 @@ namespace Assets.Scripts.Seeker
 
         public int DirectionCount => Directions.Length;
 
+        // ------------------------------------------------------------------ telemetria
+        // Só para o SeekerDebugOverlay desenhar o que a rede recebe.
+
+        public static Vector3 GetDirection(int index) => Directions[index];
+
+        public float DetectionRange => _detectionRange;
+
+        public float VisionRange => _visionRange;
+
+        public int RayCount => _rayCount;
+
+        public Vector3 GetVisionRayDirection(int index) => ConeDirection(index);
+
+        public Vector3 RayOrigin => transform.position + Vector3.up * _originHeightOffset;
+
         private void ScanForWalls()
         {
             _closestWallProximity = 0f;
@@ -86,6 +108,8 @@ namespace Assets.Scripts.Seeker
         private void ScanForHider()
         {
             _isSeeingHider = false;
+            if (!VisionEnabled)
+                return;
 
             Vector3 origin = transform.position + Vector3.up * _originHeightOffset;
             float bestDistance = float.MaxValue;
@@ -144,8 +168,15 @@ namespace Assets.Scripts.Seeker
             if (_isSeeingHider || !_hasSeenHider)
                 return;
 
-            if (Vector3.Distance(seekerPosition, _lastKnownHiderPosition) <= _arrivalThreshold)
+            if (PlanarDistance(seekerPosition, _lastKnownHiderPosition) <= _arrivalThreshold)
                 ForgetHider();
+        }
+
+        private static float PlanarDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         private float GetWallProximity(Vector3 direction)
@@ -180,6 +211,7 @@ namespace Assets.Scripts.Seeker
             {
                 Gizmos.color = Color.magenta;
                 Gizmos.DrawWireSphere(_lastKnownHiderPosition, 0.3f);
+                Gizmos.DrawWireSphere(_lastKnownHiderPosition, _arrivalThreshold);
             }
         }
     }

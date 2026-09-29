@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// Dispara um som do <see cref="AudioSystem"/> numa posição arbitrária, sem precisar escrever
+/// Dispara um som do <see cref="AudioProvider"/> numa posição arbitrária, sem precisar escrever
 /// código: arrasta o componente num GameObject vazio, escolhe o id e o modo.
 ///
 /// A posição é a do próprio objeto (o que dá pra arrastar no editor e ouvir o som andar pelo
@@ -22,7 +22,7 @@ public class AudioEmitter : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float _volumeScale = 1f;
 
     [Header("-----Posição-----")]
-    // Ligado: usa a posição deste objeto. Desligado: usa o X/Z abaixo, na altura padrão do AudioSystem.
+    // Ligado: usa a posição deste objeto. Desligado: usa o X/Z abaixo, na altura padrão da AudioLibrary.
     [SerializeField] private bool _useTransformPosition = true;
     [SerializeField] private float _x;
     [SerializeField] private float _z;
@@ -71,17 +71,17 @@ public class AudioEmitter : MonoBehaviour
     {
         if (_followThisObject)
         {
-            AudioSystem.PlayFollowing(_soundId, transform, _volumeScale);
+            AudioProvider.PlayFollowing(_soundId, transform, _volumeScale);
             return;
         }
 
         if (_useTransformPosition)
         {
-            AudioSystem.PlayAt(_soundId, transform.position, _volumeScale);
+            AudioProvider.PlayAt(_soundId, transform.position, _volumeScale);
             return;
         }
 
-        AudioSystem.Play(_soundId, _x, _z, _volumeScale);
+        AudioProvider.Play(_soundId, _x, _z, _volumeScale);
     }
 
     private void OnDrawGizmos()

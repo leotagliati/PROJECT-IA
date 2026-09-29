@@ -445,7 +445,7 @@ MonoBehaviour:
   _spawnPoints: []
   _wallLayer:
     serializedVersion: 2
-    m_Bits: 8
+    m_Bits: 136
   rayDistance: 0.22
 --- !u!1 &4782403736211688992
 GameObject:
