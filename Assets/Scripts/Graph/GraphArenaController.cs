@@ -19,8 +19,10 @@ namespace Assets.Scripts.Graph
         [Header("-----Currículo-----")]
         // Fração do grafo que conta como episódio resolvido. Vem do currículo; o valor aqui é
         // o fallback quando você roda a cena sem trainer (Play no editor, inferência).
+        // ACIMA DE 1 (ex.: 1.1) = sem fim por cobertura: o episódio vai até o timeout. É o modo
+        // das lições de PATRULHA, onde o objetivo é manter o mapa vigiado, não terminá-lo.
         [SerializeField] private string _coverageParameterName = "coverage_target";
-        [SerializeField, Range(0.05f, 1f)] private float _defaultCoverageTarget = 0.35f;
+        [SerializeField, Range(0.05f, 1.1f)] private float _defaultCoverageTarget = 0.35f;
 
         // Peso da dica de fronteira. 1 = o agente vê para onde ir; 0 = ele tem que descobrir
         // sozinho a partir dos vizinhos e do que já visitou. Escala tanto a OBSERVAÇÃO quanto o
@@ -73,6 +75,41 @@ namespace Assets.Scripts.Graph
         // Velocidade do hider (m/s) na lição. 0 = usa o padrão do GraphHider.
         [SerializeField] private string _hiderSpeedParameterName = "hider_speed";
         [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
+
+        // Chance de cada chegada do hider num nó de ping virar ping (GraphHider). 1 = toda chegada
+        // (o de antes, quase um GPS); o config de procura desce até 0.25.
+        [SerializeField] private string _hiderNoiseParameterName = "hider_noise";
+        [SerializeField, Range(0f, 1f)] private float _defaultHiderNoise = 1f;
+
+        // Escalas de recompensa por lição (GraphRewardSystem). 1 = o tuning do prefab.
+        //   ping_reward_scale: 0 no config de procura — o ping vira só INFORMAÇÃO (a suspeita já
+        //     paga ir aonde o barulho foi). Pago, o rastro do hider virava renda: o night_04
+        //     aprendeu a colher ping em vez de pegar.
+        //   discovery_reward_scale: 0.3 na procura — com a suspeita uniforme no começo, procurar
+        //     já é explorar, e a descoberta cheia (~17 no mapa) competiria com a captura.
+        [SerializeField] private string _pingRewardScaleParameterName = "ping_reward_scale";
+        [SerializeField, Min(0f)] private float _defaultPingRewardScale = 1f;
+        [SerializeField] private string _discoveryRewardScaleParameterName = "discovery_reward_scale";
+        [SerializeField, Min(0f)] private float _defaultDiscoveryRewardScale = 1f;
+
+        // PATRULHA: segundos para um nó visitado recuperar o valor inteiro (ver
+        // GraphExplorationMemory). 0 = desligado: nó visitado nunca mais paga no episódio (o
+        // comportamento da fase de exploração).
+        [SerializeField] private string _valueRecoveryParameterName = "value_recovery_seconds";
+        [SerializeField, Min(0f)] private float _defaultValueRecoverySeconds = 0f;
+
+        // TÉDIO DE SALA (NavNode._areaId): 1 liga, 0 desliga. Liga junto com a patrulha — na
+        // exploração pura não faz sentido cansar de uma sala que ainda tem o que ver.
+        [SerializeField] private string _areaBoredomParameterName = "area_boredom";
+        [SerializeField, Range(0, 1)] private int _defaultAreaBoredom = 0;
+
+        // STEERING ASSISTIDO (SeekerMovementSystem.Steer): 0..1, fração da velocidade contra a
+        // parede que é removida perto dela (1 = desliza, 0 = bate). A "rodinha de bicicleta":
+        // alta no começo para a rede aprender a estratégia sem gastar milhões de steps aprendendo
+        // a não bater, e baixa no fim para ela assumir o controle fino. O default é o valor da
+        // última lição: é o que roda no jogo, sem trainer.
+        [SerializeField] private string _steerAssistParameterName = "steer_assist";
+        [SerializeField, Range(0f, 1f)] private float _defaultSteerAssist = 0.3f;
 
         [Header("-----Spawn-----")]
         // Nasce em cima de um nó ATIVO qualquer do grafo, sorteado por episódio, em vez de num
@@ -129,6 +166,17 @@ namespace Assets.Scripts.Graph
         /// <summary>Amplitude do sorteio de peso por nó neste episódio (0..1).</summary>
         public float WeightJitter { get; private set; }
 
+        /// <summary>Cobertura-alvo acima de 1: o episódio não termina por cobertura (patrulha).</summary>
+        public bool EndsOnCoverage => CoverageTarget <= 1f;
+
+        /// <summary>Steps de física para um nó recuperar o valor; 0 = patrulha desligada.</summary>
+        public int ValueRecoverySteps { get; private set; }
+
+        public bool AreaBoredom { get; private set; }
+
+        /// <summary>Força do steering assistido neste episódio (0..1).</summary>
+        public float SteerAssist { get; private set; }
+
         /// <summary>Pontos de spawn fixos (fallback). Lido pelo NavGraphPlacer para conferir se caem em chão coberto.</summary>
         internal Transform[] SpawnPoints => _spawnPoints;
 
@@ -138,6 +186,13 @@ namespace Assets.Scripts.Graph
         public GraphHider.Mode HiderMode { get; private set; }
 
         public float HiderSpeed { get; private set; }
+
+        /// <summary>Chance (0..1) de cada chegada do hider virar ping.</summary>
+        public float HiderNoise { get; private set; }
+
+        public float PingRewardScale { get; private set; }
+
+        public float DiscoveryRewardScale { get; private set; }
 
         /// <summary>
         /// Posiciona (ou desliga) o hider para o episódio. Chamar DEPOIS do spawn do seeker,
@@ -149,7 +204,7 @@ namespace Assets.Scripts.Graph
                 _hider = GetComponentInChildren<GraphHider>(includeInactive: true);
 
             if (_hider != null)
-                _hider.ResetEpisode(HiderMode, HiderSpeed, seekerPosition);
+                _hider.ResetEpisode(HiderMode, HiderSpeed, HiderNoise, seekerPosition);
         }
 
         private void Awake() => EnsureInitialized();
@@ -255,7 +310,8 @@ namespace Assets.Scripts.Graph
         {
             EnvironmentParameters parameters = Academy.Instance.EnvironmentParameters;
 
-            CoverageTarget = Mathf.Clamp01(parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
+            // Sem Clamp01: acima de 1 é o "sem fim por cobertura" da patrulha (ver EndsOnCoverage).
+            CoverageTarget = Mathf.Max(0.05f, parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
             FrontierHintScale = Mathf.Clamp01(parameters.GetWithDefault(_frontierParameterName, _defaultFrontierHint));
 
             // O currículo entrega float; a contagem é inteira.
@@ -278,6 +334,19 @@ namespace Assets.Scripts.Graph
                 parameters.GetWithDefault(_hiderModeParameterName, _defaultHiderMode)), 0, 3);
 
             HiderSpeed = Mathf.Max(0f, parameters.GetWithDefault(_hiderSpeedParameterName, _defaultHiderSpeed));
+            HiderNoise = Mathf.Clamp01(parameters.GetWithDefault(_hiderNoiseParameterName, _defaultHiderNoise));
+
+            PingRewardScale = Mathf.Max(0f, parameters.GetWithDefault(_pingRewardScaleParameterName, _defaultPingRewardScale));
+            DiscoveryRewardScale = Mathf.Max(0f,
+                parameters.GetWithDefault(_discoveryRewardScaleParameterName, _defaultDiscoveryRewardScale));
+
+            // Segundos no YAML (é como se pensa), steps de física na memória (é como ela conta).
+            float recoverySeconds = Mathf.Max(0f, parameters.GetWithDefault(_valueRecoveryParameterName, _defaultValueRecoverySeconds));
+            ValueRecoverySteps = Mathf.RoundToInt(recoverySeconds / Time.fixedDeltaTime);
+
+            AreaBoredom = parameters.GetWithDefault(_areaBoredomParameterName, _defaultAreaBoredom) >= 0.5f;
+
+            SteerAssist = Mathf.Clamp01(parameters.GetWithDefault(_steerAssistParameterName, _defaultSteerAssist));
         }
     }
 }

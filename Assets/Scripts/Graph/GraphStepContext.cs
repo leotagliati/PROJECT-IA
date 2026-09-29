@@ -106,6 +106,56 @@ namespace Assets.Scripts.Graph
 
         public readonly bool HasHiderApproach;
 
+        /// <summary>
+        /// Renda de REVISITA do intervalo (patrulha): peso x fração de revisita x recuperação² x
+        /// (1 - tédio da sala), já somada na memória. O reward multiplica pelo mesmo fator da
+        /// descoberta. 0 com a patrulha desligada.
+        /// </summary>
+        public readonly float RevisitValue;
+
+        /// <summary>Chegadas em primário visitado há pouco (loop), neste intervalo.</summary>
+        public readonly int EarlyRevisitArrivals;
+
+        /// <summary>Quantas revisitas precoces SEGUIDAS até agora (ver GraphExplorationMemory).</summary>
+        public readonly int EarlyRevisitStreak;
+
+        /// <summary>Tédio (0..1) da sala em que o agente está. 0 em corredor ou com o tédio desligado.</summary>
+        public readonly float CurrentAreaBoredom;
+
+        /// <summary>Batidas NOVAS em parede neste step (início de contato; ver WallHitTracker).</summary>
+        public readonly int WallHits;
+
+        /// <summary>Batidas nos últimos ~5 s, incluindo a deste step. Escala o custo de cada batida.</summary>
+        public readonly int RecentWallHits;
+
+        /// <summary>
+        /// |ação agora - ação anterior|² (0..8). Só muda nas decisões: entre elas a ação se repete
+        /// (TakeActionsBetweenDecisions) e o valor é zero.
+        /// </summary>
+        public readonly float ActionChangeSq;
+
+        /// <summary>|olhar agora - olhar anterior|² (0..8), das ações [2..3]. Mesma cadência do de cima.</summary>
+        public readonly float LookChangeSq;
+
+        /// <summary>
+        /// Suspeita zerada que paga neste intervalo (GraphSuspicionMap.ClearedMass, fração de 1):
+        /// ver ou visitar nós vazios onde o hider provavelmente estaria. 0 sem hider.
+        /// </summary>
+        public readonly float SuspicionCleared;
+
+        /// <summary>Escala dos termos de ping nesta lição (ping_reward_scale; 0 = ping só informa).</summary>
+        public readonly float PingRewardScale;
+
+        /// <summary>Escala da recompensa de descoberta nesta lição (discovery_reward_scale).</summary>
+        public readonly float DiscoveryRewardScale;
+
+        /// <summary>
+        /// Quanto a distância PELO GRAFO (m) até o inexplorado mais próximo caiu desde a decisão
+        /// anterior, com o mesmo alvo nas duas (GraphExplorationMemory.NearestUnexploredTarget).
+        /// Positivo = aproximou. 0 quando o alvo mudou. Independente da seta.
+        /// </summary>
+        public readonly float UnexploredProgress;
+
         public GraphStepContext(
             int maxEpisodeSteps,
             bool enteredNewNode,
@@ -127,7 +177,19 @@ namespace Assets.Scripts.Graph
             bool pingMissed,
             bool hiderSpotted,
             float hiderApproachDelta,
-            bool hasHiderApproach)
+            bool hasHiderApproach,
+            float revisitValue,
+            int earlyRevisitArrivals,
+            int earlyRevisitStreak,
+            float currentAreaBoredom,
+            int wallHits,
+            int recentWallHits,
+            float actionChangeSq,
+            float lookChangeSq,
+            float suspicionCleared,
+            float pingRewardScale,
+            float discoveryRewardScale,
+            float unexploredProgress)
         {
             MaxEpisodeSteps = maxEpisodeSteps;
             EnteredNewNode = enteredNewNode;
@@ -150,6 +212,18 @@ namespace Assets.Scripts.Graph
             HiderSpotted = hiderSpotted;
             HiderApproachDelta = hiderApproachDelta;
             HasHiderApproach = hasHiderApproach;
+            RevisitValue = revisitValue;
+            EarlyRevisitArrivals = earlyRevisitArrivals;
+            EarlyRevisitStreak = earlyRevisitStreak;
+            CurrentAreaBoredom = currentAreaBoredom;
+            WallHits = wallHits;
+            RecentWallHits = recentWallHits;
+            ActionChangeSq = actionChangeSq;
+            LookChangeSq = lookChangeSq;
+            SuspicionCleared = suspicionCleared;
+            PingRewardScale = pingRewardScale;
+            DiscoveryRewardScale = discoveryRewardScale;
+            UnexploredProgress = unexploredProgress;
         }
     }
 }

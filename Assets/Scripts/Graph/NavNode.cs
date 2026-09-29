@@ -89,6 +89,14 @@ namespace Assets.Scripts.Graph
         // ignorado — o auxiliar vale a pontuação do tipo, igual para todos.
         [SerializeField] private float _explorationWeight = 1f;
 
+        // SALA a que o nó pertence (1, 2, 3...). 0 = nenhuma: corredor, vão de porta — nunca
+        // entedia. Cada sala tem um número ÚNICO (é o ID da sala, não um tipo: dois escritórios
+        // são duas áreas). Usado pelo tédio de área da GraphExplorationMemory: ficar muito tempo
+        // numa sala faz ela pagar menos e custar por step, e isso empurra o agente a variar de
+        // sala, não só de nó. Para marcar: selecione os nós da sala e digite o número uma vez
+        // (edição múltipla), ou NavGraphPlacer > "11. Numerar salas".
+        [SerializeField, Min(0)] private int _areaId;
+
         [Header("-----Área de chegada-----")]
         // Raio de chegada SÓ DESTE NÓ, nas formas Círculo/Quadrado do NavGraph. Deixe em 0 (o
         // normal): o NavGraph tem um padrão por PAPEL, e é lá que se calibra o mapa inteiro.
@@ -154,6 +162,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Peso declarado na autoria. Nunca negativo; 0 é "não paga".</summary>
         public float ExplorationWeight => Mathf.Max(0f, _explorationWeight);
 
+        /// <summary>ID da sala (0 = nenhuma). Ver _areaId.</summary>
+        public int AreaId => Mathf.Max(0, _areaId);
+
         /// <summary>
         /// Nó ativo participa de tudo: observação, busca de fronteira e denominador da cobertura.
         /// Desativado, ele deixa de existir para o agente. Trocar isto NO MEIO de um episódio
@@ -177,6 +188,8 @@ namespace Assets.Scripts.Graph
         internal void SetKind(NodeKind kind) => _kind = kind;
 
         internal void SetExplorationWeight(float weight) => _explorationWeight = Mathf.Max(0f, weight);
+
+        internal void SetAreaId(int areaId) => _areaId = Mathf.Max(0, areaId);
 
         /// <summary>Retângulo de chegada: centro deslocado do nó e tamanho total (X, Z).</summary>
         internal void SetArea(Vector2 offset, Vector2 size)
@@ -253,6 +266,13 @@ namespace Assets.Scripts.Graph
             }
 
             Gizmos.DrawLine(Position, Position + Vector3.up * 1.5f);
+
+#if UNITY_EDITOR
+            // O número da sala em texto, e não em cor: o vocabulário de cores dos gizmos já está
+            // quase todo tomado, e um número se confere de relance contra a planta.
+            if (AreaId > 0)
+                UnityEditor.Handles.Label(Position + Vector3.up * 1.7f, $"S{AreaId}");
+#endif
         }
 
         private void OnDrawGizmosSelected()

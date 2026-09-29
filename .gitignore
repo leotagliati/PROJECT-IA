@@ -75,3 +75,13 @@ crashlytics-build.properties
 /summaries/
 /models/
 /[Aa]ssets/ML-Agents/Timers/
+
+
+# Documentação local (não versionar): notas de treino, planos e instruções para IA (Claude).
+# Exceção: o resumo legível das fases de treino, que vai para o repo.
+/docs/*
+!/docs/graph/
+/docs/graph/*
+!/docs/graph/fases-de-treino.md
+CLAUDE.md
+/.claude/

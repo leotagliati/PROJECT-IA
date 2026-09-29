@@ -158,6 +158,23 @@ namespace Assets.Scripts.Graph
         // é sorteado como ponto de nascimento. É a mesma régua que o NavGraphPlacer usa.
         [SerializeField] private float _spawnClearance = 1.25f;
 
+        // MEDIR O CORPO em vez de digitar: ligado, a folga de passagem e a de spawn saem do
+        // CapsuleCollider do agente desta arena (raio x maior escala em X/Z) + as margens abaixo,
+        // e os dois campos manuais acima são ignorados. É o que mantém o grafo honesto quando a
+        // escala do agente muda: o NodeSeekerAgent estava em escala 1.7 (raio real 1.17 m) com
+        // _linkClearance 0.85 — o grafo aprovava vãos por onde o corpo não cabia, e o agente
+        // entalava seguindo uma aresta "válida". A coluna vertical (_bodyBottom/_bodyTop) continua
+        // manual: ela depende de onde os nós ficam em relação ao chão, e errar ali bloqueia tudo.
+        [SerializeField] private bool _useAgentBodySize = true;
+
+        // Somada ao raio medido. 5 cm: a sonda não pode ser exatamente o corpo, senão uma aresta
+        // que raspa a quina ainda passa e o agente entala nela.
+        [SerializeField, Min(0f)] private float _linkClearanceMargin = 0.05f;
+
+        // Somada ao raio medido para o SPAWN: nascer encostado na parede já começa o episódio
+        // pagando contato. 0.4 é da ordem da folga antiga (1.25 - 0.85).
+        [SerializeField, Min(0f)] private float _spawnClearanceMargin = 0.4f;
+
         // A ÁREA DE CHEGADA PARA NA PAREDE. Ligado: um ponto só está na área de um nó se, além de
         // estar dentro do raio, houver LINHA LIVRE (na altura do nó, contra a layer de parede) do
         // centro do nó até ele. Sem isto a área era um quadrado cego: atravessava parede e o
@@ -169,6 +186,18 @@ namespace Assets.Scripts.Graph
         // mais longe, até o primeiro com linha livre) — 1 a 3 por step de física por agente.
         // Muda a regra de chegada: os .onnx treinados sem isto não servem com isto ligado.
         [SerializeField] private bool _areasStopAtWalls = true;
+
+        // FOLGA DA ÂNCORA (m, só na forma Retângulo): o nó atual continua sendo a âncora até o agente
+        // sair MAIS que isto da área dele — e o vizinho só assume depois que ele entrou nele esta
+        // mesma profundidade (ou até a METADE do vizinho, o que for menor). Os ladrilhos se tocam
+        // sem sobreposição, então sem folga a âncora trocava a 1 cm da linha: andando em cima da
+        // borda ela piscava A-B-A, e a lista inteira de saídas que o agente vê mudava junto
+        // (node4_e2_05: ~7 pisca-piscas por episódio, Exploration/AnchorFlicker, subindo).
+        //
+        // O limite pela metade é pelos nós de PORTA: são estreitos (a espessura da parede), e com
+        // a folga cheia a âncora da sala atravessaria o nó da porta sem nunca trocar para ele.
+        // 0 = sem folga (o comportamento antigo). Não muda observação nem vetor.
+        [SerializeField, Min(0f)] private float _anchorHysteresis = 0.5f;
 
         [Header("-----Auto-ligação-----")]
         // Usado só pelo menu de contexto "Auto-ligar por linha de visão".
@@ -241,7 +270,7 @@ namespace Assets.Scripts.Graph
         public NodeShape Shape => _nodeShape;
 
         /// <summary>Metade da largura do agente: o raio com que o corpo passa por uma aresta.</summary>
-        public float LinkClearance => _linkClearance;
+        public float LinkClearance => TryMeasureAgentRadius(out float radius) ? radius + _linkClearanceMargin : _linkClearance;
 
         /// <summary>Base da coluna do corpo, relativa à altura do nó.</summary>
         public float BodyBottom => _bodyBottom;
@@ -250,7 +279,50 @@ namespace Assets.Scripts.Graph
         public float BodyTop => _bodyTop;
 
         /// <summary>Folga que o corpo precisa parado num nó para nascer ali (ver _spawnClearance).</summary>
-        public float SpawnClearance => _spawnClearance;
+        public float SpawnClearance => TryMeasureAgentRadius(out float radius) ? radius + _spawnClearanceMargin : _spawnClearance;
+
+        private CapsuleCollider _agentBody;
+        private bool _loggedMeasuredBody;
+
+        /// <summary>
+        /// Raio real do corpo do agente desta arena: raio do CapsuleCollider x maior escala
+        /// planar. Procura o GraphExplorerManager SÓ dentro da arena (nunca na cena): cada cópia
+        /// mede o próprio agente, e uma arena sem agente cai nos valores manuais.
+        /// </summary>
+        public bool TryMeasureAgentRadius(out float radius)
+        {
+            radius = 0f;
+            if (!_useAgentBodySize)
+                return false;
+
+            if (_agentBody == null)
+            {
+                GraphArenaController arena = GetComponentInParent<GraphArenaController>();
+                Transform root = arena != null ? arena.transform : transform.parent;
+                GraphExplorerManager agent = root != null ? root.GetComponentInChildren<GraphExplorerManager>(true) : null;
+                if (agent != null)
+                    _agentBody = agent.GetComponent<CapsuleCollider>();
+
+                if (_agentBody == null)
+                    return false;
+            }
+
+            Vector3 scale = _agentBody.transform.lossyScale;
+            float planar = _agentBody.direction == 1
+                ? Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z))
+                : Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+            radius = _agentBody.radius * planar;
+
+            if (Application.isPlaying && !_loggedMeasuredBody)
+            {
+                _loggedMeasuredBody = true;
+                Debug.Log(
+                    $"{name}: corpo do agente medido — raio {radius:0.00} m, passagem {radius + _linkClearanceMargin:0.00}, " +
+                    $"spawn {radius + _spawnClearanceMargin:0.00}.", this);
+            }
+
+            return radius > 0f;
+        }
 
         /// <summary>A área de chegada é cortada pelas paredes (ver _areasStopAtWalls).</summary>
         public bool AreasStopAtWalls => _areasStopAtWalls;
@@ -343,6 +415,12 @@ namespace Assets.Scripts.Graph
 
         public int NodeCount => _nodes.Count;
 
+        /// <summary>Maior ID de sala do grafo (0 = nenhum nó tem sala). Fotografado no bake.</summary>
+        public int MaxAreaId { get; private set; }
+
+        /// <summary>ID da sala do nó (0 = nenhuma: corredor, vão). Ver NavNode._areaId.</summary>
+        public int AreaOf(int index) => _nodes[index].AreaId;
+
         public IReadOnlyList<NavNode> Nodes => _nodes;
 
         // Conjunto da lista, para o gizmo de cada NavNode perguntar "estou no grafo?" sem varrer
@@ -362,7 +440,11 @@ namespace Assets.Scripts.Graph
             return _nodeSet.Contains(node);
         }
 
-        private void OnValidate() => _nodeSetCount = -1;
+        private void OnValidate()
+        {
+            _nodeSetCount = -1;
+            _agentBody = null;
+        }
 
         private void Awake() => EnsureBaked();
 
@@ -401,6 +483,10 @@ namespace Assets.Scripts.Graph
 
             _pathDiameter = -1f;
             _spawnable = null;
+
+            MaxAreaId = 0;
+            foreach (NavNode node in _nodes)
+                MaxAreaId = Mathf.Max(MaxAreaId, node.AreaId);
             _hasPingNodes = HasPingNodes;
             _isBaked = true;
 
@@ -512,7 +598,7 @@ namespace Assets.Scripts.Graph
             int count = 0;
             for (int i = 0; i < _nodes.Count; i++)
             {
-                _spawnable[i] = IsBodyClear(_nodes[i].Position, _spawnClearance);
+                _spawnable[i] = IsBodyClear(_nodes[i].Position, SpawnClearance);
                 if (_spawnable[i])
                     count++;
             }
@@ -522,7 +608,7 @@ namespace Assets.Scripts.Graph
             if (count == 0 && _nodes.Count > 0)
             {
                 Debug.LogWarning(
-                    $"{name}: nenhum nó tem folga de spawn ({_spawnClearance:0.00} m). Liberando todos — rode " +
+                    $"{name}: nenhum nó tem folga de spawn ({SpawnClearance:0.00} m). Liberando todos — rode " +
                     "\"1. Diagnosticar\" no NavGraphPlacer.", this);
                 for (int i = 0; i < _nodes.Count; i++)
                     _spawnable[i] = true;
@@ -639,8 +725,13 @@ namespace Assets.Scripts.Graph
         /// mapa tem um andar só, e medir em 3D faria a altura do nó em relação ao agente comer
         /// parte da área — um nó desenhado no chão registraria visita numa área menor que a do
         /// gizmo, sem nada indicando o porquê.
+        ///
+        /// <paramref name="current"/> é a HISTERESE: enquanto a posição ainda estiver na área do
+        /// nó atual, ele vence o desempate. Sem isso, andar em cima da borda comum de dois
+        /// ladrilhos trocava de nó a cada step (A-B-A-B): a âncora piscava, o "nó anterior"
+        /// alternava e a contagem de visitas inflava sozinha — um loop que o agente não fez.
         /// </summary>
-        public int FindNodeAt(Vector3 position)
+        public int FindNodeAt(Vector3 position, int current = -1)
         {
             _areaCandidates.Clear();
 
@@ -668,6 +759,9 @@ namespace Assets.Scripts.Graph
             if (_areaCandidates.Count == 0)
                 return -1;
 
+            if (_nodeShape == NodeShape.Rectangle && KeepAnchor(current, position))
+                return current;
+
             // Do centro mais perto para o mais longe; o primeiro que ENXERGA o ponto vence. Com a
             // área cortada pela parede, o nó da sala vizinha (mais perto em linha reta, mas atrás
             // da parede) perde para o da sala em que o agente está de fato.
@@ -679,11 +773,65 @@ namespace Assets.Scripts.Graph
             bool clip = _areasStopAtWalls && _nodeShape != NodeShape.Rectangle;
             foreach ((float _, int index) in _areaCandidates)
             {
+                if (index == current && (!clip || CanSeeFromNode(_nodes[index].Position, position)))
+                    return index;
+            }
+
+            foreach ((float _, int index) in _areaCandidates)
+            {
                 if (!clip || CanSeeFromNode(_nodes[index].Position, position))
                     return index;
             }
 
             return -1;
+        }
+
+        // Folga da âncora (ver _anchorHysteresis): o agente saiu do nó atual há menos da folga e
+        // ainda não entrou fundo o bastante no vizinho mais central que o contém? Então fica.
+        // Chamado só com candidatos na lista (o agente está dentro de algum ladrilho).
+        private bool KeepAnchor(int current, Vector3 position)
+        {
+            if (_anchorHysteresis <= 0f || current < 0 || current >= _nodes.Count || !_nodes[current].IsEnabled)
+                return false;
+
+            NavNode currentNode = _nodes[current];
+            float outside = RectangleOutside(currentNode, position);
+
+            // Ainda dentro do atual: o desempate normal (abaixo) já o mantém.
+            if (outside <= 0f || outside > _anchorHysteresis)
+                return false;
+
+            // O candidato mais central (menor métrica) é quem assumiria.
+            int best = -1;
+            float bestMetric = float.MaxValue;
+            foreach ((float metric, int index) in _areaCandidates)
+            {
+                if (index != current && metric < bestMetric)
+                {
+                    bestMetric = metric;
+                    best = index;
+                }
+            }
+
+            if (best < 0)
+                return true;
+
+            NavNode candidate = _nodes[best];
+            Vector2 half = HalfExtentsOf(candidate);
+            float required = Mathf.Min(_anchorHysteresis, 0.5f * Mathf.Min(half.x, half.y));
+            float depth = -RectangleOutside(candidate, position);
+            return depth < required;
+        }
+
+        // Metros para FORA da borda do retângulo do nó (negativo = dentro; o módulo é a distância
+        // até a borda mais próxima). Planar, como a métrica.
+        private float RectangleOutside(NavNode node, Vector3 point)
+        {
+            Vector2 half = HalfExtentsOf(node);
+            Vector3 center = AreaCenterOf(node);
+            float ox = Mathf.Abs(point.x - center.x) - half.x;
+            float oz = Mathf.Abs(point.z - center.z) - half.y;
+            return Mathf.Max(ox, oz);
         }
 
         // Rascunho do FindNodeAt, alocado uma vez (roda a cada step de física, por agente).
@@ -815,22 +963,148 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
+        /// O QUE RESTA POR ESTA SAÍDA: entrando por <paramref name="via"/> a partir de
+        /// <paramref name="from"/>, soma o <paramref name="value"/> dos nós alcançáveis (quem chama
+        /// já zera o que não vale nada: visitado sem recuperação, sala entediada), cada um
+        /// descontado pela distância em METROS pelo grafo: fator = 0.5^(metros / meia-vida).
+        /// A busca NÃO passa por from — o que está do outro lado do nó atual pertence a outra
+        /// saída.
+        ///
+        /// É o "o que tem atrás desta porta?" que substitui a seta sem entregar um caminho: num
+        /// beco com tudo visitado por perto, a saída que leva ao inexplorado ainda pontua mais
+        /// que as outras. Sem isto o agente só enxergava 1 aresta à frente e rodava em círculo
+        /// quando todos os vizinhos já estavam visitados (node4_noarrow_01: cobertura parada em
+        /// 13% por 7M steps). Portado do NavGraph.ScoreBeyond da feature/node-unexplored, que
+        /// descontava por ARESTA — aqui é por metro, pelo mesmo motivo do _pathOrder.
+        ///
+        /// Ciclos podem contar o mesmo nó para duas saídas. Aceitável: a observação é
+        /// comparativa entre saídas, e o empate é a resposta certa.
+        /// </summary>
+        public float ScoreBeyond(int from, int via, float halfLifeMeters, float[] value)
+        {
+            if (from < 0 || from >= _nodes.Count || via < 0 || via >= _nodes.Count || from == via)
+                return 0f;
+
+            if (!_nodes[via].IsEnabled)
+                return 0f;
+
+            float entryCost = 0f;
+            int[] fromNeighbors = _adjacency[from];
+            for (int k = 0; k < fromNeighbors.Length; k++)
+            {
+                if (fromNeighbors[k] == via)
+                    entryCost = _adjacencyLength[from][k];
+            }
+
+            RunDijkstra(via, -1, blocked: from, startCost: entryCost);
+
+            float decayPerMeter = Mathf.Log(0.5f) / Mathf.Max(0.1f, halfLifeMeters);
+            float total = 0f;
+            for (int i = 0; i < _pathCount; i++)
+            {
+                int node = _pathOrder[i];
+                if (value[node] <= 0f)
+                    continue;
+
+                total += value[node] * Mathf.Exp(decayPerMeter * _pathCost[node]);
+            }
+
+            return total;
+        }
+
+        /// <summary>
+        /// DISTÂNCIA POR ESTA SAÍDA: entrando por <paramref name="via"/> a partir de
+        /// <paramref name="from"/> (sem passar de volta por from), metros pelo grafo até o nó mais
+        /// próximo com <paramref name="value"/> &gt; 0. -1 se não há nenhum por ali.
+        ///
+        /// O par do <see cref="ScoreBeyond"/>: aquele diz QUANTO tem atrás da porta (soma com
+        /// desconto), este diz QUÃO PERTO está o primeiro. A soma com desconto não é um campo de
+        /// distância — no nó A a melhor saída pode ser B e em B a melhor ser A de novo (as somas
+        /// quase empatam e desempatam para lados diferentes), e com tudo visitado por perto todas
+        /// as saídas valem quase zero e ruído vira instrução. A distância ao mais próximo é um
+        /// campo de verdade: seguir sempre a menor só diminui, então não há loop, e num beco
+        /// cercado de visitados ela continua dizendo "por aqui faltam 45 m, por ali 60 m".
+        /// </summary>
+        public float DistanceToNearestBeyond(int from, int via, float[] value)
+        {
+            if (from < 0 || from >= _nodes.Count || via < 0 || via >= _nodes.Count || from == via)
+                return -1f;
+
+            if (!_nodes[via].IsEnabled)
+                return -1f;
+
+            float entryCost = 0f;
+            int[] fromNeighbors = _adjacency[from];
+            for (int k = 0; k < fromNeighbors.Length; k++)
+            {
+                if (fromNeighbors[k] == via)
+                    entryCost = _adjacencyLength[from][k];
+            }
+
+            RunDijkstra(via, -1, blocked: from, startCost: entryCost);
+
+            // _pathOrder sai em ordem de distância: o primeiro com valor é o mais próximo.
+            for (int i = 0; i < _pathCount; i++)
+            {
+                int node = _pathOrder[i];
+                if (value[node] > 0f)
+                    return _pathCost[node];
+            }
+
+            return -1f;
+        }
+
+        /// <summary>
+        /// Nó com <paramref name="value"/> &gt; 0 mais próximo de <paramref name="from"/> pelo grafo
+        /// (o próprio from conta, com distância 0). -1 se não há nenhum alcançável.
+        /// </summary>
+        public int NearestWithValue(int from, float[] value, out float distance)
+        {
+            distance = 0f;
+            if (from < 0 || from >= _nodes.Count)
+                return -1;
+
+            RunDijkstra(from, -1);
+            for (int i = 0; i < _pathCount; i++)
+            {
+                int node = _pathOrder[i];
+                if (value[node] > 0f)
+                {
+                    distance = _pathCost[node];
+                    return node;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// Caminho mais curto em METROS a partir de <paramref name="from"/>, só por nós ativos
         /// (Dijkstra com heap). Deixa em _pathOrder[0.._pathCount) os nós fechados em ordem de
         /// distância e em _pathParent/_pathCost o caminho de cada um. Com <paramref name="stopAt"/>
         /// &gt;= 0 para assim que esse nó fecha — a distância dele já é a final.
         /// </summary>
-        private void RunDijkstra(int from, int stopAt)
+        // blocked: nó que a busca não atravessa (-1 = nenhum). startCost: custo já pago até from.
+        // Os dois só são usados pelo ScoreBeyond, que isola uma saída do nó atual.
+        private void RunDijkstra(int from, int stopAt, int blocked = -1, float startCost = 0f)
         {
             _pathStamp++;
             _pathCount = 0;
             _heapCount = 0;
 
+            // Carimbado como fechado sem entrar na lista: é a parede que separa esta saída das
+            // outras.
+            if (blocked >= 0)
+            {
+                _pathStampOf[blocked] = _pathStamp;
+                _pathClosed[blocked] = true;
+            }
+
             _pathStampOf[from] = _pathStamp;
             _pathClosed[from] = false;
             _pathParent[from] = -1;
-            _pathCost[from] = 0f;
-            HeapPush(from, 0f);
+            _pathCost[from] = startCost;
+            HeapPush(from, startCost);
 
             while (_heapCount > 0)
             {
@@ -954,15 +1228,16 @@ namespace Assets.Scripts.Graph
 
             Vector3 direction = delta / distance;
             PhysicsScene physics = gameObject.scene.GetPhysicsScene();
+            float clearance = LinkClearance;
 
-            if (_linkClearance <= 0f)
+            if (clearance <= 0f)
             {
                 Vector3 from = a + Vector3.up * _linkProbeHeight;
                 return !physics.Raycast(from, direction, distance, _wallLayer, QueryTriggerInteraction.Ignore);
             }
 
-            BodyCapsule(a, _linkClearance, out Vector3 bottom, out Vector3 top);
-            return !physics.CapsuleCast(bottom, top, _linkClearance, direction, out _, distance, _wallLayer, QueryTriggerInteraction.Ignore);
+            BodyCapsule(a, clearance, out Vector3 bottom, out Vector3 top);
+            return !physics.CapsuleCast(bottom, top, clearance, direction, out _, distance, _wallLayer, QueryTriggerInteraction.Ignore);
         }
 
         /// <summary>

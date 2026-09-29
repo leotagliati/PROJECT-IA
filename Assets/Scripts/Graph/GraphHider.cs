@@ -34,12 +34,18 @@ namespace Assets.Scripts.Graph
 
         [Header("-----Movimento-----")]
         // Velocidade PADRÃO (m/s), usada quando o currículo não manda outra (hider_speed). O
-        // currículo começa em 1.0 e sobe até 3.2 — sempre abaixo do seeker (5): um hider mais
+        // currículo começa em 1.0 e sobe até 3.2 — sempre abaixo do seeker (6): um hider mais
         // rápido é impegável e o seeker nunca recebe o sinal de captura; começar devagar deixa
         // o seeker aprender a seguir o rastro antes de precisar correr.
         [SerializeField, Min(0f)] private float _speed = 1f;
 
         private float _currentSpeed;
+
+        // Chance de uma chegada num nó de ping fazer BARULHO (virar ping), por episódio — vem do
+        // currículo (hider_noise). 1 = toda chegada pinga, o comportamento antigo, que era quase um
+        // GPS; com 0.25 o seeker ouve um passo a cada quatro e entre um e outro quem guia é a
+        // dedução (GraphSuspicionMap). No jogo é o player andando com cuidado ou não.
+        private float _noiseChance = 1f;
 
         // Considera "cheguei" a este tanto do centro do nó, em metros. Menor que o raio de
         // chegada do seeker de propósito: o hider tem que pisar de fato no nó para o ping tocar.
@@ -121,10 +127,12 @@ namespace Assets.Scripts.Graph
         /// desligado (GameObject inativo) e não emite nada.
         /// </summary>
         /// <param name="speed">m/s neste episódio; &lt;= 0 usa o padrão do Inspector.</param>
-        public void ResetEpisode(Mode mode, float speed, Vector3 seekerPosition)
+        /// <param name="noiseChance">Chance (0..1) de cada chegada virar ping.</param>
+        public void ResetEpisode(Mode mode, float speed, float noiseChance, Vector3 seekerPosition)
         {
             _mode = mode;
             _currentSpeed = speed > 0f ? speed : _speed;
+            _noiseChance = Mathf.Clamp01(noiseChance);
             PendingArrival = -1;
             _previousNode = -1;
             _targetNode = -1;
@@ -148,9 +156,9 @@ namespace Assets.Scripts.Graph
 
             Place(_graph.NodePosition(_currentNode));
 
-            // Nascer num nó de ping já é um barulho: o seeker ganha o primeiro ping de graça.
-            if (_graph.IsPingSource(_currentNode))
-                PendingArrival = _currentNode;
+            // Nascer num nó de ping pode ser um barulho: com hider_noise 1 o seeker ganha o primeiro
+            // ping de graça; com menos, às vezes começa sem pista nenhuma e tem que procurar.
+            MakeNoiseAt(_currentNode);
 
             if (mode == Mode.Static)
                 return;
@@ -199,10 +207,15 @@ namespace Assets.Scripts.Graph
             _currentNode = _targetNode;
             _targetNode = -1;
 
-            if (_graph.IsPingSource(_currentNode))
-                PendingArrival = _currentNode;
+            MakeNoiseAt(_currentNode);
 
             _pauseLeft = _maxPauseSteps > 0 ? Random.Range(0, _maxPauseSteps + 1) : 0;
+        }
+
+        private void MakeNoiseAt(int node)
+        {
+            if (_graph.IsPingSource(node) && Random.value < _noiseChance)
+                PendingArrival = node;
         }
 
         // Anda: vizinho aleatório, evitando voltar por onde veio quando há alternativa. Foge:

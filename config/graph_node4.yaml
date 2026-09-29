@@ -1,0 +1,368 @@
+# ================================================================================================
+# GraphExplorer - mapa da Node_4, seta roxa que SOME aos poucos (27/09/2026)
+#
+#   mlagents-learn config/graph_node4.yaml --run-id=node4_01
+#
+# Para o prefab novo feito a partir do NodeTraining3 da cena Node_4 (133 nos: 31 primarios,
+# 87 auxiliares, 15 de ping), com 9 copias na cena de treino. Os thresholds abaixo assumem:
+#   - pesos NORMALIZADOS para 23 (NavGraphPlacer > "8. Normalizar pesos"). Sem normalizar o
+#     mapa soma 31 e toda a renda de cobertura sobe 31/23 = 1.35x: multiplique os cinco
+#     thresholds por 1.35, senao as licoes passam cedo demais;
+#   - 9 arenas (min_lesson_length conta episodios de TODAS as arenas juntas);
+#   - _acceleration 20 no SeekerMovementSystem e _maxEpisodeSteps 8000 (1600 decisoes).
+#
+# A SETA (frontier_hint) - como ela some:
+#   Ela ajuda a APRENDER A ANDAR (sair do no, cruzar porta, seguir corredor) e depois tem que
+#   sumir por completo. O night_04 e o run 18 mostraram o risco: a rede que so reescala a seta
+#   (fade de forca) nunca e obrigada a olhar os vizinhos e desaba quando ela zera. Por isso ela
+#   some em DOIS eixos ao mesmo tempo, e o que mais pesa e a DURACAO:
+#     - frontier_hint_steps: por quantos steps de fisica a seta existe em cada episodio
+#       (0 = o episodio inteiro). Depois do limite ela vai a ZERO - observacao, shaping e gizmo.
+#       Todo episodio passa a ter um trecho SEM seta, e o agente tem que terminar sozinho: e
+#       isso que ensina a ler os vizinhos antes de a seta sumir de vez.
+#     - frontier_hint: a forca enquanto ela existe (1.0 -> 0.7 -> 0.4 -> 0.2 -> 0).
+#   Escada:  Perto/Metade seta inteira | Quase metade do ep. | Curta 40 s | Relance 20 s | SemSeta
+#   Se a Coverage desabar na SemSeta, NAO volte a seta: e sinal de que falta informacao local
+#   (vizinhos a 2 arestas / valor por saida - etapa 1 do plano), nao de que faltou treino.
+#
+# Sem ping e sem hider (constantes em 0): caca e o PROXIMO treino, comecando deste cerebro com
+# --initialize-from.
+#
+# ORCAMENTO (por que os thresholds sao esses):
+#   cobertura = 23 x 0.75 = 17.25 no mapa inteiro, x (1 - pre-visitados) x alvo; conclusao +5;
+#   shaping da seta (0.02/m aproximacao + 0.007/m progresso) ~ +3 com seta 1.0 o episodio
+#   inteiro (run 11 mediu 11.25 contra 11.7 estimado na licao 1), proporcional a forca x tempo
+#   com seta; _newEdgeReward morto (este mapa tem UMA aresta primario-primario); penalidades:
+#   existencial -2 diluida pelo tempo usado, parede e estagnacao ate ~-1.5 no pior caso.
+#
+#   Licao     alvo  pre   jitter  seta (forca / steps)  teto aprox.  threshold (~65%)
+#   Perto     0.3   0     0       1.0 / inteiro         ~11.7        7.5
+#   Metade    0.6   0.25  0.25    1.0 / inteiro         ~13.5        9.0
+#   Quase     0.9   0.5   0.5     0.7 / 4000 (80 s)     ~10.5        7.0
+#   Curta     0.9   0.5   0.5     0.4 / 2000 (40 s)     ~10          6.5
+#   Relance   0.9   0.5   0.5     0.2 / 1000 (20 s)     ~9.7         6.0
+#   SemSeta   0.9   0.5   0.5     0                     (final: refino, sem threshold)
+# O threshold NAO cresce de proposito: os pre-visitados tiram renda de cobertura e a renda da
+# seta encolhe a cada licao - a Quase paga menos que a Metade mesmo pedindo mais.
+#
+# Como ler o TensorBoard (compare por Exploration/*, nao por Cumulative Reward):
+#   - Cumulative Reward CAI um degrau a cada promocao a partir da Quase: e a renda da seta
+#     sumindo, nao o agente piorando. Olhe Exploration/Coverage e Episode Length.
+#   - licao parada ~1M steps com a curva achatada -> threshold alto: baixe (nos CINCO parametros);
+#   - Coverage despenca logo apos uma promocao -> aquela licao foi rapida: suba so ela.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.015, um pouco acima do v2 (0.01): nos trechos sem seta a unica forma de achar as
+      # saidas boas e tentar - entropia baixa cedo demais congela a politica em "seguir a seta".
+      beta: 0.015
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false    # as observacoes ja saem em [-1, 1] / [0, 1] do GraphExplorerManager
+      hidden_units: 256   # mesma rede do v2: o treino de caca vai partir DESTE cerebro com
+      num_layers: 2       # --initialize-from, e isso exige a mesma arquitetura
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # Horizonte longo: episodios de ate 1600 decisoes, e sem seta a recompensa de uma sala
+        # nova pode estar a varias arestas de distancia.
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    # 15M: 6 licoes que avancam por desempenho, ~15 h a ~270 steps/s com 9 arenas. O que sobra
+    # depois da SemSeta e refino sem seta - e o trecho que importa. Se ainda estiver subindo no
+    # fim, continue com --resume e max_steps maior.
+    max_steps: 15000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes (sem curriculo) ----
+  # So exploracao: sem ping aleatorio e sem hider (o que tambem desliga ping de rastro e visao).
+  ping_interval: 0
+  hider_mode: 0
+  hider_speed: 0.0
+
+  # ---- Curriculo ----
+  # Os CINCO parametros abaixo tem completion_criteria IDENTICOS de proposito: o ML-Agents
+  # avalia o curriculo de cada parametro sozinho, e so assim eles avancam juntos. Mexeu num
+  # threshold, mexa nos outros quatro.
+  #
+  # Licoes: Perto -> Metade -> Quase -> Curta -> Relance -> SemSeta
+
+  # Forca da seta enquanto ela existe no episodio (observacao, shaping e gizmo escalam juntos).
+  # Na SemSeta vai a 0 - e tem que estar AQUI: sem o parametro o GraphArenaController usa o
+  # default do Inspector (_defaultFrontierHint = 1) e a seta volta ligada.
+  frontier_hint:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.7
+      - name: Curta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.4
+      - name: Relance
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.2
+      - name: SemSeta
+        value: 0.0
+
+  # Por quantos steps de FISICA a seta existe em cada episodio (0 = o episodio inteiro).
+  # 4000 = 80 s, 2000 = 40 s, 1000 = 20 s. Depois do limite a seta zera ate o fim do episodio:
+  # o agente ve os dois regimes no MESMO episodio e aprende a terminar sozinho. Na SemSeta o
+  # valor nao importa (forca 0); fica 1000 para nao ser um salto a mais na promocao.
+  frontier_hint_steps:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 4000
+      - name: Curta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 2000
+      - name: Relance
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 1000
+      - name: SemSeta
+        value: 1000
+
+  # Fracao do que RESTA descobrir (pre-visitados fora) que encerra o episodio em sucesso (+5).
+  # Alvo alto desde o inicio faria todo episodio terminar em timeout, e o agente nunca veria o
+  # sinal de conclusao. Chega a 0.9 ANTES de a seta comecar a sumir: uma mudanca por vez.
+  coverage_target:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.3
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.6
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.9
+      - name: Curta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.9
+      - name: Relance
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.9
+      - name: SemSeta
+        value: 0.9
+
+  # Anti-decoreba: fracao dos primarios que ja nasce visitada (sorteada por episodio). Muda
+  # QUAIS salas faltam a cada episodio, entao a politica nao consegue decorar uma rota.
+  previsited_fraction:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.5
+      - name: Curta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.5
+      - name: Relance
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.5
+      - name: SemSeta
+        value: 0.5
+
+  # Peso de cada no x U[1-j, 1+j] por episodio. A soma esperada nao muda (os thresholds
+  # continuam valendo) e o peso esta na observacao de cada vizinho - a politica aprende a
+  # preferir a saida que vale mais, em vez de uma ordem fixa de salas.
+  weight_jitter:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.25
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 7.0
+          require_reset: true
+        value: 0.5
+      - name: Curta
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.5
+          require_reset: true
+        value: 0.5
+      - name: Relance
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.5
+      - name: SemSeta
+        value: 0.5
