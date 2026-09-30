@@ -2,11 +2,14 @@ using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
 
 public class PauseControler : MonoBehaviour
 {
     [SerializeField] private GameObject pauseMenuUI;
     [SerializeField] private GameObject firstButtonSelected;
+
+    private GameObject lastSelected;
 
     public static bool IsPaused { get; private set; }
 
@@ -42,6 +45,41 @@ public class PauseControler : MonoBehaviour
         PlayerInputProvider.SetMode(InputMode.Player);
     }
 
+    // Roda depois do EventSystem.Update: o módulo de UI já "gastou" o primeiro toque de
+    // navegação (sem seleção ele só arma o repeat delay), então aqui o toque apenas acorda a
+    // seleção em vez de pular direto para o segundo botão.
+    private void LateUpdate()
+    {
+        if (!IsPaused || EventSystem.current == null)
+            return;
+
+        var eventSystem = EventSystem.current;
+        var current = eventSystem.currentSelectedGameObject;
+
+        if (current != null)
+        {
+            lastSelected = current;
+            return;
+        }
+
+        if (!NavigateHeld(eventSystem))
+            return;
+
+        var target = lastSelected != null && lastSelected.activeInHierarchy ? lastSelected : firstButtonSelected;
+        eventSystem.SetSelectedGameObject(target);
+    }
+
+    // Lê a mesma action que o módulo usa para mover a seleção: assets diferentes com
+    // bindings diferentes fariam o menu acordar com uma tecla e navegar com outra.
+    private static bool NavigateHeld(EventSystem eventSystem)
+    {
+        if (eventSystem.currentInputModule is not InputSystemUIInputModule module)
+            return false;
+
+        var action = module.move != null ? module.move.action : null;
+        return action != null && action.ReadValue<Vector2>() != Vector2.zero;
+    }
+
     private void OnToggleInput(InputAction.CallbackContext context)
     {
         if (IsPaused)
@@ -61,8 +99,10 @@ public class PauseControler : MonoBehaviour
         SetCursor(false);
         pauseMenuUI.SetActive(true);
 
+        // Sem seleção inicial: só WASD/joystick ou o mouse (PointerSelectable) selecionam.
+        lastSelected = null;
         if (EventSystem.current != null)
-            EventSystem.current.SetSelectedGameObject(firstButtonSelected);
+            EventSystem.current.SetSelectedGameObject(null);
 
         OnPaused?.Invoke();
     }
@@ -93,6 +133,7 @@ public class PauseControler : MonoBehaviour
         SetCursor(true);
         pauseMenuUI.SetActive(false);
 
+        lastSelected = null;
         if (EventSystem.current != null)
             EventSystem.current.SetSelectedGameObject(null);
     }
