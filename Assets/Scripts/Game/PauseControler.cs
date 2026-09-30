@@ -3,11 +3,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class PauseControler : MonoBehaviour
 {
     [SerializeField] private GameObject pauseMenuUI;
-    [SerializeField] private GameObject firstButtonSelected;
 
     private GameObject lastSelected;
 
@@ -65,8 +66,21 @@ public class PauseControler : MonoBehaviour
         if (!NavigateHeld(eventSystem))
             return;
 
-        var target = lastSelected != null && lastSelected.activeInHierarchy ? lastSelected : firstButtonSelected;
-        eventSystem.SetSelectedGameObject(target);
+        var target = lastSelected != null && lastSelected.activeInHierarchy ? lastSelected : FirstSelectable();
+        if (target != null)
+            eventSystem.SetSelectedGameObject(target);
+    }
+
+    // Ordem da hierarquia = ordem visual do menu; botão desabilitado não pode receber o foco.
+    private GameObject FirstSelectable()
+    {
+        foreach (var selectable in pauseMenuUI.GetComponentsInChildren<Selectable>())
+        {
+            if (selectable.IsInteractable())
+                return selectable.gameObject;
+        }
+
+        return null;
     }
 
     // Lê a mesma action que o módulo usa para mover a seleção: assets diferentes com
@@ -114,6 +128,15 @@ public class PauseControler : MonoBehaviour
 
         ApplyResume();
         OnResumed?.Invoke();
+    }
+
+    // O OnDestroy daqui e o PauseAudio.OnDisable já desfazem pausa, input e áudio no reload.
+    public void Restart()
+    {
+        if (GameManager.Current != null)
+            GameManager.Current.Restart();
+        else
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void Quit()
