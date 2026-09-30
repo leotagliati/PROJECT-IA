@@ -18,6 +18,7 @@ public static class AudioProvider
     private static AudioPool _pool;
     private static bool _muted;
     private static bool _libraryMissing;
+    private static float _masterVolume = 1f;
 
     private static AudioPool Pool
     {
@@ -67,6 +68,21 @@ public static class AudioProvider
     }
 
     public static bool IsMuted => _muted;
+
+    /// <summary>
+    /// Volume geral (posição do slider, 0-1). Vai no AudioListener porque quase todas as
+    /// fontes são criadas por código e escrevem o próprio volume (fades), então escalar
+    /// cada uma de fora não é viável. Ao quadrado, porque o ouvido não é linear.
+    /// </summary>
+    public static float MasterVolume
+    {
+        get => _masterVolume;
+        set
+        {
+            _masterVolume = Mathf.Clamp01(value);
+            AudioListener.volume = _masterVolume * _masterVolume;
+        }
+    }
 
     // ------------------------------------------------------------------ API
 
@@ -149,5 +165,6 @@ public static class AudioProvider
         _pool = null;
         _muted = false;
         _libraryMissing = false;
+        MasterVolume = 1f;
     }
 }

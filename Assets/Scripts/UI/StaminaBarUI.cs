@@ -48,6 +48,27 @@ public class StaminaBarUI : MonoBehaviour
     private Texture2D builtTexture;
     private Sprite builtSprite;
     private float fullSince = float.NegativeInfinity;
+    private bool paused;
+
+    private void OnEnable()
+    {
+        PauseControler.OnPaused += HandlePaused;
+        PauseControler.OnResumed += HandleResumed;
+    }
+
+    private void OnDisable()
+    {
+        PauseControler.OnPaused -= HandlePaused;
+        PauseControler.OnResumed -= HandleResumed;
+    }
+
+    private void HandlePaused()
+    {
+        paused = true;
+        group.alpha = 0f;
+    }
+
+    private void HandleResumed() => paused = false;
 
     private void Awake()
     {
@@ -89,6 +110,10 @@ public class StaminaBarUI : MonoBehaviour
 
     private void Update()
     {
+        // Com timeScale 0 o deltaTime é 0 e o fade não andaria: o alpha é zerado direto.
+        if (paused)
+            return;
+
         float value = stamina.Normalized;
 
         fill.fillAmount = value;

@@ -81,7 +81,20 @@ public class GameManager : MonoBehaviour
 
     public void PlayerEscaped() => Finish(GameState.Won);
 
-    public void Restart() => SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    public void Restart()
+    {
+        var scene = SceneManager.GetActiveScene();
+#if UNITY_EDITOR
+        // Cenas de teste fora do Build Settings têm buildIndex -1; no Editor dá para carregar pelo path.
+        if (scene.buildIndex < 0)
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(
+                scene.path, new LoadSceneParameters(LoadSceneMode.Single));
+            return;
+        }
+#endif
+        SceneManager.LoadScene(scene.buildIndex);
+    }
 
     private void Finish(GameState outcome)
     {
