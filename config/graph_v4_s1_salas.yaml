@@ -1,5 +1,5 @@
 # ================================================================================================
-# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - S1 SALAS E PORTAS (do zero, sem seta)
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.0 S1 SALAS E PORTAS (do zero, sem seta)
 #
 #   mlagents-learn config/graph_v4_s1_salas.yaml --run-id=v4_s1_01
 #

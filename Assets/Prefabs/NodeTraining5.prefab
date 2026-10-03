@@ -1908,14 +1908,14 @@ MonoBehaviour:
   _doorCrossReward: 0.1
   _roomExitReward: 0.15
   _fullCoverageReward: 5
-  _pingReachedReward: 2
+  _pingReachedReward: 5
   _pingMissedPenalty: 0.5
-  _hiderSpottedReward: 1
-  _hiderApproachReward: 0.1
+  _hiderSpottedReward: 2
+  _hiderApproachReward: 0.4
   _hiderCaughtReward: 20
-  _hiderInViewReward: 0.003
+  _hiderInViewReward: 0.004
   _hiderCaughtEarlyBonus: 25
-  _suspicionClearedReward: 0.5
+  _suspicionClearedReward: 1
 --- !u!114 &3835614860141840698
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1932,12 +1932,14 @@ MonoBehaviour:
   _moveSpeed: 40
   _turnSpeed: 360
   _acceleration: 15
+  _brakeAcceleration: 0
   _minTurnSpeed: 0.5
   _backwardSpeedFactor: 0.6
   _lookDeadzone: 0.1
   _steerMargin: 0.5
   _frictionlessBody: 1
   _lockHeight: 1
+  _syncVelocityWithBody: 0
 --- !u!136 &7752561918549933382
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -1974,7 +1976,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _updateIntervalSteps: 5
-  _defaultHiderSpeed: 1.5
+  _defaultHiderSpeed: 8
   _maxSpreadPerUpdate: 0.5
   _touchRadius: 2
   _reclearCooldownSteps: 500
@@ -2296,9 +2298,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _speed: 1
   _arriveDistance: 0.4
-  _maxPauseSteps: 100
+  _maxPauseSteps: 0
   _heightOffset: 0.15
-  _fleeRadius: 12
+  _fleeRadius: 18
   _looseMargin: 0.6
   _hideChance: 0.5
   _hideCandidates: 6
@@ -14943,7 +14945,7 @@ MonoBehaviour:
   - {fileID: 1951571971830319820}
   _hider: {fileID: 0}
   _coverageParameterName: coverage_target
-  _defaultCoverageTarget: 0.35
+  _defaultCoverageTarget: 1.1
   _roomCompleteParameterName: room_complete_threshold
   _defaultRoomCompleteThreshold: 0.8
   _previsitedParameterName: previsited_fraction
@@ -14953,11 +14955,11 @@ MonoBehaviour:
   _pingIntervalParameterName: ping_interval
   _defaultPingInterval: 0
   _hiderModeParameterName: hider_mode
-  _defaultHiderMode: 0
+  _defaultHiderMode: 3
   _hiderSpeedParameterName: hider_speed
-  _defaultHiderSpeed: 0
+  _defaultHiderSpeed: 8
   _hiderNoiseParameterName: hider_noise
-  _defaultHiderNoise: 1
+  _defaultHiderNoise: 0.7
   _pingRewardScaleParameterName: ping_reward_scale
   _defaultPingRewardScale: 1
   _discoveryRewardScaleParameterName: discovery_reward_scale
@@ -14965,11 +14967,11 @@ MonoBehaviour:
   _pingSingleRoomChanceParameterName: ping_single_room_chance
   _defaultPingSingleRoomChance: 0.5
   _visionExploresParameterName: vision_explores
-  _defaultVisionExplores: 0
+  _defaultVisionExplores: 1
   _hiderLooseParameterName: hider_loose
   _defaultHiderLoose: 0
   _steerAssistParameterName: steer_assist
-  _defaultSteerAssist: 0
+  _defaultSteerAssist: 0.3
   _spawnAtRandomNode: 1
   _nodeSpawnHeightOffset: 0.15
   _randomizeSpawn: 1

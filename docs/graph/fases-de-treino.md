@@ -23,6 +23,10 @@ repetir o mesmo run.
 
 ## Visão geral
 
+**Versões (decidido em 03/10):** o mapa v4 (salas e portas) é a família v4; um ajuste na mesma tarefa é v4.x
+(v4.0, v4.1, v4.2, v4.3); v5 só quando mudar o mapa ou a forma de treinar. Nomes antigos: V4B = v4.1 e V5 = v4.2;
+"v4c" e `v5_fuga_01` foram só planos e nunca rodaram.
+
 | # | Quando | Mapa | O que se tentou | Resultado |
 |---|---|---|---|---|
 | S | jul–set | Map_1..8 | **Seeker** (linha anterior): perseguir o hider com memória em grade | SeekerV1–V3; currículo travou mais de uma vez |
@@ -37,9 +41,11 @@ repetir o mesmo run.
 | 4 | 28/09 | Node_4 | Tudo num treino só | Adiado, nunca rodou |
 | 5 | 28/09 | Node_4 | Procura + ping, do zero | Não aprendeu: mudanças demais de uma vez |
 | 6 | 28/09–01/10 | Node_4 | **Em etapas**, uma coisa por vez | E1 ✅, E2 parcial, E3 ✅ no limite |
-| 7 | 01/10 → | Node_5 (v4) | **Salas e portas**: toda sala vale igual, porta perde valor ao repetir, sem seta | S1→S6 numa noite: explora ~70% das salas e pega o hider em ~2/3 |
-| 7b | 02/10 | Node_5 (v4) | **Planta de salas** (sensor com as 26 salas), ver = explorar, suspeita multiplica | `v4b_noite_01` (parou aos 7.1M): explora 76–83% das salas e pega o hider em 83% (HiderFoge) |
-| 7c | 03/10 | Node_5 (v4) | **Fuga a 6 m/s**: hider na velocidade do seeker, caça/suspeita/ping valendo mais, manter em visão | `v4c_fuga_01` preparado (parte do V4B); antes, a fuga scriptada do hider precisa melhorar |
+| 7 · v4.0 | 01/10 → | Node_5 (v4) | **Salas e portas**: toda sala vale igual, porta perde valor ao repetir, sem seta | S1→S6 numa noite: explora ~70% das salas e pega o hider em ~2/3 |
+| 7b · v4.1 | 02/10 | Node_5 (v4) | **Planta de salas** (sensor com as 26 salas), ver = explorar, suspeita multiplica | `v4.1_noite_01` (antes `v4b_noite_01`; parou aos 7.1M): explora 76–83% das salas e pega o hider em 83% (HiderFoge) |
+| 7c · v4.2 | 03/10 | Node_5 (v4) | **V4.2 do zero** (antes V5): caça com hider rápido, calor do ping no mapa inteiro, 2 sensores de raios, menos steering, parede mais cara | `v4.2_noite_01` (antes `v5_noite_01`) abandonado aos 3.72M: parou de bater mas também de explorar (22% das salas na Metade) |
+| 7d · v4.3 | 03/10 | Node_5 (v4) | **Caça herdando a v4.1**: hider sem pausa, foge a 18 m, escada 4→6→8 m/s; caça mais valiosa; calor do ping; física, parede e raios voltam aos da v4.1 | `v4.3_caca_01` parado aos 532k: vê ~89%, pega ~72%; modelo `GraphExplorer_v4.3.onnx` |
+| 7e · v4.4 | 03/10 | Node_5 (v4) | **Movimento**: 10 m/s, aceleração 35, freio 50 (para em 1 m), bater custa tempo, sem steer assist; hider 2→3→4 m/s | `v4.4_movimento_01` planejado (o prefab das mudanças entra no branch do treino) |
 
 ---
 
@@ -149,20 +155,51 @@ S1 a S6 seguidas** (`v4_noite_01`, 10M steps, 01→02/10), que chegou à última
 
 - **O que funcionou:** sem seta, ele aprendeu a explorar por salas (Fase 6 travava em ~40%) e a caçar.
   O tremor das ações caiu de 0,42 para 0,15.
-- **V4B (`v4b_noite_01`, 02/10, do zero, parou aos 7.1M na lição HiderFoge):** sensor com a planta das 26
+- **V4.1 (`v4.1_noite_01`, antes chamada V4B, 02/10, do zero, parou aos 7.1M na lição HiderFoge):** sensor com a planta das 26
   salas, "ver" a sala conta como explorar e a suspeita passa a multiplicar o valor de ver (em vez de pagar
   sozinha). Resultado: cobertura de exploração **76–83%** (era ~70%), lições de exploração em 3M steps (eram
-  4.7M) e **pega o hider em 83%** (era ~65%). Rewards não são comparáveis com o v4 (a recompensa mudou).
+  4.7M) e **pega o hider em 83%** (era ~65%). Rewards não são comparáveis com a v4.0 (a recompensa mudou).
   Pontos fracos: portas repetidas 65% e ~11 loops na Patrulha/Ping, parede ~17% na caça, e não chegou ao
   HiderSolto (entropia ainda 0.82).
-- **V4C (`v4c_fuga_01`, 03/10, preparado, ainda não rodou):** parte do cérebro do V4B e treina a fuga com o
-  hider a 6 m/s (escada 4.0 → 6.0 → solto). Pedidos: exploração menos valiosa (×0.5), caça bem mais valiosa
-  (captura 20 + até 25 por pegar cedo, avistar 1.0, aproximar 0.1/m), **manter o hider em visão** (0.003 por
-  decisão), sala suspeita até 4× o valor base e ping valendo na caça. **Risco:** o ping pago foi o que virou
-  renda no `night_04`; se a cobertura despencar com o reward subindo, baixar o ping para ~0.3.
-  Antes do run, a **fuga do hider scriptado precisa melhorar**: hoje ele só reage a 12 m, olha um passo à
-  frente (entra em beco) e pausa ~2 s em cada nó mesmo fugindo. Um hider treinado por IA fica para depois,
-  quando a caça estabilizar contra um scriptado bom.
+- **Modelo v4.1 e as versões seguintes (03/10):** o cérebro do `v4.1_noite_01` (checkpoint 7.17M, lição
+  HiderFoge, pega o hider em ~85%) foi promovido a **v4.1**: `Assets/GraphExplorer_v4.1.onnx` (o modelo da
+  v4.0 é `Assets/GraphExplorer_v4.0.onnx`). O nome "v4c" foi abandonado; o que viria depois virou v4.2 e v4.3.
+- **V4.2 (`v4.2_noite_01`, antes chamada V5, 03/10, rodou e foi abandonada aos 3.72M, ver "O que não deu
+  certo"):** treino **do zero**, porque os 2 sensores de raios (13 raios cada, alcance 15 m, alturas
+  ajustáveis) mudam o tamanho da observação e a v4.1 não carrega. O que mudou em relação à v4.1:
+  - **Movimento:** seeker 20 m/s e aceleração 7 (eram 40 e 15), freio 30 e atrito 1. Ele deslizava e se jogava
+    na parede, e o steering assist cobria o erro. O assist cai de 1.0→0.3 para 0.6→0.1.
+  - **Parede mais cara:** contato 0.0015/step e batida 0.1 (eram 0.00075 e 0.03).
+  - **Caça muito mais valiosa:** captura 20 + até 25 por pegar cedo, avistar 2, aproximar 0.4 por metro (só com
+    visão livre, ou seja, em linha reta), manter o hider em visão 0.004 por step; exploração ×0.5 na caça.
+  - **Calor do ping no mapa inteiro:** a sala do barulho vale 1, cada porta de distância ×0.65, meia-vida de
+    25 s; vira observação contínua. Explorar no frio vale ×0.25 enquanto há calor, a sala quente vale ~8×,
+    o ping chegado paga 5 (era 2) e a suspeita zerada volta a pagar (1.0).
+  - **Hider:** 10 m/s, sem pausa, foge a menos de 18 m (escada 5 → 8 → 10).
+  **Risco:** ping pago na caça foi o que virou renda no `night_04`; se a cobertura cair com o reward subindo,
+  baixar `ping_reward_scale` para ~0.3. Correção do plano anterior: o termo "manter em visão" é por STEP de
+  física (8000 por episódio), não por decisão; 0.004 já limita a renda a 32 contra 45 de pegar.
+  Fica de fora por ora: fuga do hider com olhada de dois nós e hider treinado por IA.
+- **V4.3 (`v4.3_caca_01`, 03/10, parado aos 532k):** parte do cérebro da v4.1
+  (`--initialize-from=v4.1_noite_01`) e muda só a caça:
+  - **Hider:** sem pausa nos nós, raio de fuga 18 m (era 12), velocidade em escada 4 → 6 → 8 m/s e depois solto
+    (a v4.1 parou em 2.2).
+  - **Recompensas:** captura 20 + até 25 por pegar cedo, avistar 2, aproximar 0.4/m, manter em visão 0.004/step,
+    suspeita zerada 1.0; exploração ×0.5 na caça.
+  - **Calor do ping** no mapa inteiro; ping chegado 5 × `ping_reward_scale` 0.4 = 2.
+  - **Voltaram aos da v4.1:** física (40 m/s, aceleração 15, sem atrito), parede (0.00075 contínuo, 0.03 por
+    batida), steer assist 0.3 e sensor de raios (1 × 9 raios a 20 m). O 2º sensor (`RaysWorldLow`) está
+    desativado no prefab, porque com ele o `--initialize-from` não carrega.
+  - **Critério:** `Hunt/Caught` não cair abaixo de ~60% na FogeMedia/FogeRapida; abaixo de 40%, segurar a
+    velocidade. 5M steps.
+  - **Resultado:** viu ~89%, pegou ~72%, estável; ~1 em 6 hiders escapava depois de visto (na v4.1, viu =
+    pegou). A 40 m/s com aceleração 15 o seeker leva 53 m para parar e usa steer assist + corpo sem atrito
+    como trilho. Modelo promovido: `GraphExplorer_v4.3.onnx`.
+- **V4.4 (`v4.4_movimento_01`, 03/10, planejado):** os valores abaixo ainda não estão no prefab (ele ficou com a
+  física da v4.3 para o modelo v4.3 rodar no jogo); aplicar no branch do treino. só movimento, mantém a caça da v4.3. Seeker 10 m/s,
+  aceleração 35, freio 50 (para em 1 m, chega ao máximo em 0.3 s); novo `_syncVelocityWithBody` (bater na
+  parede custa tempo de reaceleração, a parede deixa de ser trilho); steer assist 0.3 → 0.15 → 0 enquanto o
+  hider sobe 2 → 3 → 4 m/s. Critério: `Hunt/Caught` ≥ 70% na SemAssist com parede < 0.15 e batidas caindo.
 - **O que ainda falta (no v4_noite_01):**
   - **teto de ~70% das salas:** o episódio de exploração nunca terminou por cobertura (sempre por
     tempo), então o bônus de 80% quase não foi pago;
@@ -314,6 +351,7 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
   - não sabia de onde tinha vindo.
 
   **Feito:** as correções da Fase 2.
+- **V4.2 do zero (antes V5; 03/10, `v4.2_noite_01`):** cinco mudanças contra a parede ao mesmo tempo + sensor novo (do zero). Ele parou de encostar em parede (0.2% do tempo) mas também parou de explorar: levou 3.4M steps para passar a 1ª lição (a v4.1 levou 380k) e ficou em 22% das salas na Metade. Abandonado aos 3.72M.
 - **Patrulha (`patrol_02`, 7M) — funcionou em parte.** Cobriu 88% do mapa, mas:
   - ficou 43% do tempo na parede;
   - girava como beyblade, porque a rotação física estava livre;

@@ -3,78 +3,52 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// A PROCURA: a crença do seeker sobre ONDE O HIDER PODE ESTAR AGORA — uma probabilidade por
-    /// nó do grafo, somando 1. Tudo o que ele sabe do hider entra por aqui (docs/graph/procura-e-ping.md):
-    ///   começo do episódio      uniforme (pode estar em qualquer lugar)
-    ///   o tempo passa           ESPALHA pelas arestas na velocidade do hider (ele pode ter andado)
-    ///   ver/passar num nó vazio o nó vai a zero e o resto é renormalizado
-    ///   ping (barulho)          quase toda a crença vai para o nó do barulho
-    ///   ver o hider             toda a crença vai para o nó dele
-    ///   zerou tudo              volta a uniforme nos nós que ele não está vendo
+    /// A PROCURA: crença do seeker sobre onde o hider pode estar, uma probabilidade por nó (soma 1;
+    /// docs/graph/procura-e-ping.md). Espalha pelas arestas na velocidade suposta do hider, zera os
+    /// nós que o seeker vê ou pisa, concentra no nó do ping (_pingConfidence) e no hider visto;
+    /// zerou tudo, volta a uniforme no que não está vendo. Só usa pistas legítimas (visão e ping).
     ///
-    /// NÃO É TRAPAÇA: a posição real do hider só entra quando o seeker o VÊ (GraphHiderPerception)
-    /// ou quando ele faz barulho (GraphPingSystem). Entre uma pista e outra, é só dedução.
+    /// Observação: por vizinho, a suspeita alcançável pela saída (NavGraph.ScoreBeyond) e 3 globais
+    /// (ativa, certeza, tempo desde a última pista). Paga _suspicionClearedReward x massa zerada,
+    /// com carência por nó; a GraphRoomMemory também usa RoomRatio para valorizar ver a sala suspeita.
     ///
-    /// O QUE O AGENTE RECEBE: por vizinho, a suspeita alcançável por aquela saída (descontada por
-    /// metro, NavGraph.ScoreBeyond — o mesmo "o que tem atrás desta porta" da exploração); e três
-    /// globais: ativa, CERTEZA (a maior suspeita de um nó) e tempo desde a última pista.
-    ///
-    /// O QUE PAGA (GraphRewardSystem._suspicionClearedReward): a suspeita ZERADA ao ver ou visitar
-    /// nós vazios — procurar onde ele provavelmente está vale mais que olhar onde ele não pode
-    /// estar. Com carência por nó (_reclearCooldownSteps) contra ficar parado olhando para um
-    /// lugar por onde a suspeita escorre.
-    ///
-    /// Substitui, nas lições de procura, a patrulha e o tédio de sala: "voltar a um lugar que não
-    /// olho há tempo" é a suspeita crescendo de novo ali, sem relógio artificial.
-    ///
-    /// Uma instância por agente (é estado de episódio). Tick a cada step de física; a conta pesada
-    /// (espalhar + raycasts de visão) roda a cada _updateIntervalSteps.
+    /// Um por agente (estado de episódio); Tick a cada step de física, com a conta pesada a cada
+    /// _updateIntervalSteps.
     /// </summary>
     public class GraphSuspicionMap : MonoBehaviour
     {
         [Header("-----Atualização-----")]
-        // Espalhar e limpar rodam a cada N steps de física. 5 = uma vez por decisão (Decision
-        // Period 5): mais que isso a rede não vê mesmo. O ping é lido todo step (não pode perder).
+        // Steps de física entre espalhar/limpar (5 = uma vez por decisão). O ping é lido todo step.
         [SerializeField, Min(1)] private int _updateIntervalSteps = 5;
 
         [Header("-----Espalhar-----")]
-        // Velocidade (m/s) que o seeker SUPÕE para o hider quando o currículo não diz (hider_speed
-        // 0) — no jogo, a do player andando. Hider parado (hider_mode 1) usa 0: não espalha.
+        // Velocidade (m/s) suposta para o hider quando o currículo não diz; 0 (hider parado) não espalha.
         [SerializeField, Min(0f)] private float _defaultHiderSpeed = 1.5f;
 
-        // Fração máxima da suspeita de um nó que sai para os vizinhos por atualização. Sem teto,
-        // num nó com arestas curtas a conta (velocidade x dt / aresta) passaria de 1 e a crença
-        // oscilaria entre nós em vez de espalhar.
+        // Teto da fração da suspeita de um nó que sai por atualização; sem ele, arestas curtas passariam de 1 e a crença oscilaria.
         [SerializeField, Range(0.05f, 0.5f)] private float _maxSpreadPerUpdate = 0.5f;
 
         [Header("-----Limpar-----")]
-        // Nós a menos disto (m, no plano) contam como vistos mesmo fora do cone: a esta distância
-        // ele ouviria alguém respirando. Da ordem do raio de captura (2.5).
+        // Nós a menos disto (m, no plano) contam como vistos mesmo fora do cone.
         [SerializeField, Min(0f)] private float _touchRadius = 2f;
 
-        // Um nó só PAGA de novo por ser limpo depois disto (steps de física; 500 = 10 s) desde a
-        // última vez em que foi visto. Olhar sem parar para o mesmo corredor zera a suspeita que
-        // escorre para ele a cada atualização — sem carência isso seria renda de ficar parado.
-        // A limpeza em si acontece sempre (a crença tem que ser honesta); só o pagamento espera.
+        // Steps de física (500 = 10 s) desde a última vez visto para um nó pagar de novo ao ser limpo; a
+        // limpeza em si acontece sempre. Sem carência, olhar parado para um corredor seria renda.
         [SerializeField, Min(0)] private int _reclearCooldownSteps = 500;
 
         [Header("-----Pistas-----")]
-        // Quanto da crença vai para o nó do PING (o resto fica onde estava). 0.9: barulho é
-        // pista forte, mas não GPS — com 1.0, um ping velho apagaria tudo o que ele já deduziu.
+        // Fração da crença que vai para o nó do ping; com 1.0 um ping velho apagaria a dedução anterior.
         [SerializeField, Range(0f, 1f)] private float _pingConfidence = 0.9f;
 
-        // Normalizador do "tempo desde a última pista" na observação, em segundos. 60 = um ping
-        // inteiro (GraphPingSystem._duration); acima disso a pista é velha e satura em 1.
+        // Segundos que normalizam o "tempo desde a última pista" na observação (satura em 1; 60 = GraphPingSystem._duration).
         [SerializeField, Min(1f)] private float _evidenceHorizonSeconds = 60f;
 
         [Header("-----Saídas-----")]
-        // Meia-vida (m pelo grafo) do desconto da "suspeita por esta saída". A mesma da exploração
-        // (GraphExplorationMemory._exitHalfLifeMeters): uma sala + o corredor até a próxima.
+        // Meia-vida (m pelo grafo) do desconto da suspeita por saída; igual à de GraphRoomMemory._exitHalfLifeMeters.
         [SerializeField, Min(0.1f)] private float _exitHalfLifeMeters = 20f;
 
         [Header("-----Gizmos (só em Play)-----")]
-        // Barra vermelho-escura em cada nó, altura proporcional à suspeita (relativa ao nó mais
-        // suspeito). Não é cor de nenhum outro gizmo (verde/laranja/amarelo/magenta/branco/rosa).
+        // Gizmo: barra vermelho-escura por nó, altura proporcional à suspeita relativa ao nó mais suspeito.
         [SerializeField] private bool _drawGizmos = true;
 
         private static readonly Color SuspicionColor = new Color(0.7f, 0.08f, 0.12f, 0.85f);
@@ -83,6 +57,7 @@ namespace Assets.Scripts.Graph
         private GraphHiderPerception _perception;
         private GraphPingSystem _ping;
         private GraphHider _hider;
+        private IGraphTarget _target;
 
         private float[] _belief;
         private float[] _scratch;
@@ -115,6 +90,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Suspeita paga no episódio inteiro (métrica Search/Cleared).</summary>
         public float EpisodeCleared { get; private set; }
 
+        /// <summary>Troca o alvo (o jogador no modo de jogo); sem chamar, é o hider da arena.</summary>
+        public void SetTarget(IGraphTarget target) => _target = target;
+
         public void Configure(NavGraph graph, GraphHiderPerception perception, GraphPingSystem ping)
         {
             _graph = graph;
@@ -129,6 +107,9 @@ namespace Assets.Scripts.Graph
                     _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
             }
 
+            if (_target == null && _hider != null)
+                _target = _hider;
+
             int count = _graph.NodeCount;
             _belief = new float[count];
             _scratch = new float[count];
@@ -137,8 +118,7 @@ namespace Assets.Scripts.Graph
             _seenThisUpdate = new bool[count];
             _exitValue = new float[count];
 
-            // Comprimento médio das arestas de cada nó, no plano: é o que converte "o hider anda
-            // v m/s" em "fração da suspeita que sai deste nó por atualização".
+            // Comprimento médio das arestas do nó: converte velocidade do hider em fração espalhada.
             for (int i = 0; i < count; i++)
             {
                 int[] neighbors = _graph.GetNeighbors(i);
@@ -167,7 +147,7 @@ namespace Assets.Scripts.Graph
             if (_belief == null)
                 return;
 
-            // Longe no passado: a primeira limpeza de cada nó paga.
+            // A primeira limpeza de cada nó paga.
             for (int i = 0; i < _lastSeenStep.Length; i++)
                 _lastSeenStep[i] = -_reclearCooldownSteps;
 
@@ -178,10 +158,8 @@ namespace Assets.Scripts.Graph
         public void ClearStepFlags() => ClearedMass = 0f;
 
         /// <summary>
-        /// Quão mais suspeita a sala está que a média: (crença média dos nós da sala) / (crença média
-        /// de um nó qualquer). 1 = como qualquer lugar; 3 = três vezes mais provável que o hider esteja
-        /// ali. 0 sem procura. É o que a GraphRoomMemory usa para multiplicar o valor de VER a sala e
-        /// para reabrir sala concluída (a suspeita voltou a crescer ali).
+        /// Quão mais suspeita a sala está que a média (1 = como qualquer lugar); 0 sem procura. A
+        /// GraphRoomMemory multiplica por isso o valor de ver a sala e reabre sala concluída.
         /// </summary>
         public float RoomRatio(int room)
         {
@@ -200,8 +178,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Chamar a cada step de física, DEPOIS da memória, do ping e da percepção (usa o que eles
-        /// acabaram de medir).
+        /// Chamar a cada step de física, DEPOIS da memória, do ping e da percepção (usa o que eles medem).
         /// </summary>
         public void Tick(Transform seeker, int currentNode)
         {
@@ -210,8 +187,7 @@ namespace Assets.Scripts.Graph
 
             _step++;
 
-            // Ping lido todo step: um barulho que toca e é substituído entre duas atualizações
-            // ainda é uma pista.
+            // Ping lido todo step: um ping substituído entre duas atualizações ainda é pista.
             int pingNode = _ping != null && _ping.IsActive ? _ping.TargetNode : -1;
             if (pingNode >= 0 && pingNode != _lastPingNode)
                 ApplyPing(pingNode);
@@ -222,11 +198,10 @@ namespace Assets.Scripts.Graph
 
             Spread(_updateIntervalSteps * Time.fixedDeltaTime);
 
-            // Vendo o hider, a crença é o nó dele — e nada paga por "limpar" nesse step: a
-            // recompensa de ver já é o _hiderSpottedReward/_hiderApproachReward.
-            if (_perception != null && _perception.IsSeeing && _hider != null && _hider.CurrentNode >= 0)
+            // Vendo o hider, nada paga por limpar: ver já tem recompensa própria.
+            if (_perception != null && _perception.IsSeeing && GraphTarget.IsLive(_target) && _target.CurrentNode >= 0)
             {
-                ConcentrateOn(_hider.CurrentNode, 1f);
+                ConcentrateOn(_target.CurrentNode, 1f);
                 MarkEvidence();
             }
             else
@@ -237,9 +212,7 @@ namespace Assets.Scripts.Graph
             UpdateCertainty();
         }
 
-        // O hider pode ter andado: cada nó manda uma fração da suspeita para os vizinhos,
-        // proporcional a quanto do comprimento médio das arestas dele o hider cobriria em dt.
-        // Conserva a soma (é redistribuição, não criação).
+        // Cada nó manda aos vizinhos a fração da suspeita que o hider andaria em dt; conserva a soma.
         private void Spread(float dt)
         {
             if (_speed <= 0f)
@@ -281,9 +254,8 @@ namespace Assets.Scripts.Graph
             (_belief, _scratch) = (_scratch, _belief);
         }
 
-        // Todo nó visível (cone + linha livre, GraphHiderPerception.CanSeePoint), perto demais
-        // para não perceber, ou o nó em que ele está: se o hider não está lá (e não está, senão
-        // estaria vendo), a suspeita dali vai a zero.
+        // Zera a suspeita dos nós visíveis (GraphHiderPerception.CanSeePoint), muito próximos ou da
+        // âncora: se o hider estivesse ali, estaria sendo visto. Renormaliza o resto.
         private void ClearVisible(Transform seeker, int currentNode)
         {
             Vector3 position = seeker.position;
@@ -294,7 +266,7 @@ namespace Assets.Scripts.Graph
             {
                 _seenThisUpdate[i] = false;
 
-                // Só testa quem tem o que limpar: nó sem suspeita não muda nada e custaria um raycast.
+                // Nó sem suspeita não muda nada e custaria um raycast.
                 if (_belief[i] <= 1e-6f || !_graph.IsNodeEnabled(i))
                     continue;
 
@@ -325,8 +297,7 @@ namespace Assets.Scripts.Graph
             float remaining = 1f - removed;
             if (remaining <= 1e-4f)
             {
-                // Olhou em todo lugar possível e não achou: a crença não pode sumir. Ele pode estar
-                // em qualquer canto que não estou vendo agora.
+                // Olhou em todo lugar possível: a crença não pode sumir, volta a uniforme no que não vê.
                 ResetUniform(excludeSeen: true);
                 return;
             }
@@ -343,7 +314,7 @@ namespace Assets.Scripts.Graph
             UpdateCertainty();
         }
 
-        // Mistura: confiança no nó, o resto mantém a forma de antes. Soma continua 1.
+        // Move a fração confidence da crença para o nó; a soma continua 1.
         private void ConcentrateOn(int node, float confidence)
         {
             float keep = 1f - confidence;
@@ -364,7 +335,7 @@ namespace Assets.Scripts.Graph
                     count++;
             }
 
-            // Vendo o mapa inteiro de uma vez (não acontece num escritório, mas): uniforme em tudo.
+            // Mapa inteiro à vista: uniforme em tudo.
             if (count == 0 && excludeSeen)
             {
                 ResetUniform(excludeSeen: false);
@@ -397,8 +368,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Suspeita por saída do nó âncora (ver <see cref="ExitScore"/>). Uma vez por decisão: a
-        /// crença muda com o tempo, então não há cache entre decisões.
+        /// Calcula a suspeita por saída do nó âncora (ver <see cref="ExitScore"/>); uma vez por decisão, sem cache.
         /// </summary>
         public void ScoreExits(int currentNode)
         {

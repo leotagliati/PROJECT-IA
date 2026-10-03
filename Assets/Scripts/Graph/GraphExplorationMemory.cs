@@ -4,56 +4,36 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// O que ESTE agente já pisou do grafo, neste episódio: a âncora (o nó em que ele "está"),
-    /// os nós visitados, quantas vezes passou em cada um e os diagnósticos de loop. É a camada de
-    /// NÓ. A camada de SALA — cobertura por sala, travessia de porta, novidade, liberação — é a
-    /// <see cref="GraphRoomMemory"/>, que lê esta aqui a cada step.
+    /// A camada de NÓ da memória do agente no episódio: âncora (nó em que ele "está"), nós pisados,
+    /// visitas por nó e diagnósticos de loop. A camada de SALA (cobertura, portas, novidade) é a
+    /// <see cref="GraphRoomMemory"/>, que lê esta a cada step.
     ///
-    /// Peso por nó, pré-visitados por nó, patrulha por tempo, tédio de sala e a seta de fronteira
-    /// moravam aqui e saíram com o plano de salas (docs/graph/salas-e-portas.md): o valor agora é
-    /// por sala, e a sala é quem decide o que ainda vale.
-    ///
-    /// Uma instância por agente (é estado de episódio); o <see cref="NavGraph"/>, que é
-    /// estrutura, é compartilhado pela arena.
-    ///
-    /// O Tick é chamado a cada step de FÍSICA, e não a cada decisão: com Decision Period > 1 o
-    /// agente anda vários steps entre duas decisões e pode atravessar a área de um nó inteiro no
-    /// meio — a visita simplesmente não seria registrada. Por isso as flags que a recompensa lê
-    /// são ACUMULATIVAS e o consumidor as zera com <see cref="ClearStepFlags"/> depois de cobrá-las.
+    /// Um por agente; o <see cref="NavGraph"/> (estrutura) é compartilhado pela arena. Tick a cada
+    /// step de FÍSICA (com Decision Period > 1 o agente pode cruzar um nó entre decisões), então as
+    /// flags são acumulativas e o consumidor chama <see cref="ClearStepFlags"/> depois de cobrá-las.
     /// </summary>
     public class GraphExplorationMemory : MonoBehaviour
     {
         [Header("-----Gizmos (só em Play)-----")]
-        // A memória é estado de EPISÓDIO: fora do Play não existe nada para desenhar. Quem
-        // desenha a estrutura do mapa (nós, raios, ligações) é o NavGraph, e quem desenha portas e
-        // salas (novidade, concluída) é a GraphRoomMemory.
-        //
-        // Legenda:
-        //   traço verde      nó de sala já pisado neste episódio (esquenta para laranja com as
-        //                    revisitas)
-        //   contorno cinza   nó de sala que ainda falta
-        //   disco amarelo    nó âncora atual
+        // Legenda: traço verde = nó de sala pisado (esquenta para laranja com revisitas);
+        // contorno cinza = nó de sala que falta; disco amarelo = âncora atual.
+        // Estrutura é do NavGraph; portas e salas são da GraphRoomMemory.
         [SerializeField] private bool _drawGizmos = true;
         [SerializeField] private bool _drawVisitedNodes = true;
         [SerializeField] private bool _drawPendingNodes = true;
 
-        // Quantas revisitas levam a cor ao topo da escala de calor.
+        // Revisitas que levam o gizmo ao topo da escala de calor.
         [SerializeField] private int _heatSaturationVisits = 5;
 
         [Header("-----Revisita precoce (loop)-----")]
-        // REVISITA PRECOCE: chegar numa PORTA pisada há menos disto (steps de física; 750 = 15 s).
-        // É o detector de loop: voltar e voltar pelo mesmo vão. Quem decide quanto custa é o
-        // GraphRewardSystem (só a partir da N-ésima seguida, para não punir voltar de um beco —
-        // sair de uma sala de uma porta só passa duas vezes pelo mesmo vão, legitimamente).
-        // Era em primário; com os primários virando portas, a régua continua a mesma.
+        // Revisita precoce (detector de loop): chegar numa PORTA pisada há menos de isto (steps de
+        // física; 750 = 15 s). O custo é decidido no GraphRewardSystem, só a partir da N-ésima seguida.
         [SerializeField, Min(1)] private int _earlyRevisitWindowSteps = 750;
 
         [Header("-----Diagnóstico de pisca-pisca-----")]
-        // PISCA-PISCA de âncora: voltar ao nó de onde acabou de sair (A -> B -> A) em menos de
-        // _flickerWindowSteps (100 = 2 s) tendo andado menos de _flickerDistance (m) desde que
-        // chegou em B. Não é uma decisão do agente: é ele em cima da borda de dois ladrilhos.
-        // Separado da revisita precoce (que é loop de verdade) para dizer qual correção aplicar:
-        // folga na borda (isto) ou navegação (aquilo). Só métrica.
+        // Pisca-pisca de âncora (A -> B -> A): voltar ao nó anterior em menos de _flickerWindowSteps
+        // (steps de física; 100 = 2 s) andando menos de _flickerDistance (m). É o agente na borda de
+        // dois ladrilhos, não loop; separado da revisita precoce. Só métrica.
         [SerializeField, Min(1)] private int _flickerWindowSteps = 100;
         [SerializeField, Min(0f)] private float _flickerDistance = 1f;
 
@@ -66,13 +46,13 @@ namespace Assets.Scripts.Graph
         private bool[] _visited;
         private int[] _visitCount;
 
-        // TickedSteps da última chegada a cada nó. Só tem sentido com _visited[node].
+        // TickedSteps da última chegada a cada nó; só vale com _visited[node].
         private int[] _lastVisitStep;
 
-        // DIAGNÓSTICO: loops e pisca-pisca por nó neste episódio (log do manager, _logLoopNodes).
+        // Diagnóstico: loops e pisca-pisca por nó no episódio (log do manager, _logLoopNodes).
         private int[] _loopCount;
 
-        // Quando e onde o agente chegou ao nó âncora atual. Base do detector de pisca-pisca.
+        // Quando e onde chegou à âncora atual (base do detector de pisca-pisca).
         private int _lastArrivalStep;
         private Vector3 _lastArrivalPosition;
 
@@ -102,9 +82,8 @@ namespace Assets.Scripts.Graph
         public int AnchorFlickers { get; private set; }
 
         /// <summary>
-        /// Steps de física do episódio em que o agente estava FORA de qualquer área de nó. É a
-        /// métrica que diz se o grafo cobre o chão (Exploration/OffNodeFraction no TensorBoard):
-        /// fora de nó a observação de vizinhos fica presa na âncora antiga.
+        /// Steps de física fora de qualquer área de nó (Exploration/OffNodeFraction): mede se o grafo
+        /// cobre o chão; fora de nó a observação de vizinhos fica presa na âncora antiga.
         /// </summary>
         public int OffNodeSteps { get; private set; }
 
@@ -146,7 +125,7 @@ namespace Assets.Scripts.Graph
 
         public void Tick(Vector3 worldPosition)
         {
-            // Com histerese: o nó atual segura a âncora enquanto o agente ainda estiver na área dele.
+            // Histerese: o nó atual segura a âncora enquanto o agente ainda estiver na área dele.
             int node = _graph.FindNodeAt(worldPosition, CurrentNodeIndex);
             IsAtNode = node >= 0;
             ArrivedThisTick = false;
@@ -156,13 +135,10 @@ namespace Assets.Scripts.Graph
             if (!IsAtNode)
                 OffNodeSteps++;
 
-            // Fora de qualquer área, CurrentNodeIndex NÃO volta para -1: ele continua sendo o
-            // último nó alcançado. É essa persistência que dá uma âncora no grafo enquanto o
-            // agente atravessa um vão sem ladrilho.
+            // Fora de qualquer área, CurrentNodeIndex NÃO volta a -1: segue o último nó alcançado.
             if (node < 0 || node == CurrentNodeIndex)
                 return;
 
-            // Pisca-pisca: voltou para o nó de onde acabou de sair, rápido e quase sem andar.
             if (node == PreviousNodeIndex
                 && TickedSteps - _lastArrivalStep < _flickerWindowSteps
                 && PlanarDistance(worldPosition, _lastArrivalPosition) < _flickerDistance)
@@ -177,10 +153,7 @@ namespace Assets.Scripts.Graph
             RegisterArrival(node);
         }
 
-        /// <summary>
-        /// Zera as flags acumuladas. Chamar DEPOIS de cobrá-las na recompensa, uma vez por
-        /// decisão. Os contadores (visitas, loops) não são afetados.
-        /// </summary>
+        /// <summary>Zera as flags acumuladas, depois de cobradas na recompensa; contadores não são afetados.</summary>
         public void ClearStepFlags()
         {
             EarlyRevisitArrivals = 0;
@@ -193,7 +166,7 @@ namespace Assets.Scripts.Graph
             ArrivedThisTick = true;
             _visitCount[node]++;
 
-            // Lido ANTES de reiniciar o relógio do nó.
+            // Ler antes de reiniciar o relógio do nó.
             bool wasVisited = _visited[node];
             int since = TickedSteps - _lastVisitStep[node];
             _lastVisitStep[node] = TickedSteps;
@@ -204,8 +177,7 @@ namespace Assets.Scripts.Graph
             if (!_graph.IsDoor(node))
                 return;
 
-            // Loop é medido em PORTA: entre salas é onde o vai-e-vem acontece (e custa tempo); dentro
-            // de uma sala, voltar por um ladrilho já pisado é só o caminho.
+            // Loop só conta em PORTA; dentro da sala, voltar por um ladrilho pisado é só o caminho.
             if (wasVisited && since < _earlyRevisitWindowSteps)
             {
                 EarlyRevisitStreak++;
@@ -220,8 +192,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Marca o nó como pisado sem o agente ter passado por ele (sala que já nasce concluída,
-        /// o anti-decoreba). "Há um tempo": fora da janela de revisita precoce.
+        /// Marca o nó como pisado sem passagem (sala pré-visitada); fora da janela de revisita precoce.
         /// </summary>
         public void MarkVisited(int node)
         {
@@ -229,7 +200,7 @@ namespace Assets.Scripts.Graph
             _lastVisitStep[node] = -_earlyRevisitWindowSteps;
         }
 
-        /// <summary>Esquece que o nó foi pisado (sala liberada pela GraphRoomMemory: ela volta a valer).</summary>
+        /// <summary>Esquece que o nó foi pisado (sala liberada pela GraphRoomMemory).</summary>
         public void Forget(int node)
         {
             _visited[node] = false;
@@ -239,12 +210,11 @@ namespace Assets.Scripts.Graph
 
         public int VisitCountOf(int node) => _visitCount[node];
 
-        /// <summary>O que a observação chama de "visitado": 0 nunca pisado (ou esquecido), 1 pisado.</summary>
+        /// <summary>"Visitado" da observação: 1 pisado, 0 nunca pisado ou esquecido.</summary>
         public float VisitedObservation(int node) => _visited[node] ? 1f : 0f;
 
         /// <summary>
-        /// DIAGNÓSTICO: os <paramref name="count"/> nós com mais loops/pisca-pisca no episódio, como
-        /// "nome (n)". Vazio se não houve nenhum.
+        /// Diagnóstico: os <paramref name="count"/> nós com mais loops/pisca-pisca, como "nome (n)".
         /// </summary>
         public string TopLoopNodes(int count)
         {
@@ -282,8 +252,7 @@ namespace Assets.Scripts.Graph
             if (_drawVisitedNodes || _drawPendingNodes)
                 DrawNodeMemory();
 
-            // O disco do nó atual, no mesmo formato do gizmo de autoria: dá para ver ao vivo se
-            // a área que você calibrou está registrando a chegada onde você achou que ia.
+            // Disco da âncora, no formato do gizmo de autoria: confere se a área registra a chegada onde deveria.
             if (CurrentNodeIndex >= 0)
             {
                 Gizmos.color = Color.yellow;
@@ -291,10 +260,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Pinta a área de cada nó de SALA com o estado dele neste episódio. Portas ficam de fora:
-        /// quem as desenha é a GraphRoomMemory, com a novidade (que é o que importa nelas).
-        /// </summary>
+        /// <summary>Pinta a área de cada nó de sala (portas ficam com a GraphRoomMemory).</summary>
         private void DrawNodeMemory()
         {
             for (int i = 0; i < _visited.Length; i++)
@@ -316,7 +282,7 @@ namespace Assets.Scripts.Graph
                 if (!_drawVisitedNodes)
                     continue;
 
-                // Verde -> laranja conforme as revisitas: cor quente é tempo gasto sem retorno.
+                // Verde -> laranja conforme as revisitas.
                 float heat = Mathf.Clamp01((_visitCount[i] - 1f) / Mathf.Max(1, _heatSaturationVisits));
                 Color visited = Color.Lerp(VisitedColor, RevisitedColor, heat);
                 visited.a *= 0.5f;

@@ -7,100 +7,43 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// COBERTURA DO CHÃO: a parte do <see cref="NavGraphPlacer"/> que garante que o agente nunca
-    /// fica sem nó. É a correção do handoff de 23/09/2026 (docs/graph/handoff-cobertura-de-nos.md).
-    ///
-    /// O QUE PRECISA VALER: todo ponto em que o corpo consegue estar (célula andável do mapa do
-    /// chão) fica dentro da área de chegada do nó que o JOGO escolheria ali — e alcança o centro
-    /// desse nó sem sair da área. A regra do jogo (NavGraph.FindNodeAt) é "entre as áreas que
-    /// contêm o ponto, vence o centro mais perto", então cada célula cai num de três estados:
-    ///   OK          o vencedor alcança a célula por dentro da própria área;
-    ///   NÓ ERRADO   o vencedor só a contém ATRAVÉS de parede/móvel (área vazada) — o agente
-    ///               "chega" num nó do outro lado da parede, e a observação mente;
-    ///   SEM NÓ      nenhuma área contém a célula — a observação fica presa na âncora antiga.
-    ///
-    /// A garantia antiga ("todo ponto a menos de 6 m ANDANDO de um nó") não é essa: com áreas de
-    /// ±3 m, o chão entre dois nós a 6 m já ficava sem nó por construção, e corredor com menos de
-    /// ~2.5 m livres nunca recebia nó (só se testava onde cabia a folga de spawn).
-    ///
-    /// COMO: tudo em cima do mesmo mapa do chão da geração (WalkGrid, 0.3 m), sem física nova:
-    ///   - raio de cada nó escolhido pelo que ele COBRE, respeitando vazamento, posse do primário
-    ///     e sombra (FitRadiiDraft);
-    ///   - buraco que sobra vira auxiliar novo, escolhido por cobertura de conjuntos gulosa: o
-    ///     candidato (posição + raio) que mais transforma chão ruim em chão OK sem piorar nada
-    ///     (FillCoverage), até a META (_coverageTarget e _maxHoleDepth) — não até 100%, que
-    ///     enchia os cantos entre móveis de nós pequenos. Candidato é QUALQUER célula onde o corpo
-    ///     passa, inclusive corredor estreito; nó apertado não vira spawn (NavGraph.CanSpawnAt).
-    ///   - nenhum nó novo, de origem nenhuma, a menos de _minNodeSpacing de outro.
-    /// Quando as regras brigam (raio grande cobre mais, mas vaza e rouba área de primário), a
-    /// saída é MAIS NÓS, nunca relaxar a regra.
+    /// COBERTURA DO CHÃO (menus 4 e 7, nós em disco/quadrado): todo ponto andável tem que cair na área do nó que o
+    /// FindNodeAt escolheria ali e alcançar o centro dele sem sair da área. Cada célula do mapa do chão é OK, NÓ ERRADO
+    /// (área vazada por parede/móvel) ou SEM NÓ; o placer ajusta raios e cria auxiliares nos buracos até a meta.
+    /// Quando as regras de raio brigam, a saída é mais nós, nunca relaxar a regra.
     /// </summary>
     public partial class NavGraphPlacer
     {
         [Header("-----Cobertura do chão-----")]
-        // Meta da cobertura: fração do chão andável no estado OK. É também onde a gulosa PARA
-        // (FillCoverage) e o quanto a limpeza pode gastar (RemoveRedundant) — antes era só
-        // relatório, e a gulosa perseguia 100%: cada cantinho entre móveis virava um nó.
-        // 97% e não 98%: medido no NodeTraining2 (réplica offline do mapa do chão), o último 1%
-        // custa uns 10 nós de 2–3 m² cada, e o grafo à mão (a referência de "enxuto") cobre só
-        // 78% com os móveis ligados. O que sobra fica raso por causa de _maxHoleDepth.
+        // Meta: fração do chão andável no estado OK. É onde a gulosa para e o teto de gasto da limpeza (RemoveRedundant).
+        // 97% e não 98%: o último 1% custa ~10 nós de 2-3 m² cada, e o resto fica raso por causa de _maxHoleDepth.
         [SerializeField, Range(0.5f, 1f)] private float _coverageTarget = 0.97f;
 
-        // PROFUNDIDADE máxima do chão ruim (sem nó ou no nó errado): distância andando de
-        // qualquer célula ruim até o chão OK mais perto, em metros. 1 m ~ 10 steps de física do
-        // agente a 5 m/s: ele sai dali antes de a observação envelhecer.
-        //
-        // Substitui _maxHoleSide (lado do retângulo que envolve o buraco): uma faixa de 0.3 m ao
-        // longo de uma parede de 14 m contava como "buraco de 14 m" e pedia nó, embora o agente
-        // nela esteja a um passo do chão coberto. A profundidade mede o que o agente sente.
-        // Nome novo porque a unidade mudou de significado (ver CLAUDE.md).
+        // Profundidade máxima (m) do chão ruim (sem nó ou no nó errado): distância andando até o chão OK mais perto.
+        // 1 m ~ 10 steps de física a 5 m/s.
         [SerializeField, Min(0f)] private float _maxHoleDepth = 1f;
 
-        // Espaçamento da malha de CANDIDATOS a auxiliar em volta de cada buraco. 0.6 m = 2
-        // células da grade: fino o bastante para achar o meio de um corredor de 2 m, grosso o
-        // bastante para a busca não levar minutos (o custo cai com o quadrado deste valor).
+        // Espaçamento (m) da malha de candidatos a auxiliar em volta de cada buraco; o custo da busca cai com o quadrado dele.
         [SerializeField, Min(0.1f)] private float _candidateStep = 0.6f;
 
-        // Passo entre os raios testados num auxiliar (do teto ao piso; o piso e o padrão do papel
-        // entram sempre). 1 m = 8 raios entre 1.5 e 8. Era 0.5 com teto 5: com o teto em 8, meio
-        // metro dobraria o número de raios, e cada raio custa um flood fill por candidato — a
-        // cobertura muda pouco entre 6 e 6.5 m numa sala que a parede já recorta.
+        // Passo (m) entre os raios testados num auxiliar, do teto ao piso (piso e padrão entram sempre); cada raio custa
+        // um flood fill por candidato.
         [SerializeField, Min(0.05f)] private float _auxiliaryRadiusStep = 1f;
 
-        // Teto de auxiliares que um passo de cobertura cria. Trava de segurança contra mapa
-        // errado (layer de parede faltando = o prédio inteiro "vaza"), não um limite de projeto.
+        // Trava de segurança, não limite de projeto: bater nisso indica mapa errado (ex.: Wall Layer faltando).
         [SerializeField, Min(1)] private int _maxNewNodes = 600;
 
-        // Distância mínima (m, no plano) entre um nó NOVO, de QUALQUER origem (gulosa, portal da
-        // ligação, curva do caminho pelo chão, desvio), e qualquer nó. Quem nasceria mais perto
-        // que isso reaproveita o nó que já está ali. Sem ela os nós se empilhavam: dois vizinhos
-        // a 50 cm dizem a mesma coisa na observação.
-        //
-        // Era 2 e só valia para a gulosa. Medido no NodeTraining2: 38 das 53 arestas com menos
-        // de 3 m eram um auxiliar a 2.0–2.9 m de um primário — o primário fica no ponto de maior
-        // folga da sala, e o auxiliar que cobre a sala queria o mesmo ponto. E as 8 arestas de
-        // 0.3–1.3 m eram portais criados em cima do nó de porta. 3 m = a menor aresta do grafo
-        // feito à mão (3.2 m).
+        // Distância mínima (m, no plano) entre um nó NOVO, de qualquer origem, e qualquer nó; quem nasceria mais perto
+        // reaproveita o que já está ali. 3 m = a menor aresta do grafo feito à mão.
         [SerializeField, Min(0f)] private float _minNodeSpacing = 3f;
 
-        // Ganho mínimo (m² de chão que passa a OK) para a gulosa criar um auxiliar. Abaixo disso
-        // o nó cobre um canto entre móveis que o agente mal usa, e custa um vizinho a mais na
-        // observação e uma âncora a mais no grafo. 4 m² = um quadrado de 2 m. O chão FUNDO
-        // (além de _maxHoleDepth) é fechado de qualquer jeito, sem esse piso.
+        // Ganho mínimo (m² de chão que passa a OK) para a gulosa criar um auxiliar; o chão FUNDO (além de
+        // _maxHoleDepth) é fechado de qualquer jeito, sem esse piso.
         [SerializeField, Min(0f)] private float _minNodeGain = 4f;
 
-        // Custo, por célula, de TOMAR chão que já estava OK em outro nó (sobreposição). Descobrir
-        // uma célula nova vale 1: com 0.15, crescer o raio só compensa se cada ~7 células de
-        // sobreposição trouxerem 1 de chão novo. É o que faz o raio parar onde a área do vizinho
-        // começa, em vez de engolir o vizinho inteiro.
+        // Custo, por célula, de tomar chão que já era OK em outro nó (descobrir célula nova vale 1); faz o raio parar
+        // onde começa a área do vizinho.
         [SerializeField, Range(0f, 1f)] private float _overlapPenalty = 0.15f;
-
-        [Header("-----Pesos (legado)-----")]
-        // LEGADO: soma dos pesos que a geração (menu 7) reparte entre os nós de porta que cria. O
-        // peso por nó não pontua mais nada (as salas valem igual, ver GraphRoomMemory) — fica só
-        // porque o gerador ainda grava o campo. Os menus "8. Normalizar pesos" e "10. Pesos por
-        // área" saíram junto com a pontuação por área.
-        [SerializeField, Min(0.1f)] private float _primaryWeightBudget = 23f;
 
         // Relatório da última execução (só nesta sessão do editor), desenhado no gizmo.
         private readonly List<Vector3> _uncoveredCells = new List<Vector3>();
@@ -108,9 +51,7 @@ namespace Assets.Scripts.Graph
         private readonly List<Vector3> _blindPoints = new List<Vector3>();
         private float _reportCellSize = 0.3f;
 
-        // MARROM: é a única cor ainda livre no vocabulário dos gizmos (vermelho = problema de
-        // geometria; verde, laranja, amarelo, magenta, branco, rosa, azuis e cinzas já têm dono).
-        // Cheio = chão SEM nó; contorno = chão no NÓ ERRADO; esfera = ponto sem nó à vista.
+        // Marrom (cor livre nos gizmos): cheio = chão SEM nó; contorno = chão no NÓ ERRADO; esfera = ponto sem nó à vista.
         private static readonly Color UncoveredColor = new Color(0.55f, 0.33f, 0.12f, 0.8f);
 
         private float SpawnClearance => Graph.SpawnClearance;
@@ -127,12 +68,7 @@ namespace Assets.Scripts.Graph
         // Menus
         // ================================================================================
 
-        /// <summary>
-        /// Raio de cada nó escolhido pela cobertura, e o chão que ainda ficar sem nó (ou no nó
-        /// errado) recebe auxiliares novos, já ligados por região. Pode CRIAR nós, por isso roda
-        /// só no Prefab Mode — encolher um raio para ele parar de vazar abre buraco, e o buraco
-        /// tem que ser fechado no mesmo passo, senão o menu troca um problema por outro.
-        /// </summary>
+        /// <summary>Ajusta raios e cobre com auxiliares o chão sem nó ou no nó errado. Cria nós: só no Prefab Mode.</summary>
         [ContextMenu("4. Ajustar raios e cobrir o chão")]
         private void FitRadiiAndCover()
         {
@@ -153,12 +89,7 @@ namespace Assets.Scripts.Graph
             });
         }
 
-        /// <summary>
-        /// Relatório das SALAS que o NavGraph calcula no bake (cortando o grafo nas portas): cada
-        /// sala com os nós e as portas dela, e os avisos de porta que não liga duas salas. Era o
-        /// "11. Numerar salas", que gravava NavNode._areaId à mão para o tédio de sala — a sala
-        /// agora é calculada, não autorada.
-        /// </summary>
+        /// <summary>Loga as salas do NavGraph (nós e portas de cada uma) e avisa porta que não liga duas salas.</summary>
         [ContextMenu("11. Relatório de salas e portas")]
         private void ReportRooms()
         {
@@ -175,13 +106,8 @@ namespace Assets.Scripts.Graph
         // Pipeline
         // ================================================================================
 
-        /// <summary>
-        /// Nó no vão de cada porta -> raios -> auxiliares nos buracos -> ligação por região (com
-        /// caminho pelo chão quando a reta não passa) -> raio dos auxiliares que a ligação criou.
-        /// Repete (no máximo 3 voltas) só se a volta anterior criou nó: um auxiliar novo pode
-        /// vazar e abrir "nó errado" que a volta seguinte fecha. Depois: limpeza (até a meta),
-        /// porta ligada dos dois lados e poda das ligações redundantes.
-        /// </summary>
+        // Menu 4: nós de porta -> raios -> auxiliares nos buracos -> ligação por região, em até 3 voltas (repete só se criou
+        // nó); depois limpeza até a meta, portas ligadas dos dois lados e poda de ligações redundantes.
         private void CoverFloor(Draft draft, WalkGrid grid)
         {
             AddDoorNodes(draft, grid);
@@ -203,16 +129,12 @@ namespace Assets.Scripts.Graph
                     break;
             }
 
-            // A gulosa decide nó a nó, e um nó posto cedo pode ter ficado sobrando depois que os
-            // vizinhos chegaram. Última passada: tira todo auxiliar sem o qual a cobertura continua
-            // na meta (ou não piora) e o grafo não parte.
+            // Última passada: tira o auxiliar que ficou sobrando sem piorar a cobertura nem partir o grafo.
             int removed = RemoveRedundant(draft, grid);
             if (removed > 0)
                 Debug.Log($"{name}: {removed} auxiliar(es) que sobraram depois da cobertura foram removidos.", this);
 
-            // A limpeza pode ter tirado o nó do outro lado de uma porta; as duas passadas finais
-            // só mexem em ligações (nenhum nó novo, a não ser curvas de um caminho pelo chão, que
-            // ganham o raio certo como qualquer auxiliar novo).
+            // A limpeza pode ter tirado o nó do outro lado de uma porta: religa só ligações (e curvas de caminho pelo chão).
             int beforeDoors = draft.Count;
             LinkDoors(draft, grid, new List<long>());
             FitRadiiDraft(draft, grid, NewIndices(draft, beforeDoors));
@@ -231,10 +153,7 @@ namespace Assets.Scripts.Graph
             Uncovered,
         }
 
-        /// <summary>
-        /// Estado de cobertura de cada célula do mapa do chão, e por nó do rascunho: quantas
-        /// células andáveis a área dele tem, quantas ele alcança por dentro e em quantas ele
-        /// vence o FindNodeAt. Reaproveitável: <see cref="BuildCoverage"/> reconstrói em cima.
+        /// <summary>Estado de cada célula do chão e, por nó: células da área, alcançadas por dentro e vencidas.</summary>
         /// </summary>
         private sealed class CoverageMap
         {
@@ -242,8 +161,7 @@ namespace Assets.Scripts.Graph
             public readonly float[] WinnerDistance;
             public readonly CellState[] State;
 
-            // Carimbo do flood fill (evita limpar a cada busca) e a fila dele. Depois de um
-            // FloodArea, Buffer[0..n) são as células alcançadas.
+            // Carimbo do flood fill (evita limpar a cada busca) e a fila dele; depois de FloodArea, Buffer[0..n) = alcançadas.
             public readonly int[] Marks;
             public readonly int[] Buffer;
             public int Stamp;
@@ -318,8 +236,7 @@ namespace Assets.Scripts.Graph
                 map.Owned[i] = 0;
             }
 
-            // Vencedor de cada célula: a MESMA regra do NavGraph.FindNodeAt (no raio E, com a área
-            // cortada pela parede, visível do centro; entre os que contêm, o centro mais perto).
+            // Vencedor da célula: mesma regra do NavGraph.FindNodeAt (no raio e visível do centro; vence o centro mais perto).
             for (int i = 0; i < draft.Count; i++)
             {
                 if (!draft.Alive(i))
@@ -408,11 +325,7 @@ namespace Assets.Scripts.Graph
             z1 = Mathf.Min(grid.SizeZ - 1, Mathf.CeilToInt((center.z + radius - grid.Min.z) / grid.Step));
         }
 
-        /// <summary>
-        /// Flood fill a partir do centro, só por células andáveis DENTRO da área (no raio e, com o
-        /// corte por parede, visíveis do centro). Carimba as alcançadas com um Stamp novo e as
-        /// deixa em Buffer[0..n). Centro fora do chão andável (nó dentro de obstáculo) alcança zero.
-        /// </summary>
+        /// <summary>Flood fill do centro por células andáveis da área; alcançadas ficam em Buffer[0..n), n devolvido.</summary>
         private int FloodArea(WalkGrid grid, CoverageMap map, Vector3 center, float radius)
         {
             int stamp = ++map.Stamp;
@@ -463,18 +376,8 @@ namespace Assets.Scripts.Graph
         // Candidato a auxiliar
         // ================================================================================
 
-        /// <summary>
-        /// Quanto um AUXILIAR em <paramref name="position"/> com <paramref name="radius"/>
-        /// melhoraria o chão, contra o mapa ATUAL (em que ele não existe). Pontos por célula que
-        /// ele passaria a vencer: +1 por célula que vira OK, -1 por célula que vira NÓ ERRADO,
-        /// com o estado de antes descontado (tirar uma célula OK de outro nó e alcançá-la vale 0).
-        ///
-        /// Inválido (false) quando fere uma regra que NÃO se troca por cobertura:
-        ///   - sombra: a menos de meio raio de um primário (eclipsa a visita dele);
-        ///   - vazamento acima de _maxLeakAuxiliary;
-        ///   - posse: algum primário ficaria dono de menos de _minPrimaryOwnership da própria área.
-        /// Com <paramref name="seed"/> &gt;= 0, também exige que o candidato resolva aquela célula.
-        /// </summary>
+        // Ganho de um auxiliar no mapa atual: +1 por célula que vira OK, -1 por nó errado (estado anterior descontado).
+        // Inválido se eclipsa nó de porta (< meio raio), vaza > _maxLeakAuxiliary, tira posse de primário ou não resolve seed.
         private bool TryEvaluate(Draft draft, WalkGrid grid, CoverageMap map, Vector3 position, float radius, int seed, out float score)
         {
             score = 0f;
@@ -589,16 +492,13 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Raios testados num auxiliar, do maior ao menor, sempre incluindo o padrão do papel
-        // (para um nó que já está bom não ganhar override por arredondamento da escada).
+        // Raios candidatos, do maior ao menor. O piso e o padrão do papel entram sempre (corredor estreito só cabe no mínimo).
         private List<float> AuxiliaryRadii()
         {
             var radii = new List<float>();
             for (float r = _maxAuxiliaryRadius; r >= _minAuxiliaryRadius - 1e-3f; r -= _auxiliaryRadiusStep)
                 radii.Add(r);
 
-            // O piso sempre entra: com passo 1 a escada 8, 7, ..., 2 pararia antes de 1.5, e o
-            // corredor estreito é justamente onde só o raio mínimo cabe.
             if (!radii.Exists(r => Mathf.Abs(r - _minAuxiliaryRadius) < 0.01f))
                 radii.Add(_minAuxiliaryRadius);
 
@@ -614,21 +514,8 @@ namespace Assets.Scripts.Graph
         // Raios
         // ================================================================================
 
-        /// <summary>
-        /// Raio de cada nó (de <paramref name="only"/>, ou de todos), gravado no rascunho. Duas
-        /// passadas, porque o limite do auxiliar depende do raio FINAL dos primários:
-        ///
-        /// PRIMÁRIOS — apertados de propósito ("visitado" = "estive lá"):
-        ///   - nunca passam do padrão; encolhem até a METADE da distância para o primário mais
-        ///     próximo (duas áreas que se sobrepõem registram a chegada no meio do caminho);
-        ///   - encolhem enquanto a área vaza mais que _maxLeakPrimary (vazar é visita de graça).
-        /// AUXILIARES — o raio que MAIS COBRE o chão (TryEvaluate com o nó fora do mapa), entre os
-        ///   que não vazam além de _maxLeakAuxiliary nem roubam a posse de um primário. Empate:
-        ///   o mais perto do padrão, para não encher o mapa de override.
-        ///
-        /// Encolher um raio aqui pode abrir buraco — é de propósito: vazamento e roubo são "nó
-        /// errado", que mente para a observação. O buraco é fechado logo depois pelo FillCoverage.
-        /// </summary>
+        // Raio de cada nó (de only, ou todos): primários (nós de porta) apertados, até metade da distância ao vizinho primário;
+        // auxiliares, o que mais cobre sem vazar nem roubar posse. Encolher pode abrir buraco, que FillCoverage fecha.
         private void FitRadiiDraft(Draft draft, WalkGrid grid, List<int> only)
         {
             if (only != null && only.Count == 0)
@@ -762,8 +649,7 @@ namespace Assets.Scripts.Graph
             if (bestRadius > 0f)
                 return bestRadius;
 
-            // Nenhum raio respeita as regras: o nó está perto demais de um primário ou encostado
-            // em parede. Fica no piso e o Console avisa — "Remover nós inúteis" costuma resolver.
+            // Nenhum raio respeita as regras (perto de primário ou encostado em parede): fica no piso e o Console avisa.
             Debug.LogWarning(
                 $"{NodeLabel(draft, node)}: nenhum raio entre {_minAuxiliaryRadius} e {_maxAuxiliaryRadius} evita vazar " +
                 $"mais de {_maxLeakAuxiliary:P0} ou roubar área de primário — ficou no mínimo. Afaste-o do primário/parede " +
@@ -807,33 +693,8 @@ namespace Assets.Scripts.Graph
         // Auxiliares nos buracos
         // ================================================================================
 
-        /// <summary>
-        /// Cobertura de conjuntos GULOSA, em duas fases.
-        ///
-        /// 1. GANHO MÁXIMO. Cada candidato (malha de _candidateStep sobre o chão andável, com o
-        ///    raio que mais cobre ali) é avaliado uma vez (TryEvaluate) e entra numa fila de
-        ///    prioridade. A cada passo sai o de maior ganho; ele é reavaliado contra o mapa atual e,
-        ///    se continua na frente, vira auxiliar — senão volta para a fila com o valor novo. O
-        ///    ganho de um candidato quase só cai conforme os vizinhos chegam, então o topo
-        ///    reavaliado costuma ser o melhor de verdade (a gulosa "preguiçosa" clássica) e cada
-        ///    passo custa poucas avaliações. Para quando bate a meta (CoverageMeets) ou quando o
-        ///    melhor ganho fica abaixo de _minNodeGain.
-        ///
-        ///    Antes a gulosa andava de célula ruim em célula ruim, da mais apertada para a mais
-        ///    aberta, punha o melhor nó QUE RESOLVESSE AQUELA CÉLULA e só parava quando acabavam as
-        ///    células: cada canto entre móveis ganhava o seu nó. Medido no NodeTraining2 (réplica
-        ///    offline): 152 auxiliares onde uma gulosa de ganho máximo com as mesmas regras de área
-        ///    chega a 98% com ~60.
-        ///
-        /// 2. CHÃO FUNDO. O que ainda ficar a mais de _maxHoleDepth do chão OK — corredor estreito,
-        ///    que tem poucos candidatos e ganho pequeno — é fechado célula a célula, da mais
-        ///    apertada para a mais aberta, sem o piso de ganho. É a garantia antiga ("nenhum
-        ///    corredor sem nó"), agora só para o chão que o agente sente.
-        ///
-        /// Célula funda que nenhum candidato resolve (nó errado colado num primário, canto entre
-        /// móveis) fica no relatório — marrom no gizmo — para ser resolvida à mão.
-        /// </summary>
-        /// <returns>Quantos auxiliares foram criados.</returns>
+        // Cria auxiliares até a meta (CoverageMeets). Fase 1: o de maior ganho (gulosa preguiçosa, >= _minNodeGain); fase 2:
+        // fecha célula a célula o chão mais fundo que _maxHoleDepth. O que nenhum candidato resolve vai ao relatório (marrom).
         private int FillCoverage(Draft draft, WalkGrid grid, CoverageMap map)
         {
             List<float> radii = AuxiliaryRadii();
@@ -842,7 +703,6 @@ namespace Assets.Scripts.Graph
             int added = 0;
             bool cancelled = false;
 
-            // Células a menos de _minNodeSpacing de algum nó não recebem nó novo.
             var crowded = new bool[grid.Count];
             for (int i = 0; i < draft.Count; i++)
             {
@@ -854,8 +714,7 @@ namespace Assets.Scripts.Graph
             var heap = new CellHeap();
             if (!CoverageMeets(grid, map, out _))
             {
-                // Candidato sem chão ruim bastante no quadrado do maior raio não tem como ganhar
-                // _minNodeGain: pula sem pagar a avaliação (soma de prefixos do chão ruim).
+                // Pula candidato sem chão ruim bastante no quadrado do maior raio (soma de prefixos), sem pagar a avaliação.
                 int[] bad = BadPrefix(grid, map);
                 int reach = Mathf.CeilToInt(_maxAuxiliaryRadius / grid.Step);
 
@@ -906,7 +765,7 @@ namespace Assets.Scripts.Graph
                 if (!BestRadiusAt(draft, grid, map, cell, radii, out float radius, out float score) || score < minGain)
                     continue;
 
-                // Ficou para trás de outro candidato com o valor novo: volta para a fila.
+                // Reavaliado, ficou atrás de outro candidato: volta para a fila.
                 if (heap.Count > 0 && score < -heap.PeekCost)
                 {
                     heap.Push(cell, -score);
@@ -953,8 +812,7 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                // Sem solução: a célula e o entorno imediato (a malha de candidatos é a mesma para
-                // eles) saem da lista, senão cada célula do mesmo buraco pagaria a busca inteira.
+                // Sem solução: pula a célula e o entorno (mesma malha de candidatos) para não repetir a busca inteira.
                 unresolved++;
                 SkipAround(grid, skip, seed, stride);
             }
@@ -974,16 +832,12 @@ namespace Assets.Scripts.Graph
 
         private void AddAuxiliary(Draft draft, WalkGrid grid, CoverageMap map, bool[] crowded, int cell, float radius)
         {
-            int node = draft.Add(grid.Position(cell), primary: false, source: null, radius, 0f);
+            int node = draft.Add(grid.Position(cell), primary: false, source: null, radius);
             ApplyToCoverage(draft, grid, map, node);
             MarkCrowded(grid, crowded, draft.Positions[node]);
         }
 
-        /// <summary>
-        /// O raio que mais melhora o chão com um auxiliar em <paramref name="cell"/> (TryEvaluate
-        /// contra o mapa atual). Empate (meia célula): o raio mais perto do padrão, para não encher
-        /// o mapa de override. False se nenhum raio respeita vazamento/posse/sombra.
-        /// </summary>
+        /// <summary>Melhor raio de um auxiliar na célula (empate: o mais perto do padrão); false se nenhum é válido.</summary>
         private bool BestRadiusAt(Draft draft, WalkGrid grid, CoverageMap map, int cell, List<float> radii, out float bestRadius, out float bestScore)
         {
             Vector3 position = grid.Position(cell);
@@ -1008,11 +862,8 @@ namespace Assets.Scripts.Graph
             return bestRadius > 0f;
         }
 
-        /// <summary>
-        /// O melhor auxiliar que RESOLVE a célula <paramref name="seed"/>: candidatos numa malha de
-        /// _candidateStep em volta dela, até o raio máximo, em cada raio. Fica o de maior pontuação
-        /// positiva; empate: o mais central (maior folga), depois o raio mais perto do padrão.
-        /// </summary>
+        // Melhor auxiliar que resolve a célula seed: candidatos na malha em volta, em cada raio. Vence a maior pontuação positiva
+        // (empate: mais folga, depois raio mais perto do padrão).
         private bool BestCandidateFor(Draft draft, WalkGrid grid, CoverageMap map, bool[] crowded, int seed, List<float> radii,
             out int bestCell, out float bestRadius)
         {
@@ -1046,8 +897,7 @@ namespace Assets.Scripts.Graph
 
                     foreach (float radius in radii)
                     {
-                        // Raios em ordem decrescente: se este não alcança a célula, os
-                        // menores também não.
+                        // Raios em ordem decrescente: se este não alcança a célula, os menores também não.
                         if (toSeed > radius)
                             break;
 
@@ -1120,11 +970,7 @@ namespace Assets.Scripts.Graph
             return prefix[z1 * w + x1] - prefix[z0 * w + x1] - prefix[z1 * w + x0] + prefix[z0 * w + x0];
         }
 
-        /// <summary>
-        /// PROFUNDIDADE de cada célula ruim (sem nó ou no nó errado): distância andando, em metros,
-        /// até a célula OK mais perto (Dijkstra que só atravessa chão ruim, 8 vizinhos). OK e
-        /// não-andável ficam em 0. <paramref name="deepest"/> = a maior.
-        /// </summary>
+        /// <summary>Profundidade da célula ruim: distância andando (m) até a OK mais perto; deepest = a maior.</summary>
         private static float[] BadDepth(WalkGrid grid, CoverageMap map, out float deepest)
         {
             var depth = new float[grid.Count];
@@ -1190,12 +1036,8 @@ namespace Assets.Scripts.Graph
             return depth;
         }
 
-        /// <summary>
-        /// A meta da cobertura: fração OK &gt;= _coverageTarget E nenhum chão ruim a mais de
-        /// _maxHoleDepth do chão OK. É o critério de parada da gulosa, o limite da limpeza e o
-        /// "OK" do relatório — um lugar só, para os três não discordarem. <paramref name="deepest"/>
-        /// fica em float.MaxValue quando a fração já não bate (a profundidade nem é medida).
-        /// </summary>
+        // Meta: fração OK >= _coverageTarget e chão ruim a até _maxHoleDepth do OK (critério único da gulosa e do relatório).
+        // deepest fica em float.MaxValue se a fração não bate (a profundidade nem é medida).
         private bool CoverageMeets(WalkGrid grid, CoverageMap map, out float deepest)
         {
             deepest = float.MaxValue;
@@ -1227,11 +1069,7 @@ namespace Assets.Scripts.Graph
         // Relatório
         // ================================================================================
 
-        /// <summary>
-        /// Loga a cobertura do chão e preenche o gizmo: % OK / nó errado / sem nó, a profundidade
-        /// do chão ruim e, como informação, o maior buraco de cada tipo (área e lado do retângulo
-        /// que o envolve). Devolve se a meta (CoverageMeets) foi batida.
-        /// </summary>
+        /// <summary>Loga a cobertura (OK, nó errado, sem nó, profundidade), preenche o gizmo; devolve se bateu a meta.</summary>
         private bool ReportCoverage(WalkGrid grid, CoverageMap map)
         {
             ClearCoverageReport();
@@ -1268,8 +1106,7 @@ namespace Assets.Scripts.Graph
             return meets;
         }
 
-        // Maior componente (8 vizinhos) de células num estado: área em m² e maior lado do
-        // retângulo que a envolve, em m.
+        // Maior componente (8 vizinhos) de células no estado: área (m²) e maior lado do retângulo que a envolve (m).
         private static void LargestPatch(WalkGrid grid, CoverageMap map, CellState state, out float area, out float side)
         {
             area = 0f;
@@ -1319,12 +1156,8 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Invariante B do handoff: de todo ponto do chão, algum nó com RETA LIVRE a até o
-        /// alcance da observação (_maxNodeDistance do agente). Sem isso a observação [4..6] ("nó
-        /// mais próximo alcançável") cai no fallback e aponta através da parede. Amostra de ~1 m
-        /// (é física: um cast por teste), testando os 6 nós mais próximos de cada ponto.
-        /// </summary>
+        // De todo ponto do chão, algum dos 6 nós mais próximos tem reta livre a até _maxNodeDistance; senão a observação
+        // [4..6] aponta através da parede. Amostra de ~1 m (um cast por teste); devolve quantos pontos ficaram sem nó.
         private int CheckOrientation(Draft draft, WalkGrid grid)
         {
             GraphExplorerManager agent = ArenaRoot.GetComponentInChildren<GraphExplorerManager>();
@@ -1381,7 +1214,7 @@ namespace Assets.Scripts.Graph
             return blind;
         }
 
-        // Invariante C: spawn point fixo (fallback do spawn aleatório) tem que cair em chão OK.
+        // Spawn point fixo (fallback do spawn aleatório) tem que cair em chão OK.
         private int CheckSpawnPoints(WalkGrid grid, CoverageMap map)
         {
             GraphArenaController arena = GetComponentInParent<GraphArenaController>();
@@ -1425,8 +1258,7 @@ namespace Assets.Scripts.Graph
             if (_uncoveredCells.Count == 0 && _wrongCells.Count == 0 && _blindPoints.Count == 0)
                 return;
 
-            // Teto de desenho: dezenas de milhares de cubos travam a Scene view, e acima disso o
-            // gizmo já disse o que tinha a dizer ("tem muito chão descoberto").
+            // Teto de cubos desenhados: dezenas de milhares travam a Scene view.
             const int limit = 40000;
             float size = _reportCellSize * 0.9f;
             var cube = new Vector3(size, 0.02f, size);

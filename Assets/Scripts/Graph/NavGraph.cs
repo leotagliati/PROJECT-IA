@@ -4,184 +4,103 @@ using UnityEngine.Serialization;
 
 namespace Assets.Scripts.Graph
 {
-    /// <summary>
-    /// Forma da área de chegada de um nó. Vale para o grafo inteiro: é a regra que transforma
-    /// posição contínua em índice discreto, e ter duas formas convivendo no mesmo mapa tornaria
-    /// impossível calibrar espaçamento olhando o gizmo.
-    /// </summary>
+    /// <summary>Forma da área de chegada, única para o grafo todo: converte posição contínua em índice de nó.</summary>
     public enum NodeShape
     {
-        /// <summary>
-        /// Disco. Isotrópico: a chegada acontece à mesma distância venha o agente de onde vier.
-        /// É o que faz sentido para PRIMÁRIO, onde a área certifica presença num ponto.
-        /// </summary>
+        /// <summary>Disco: a chegada acontece à mesma distância de qualquer direção. Bom para porta e ping.</summary>
         Circle,
 
-        /// <summary>
-        /// Quadrado alinhado aos eixos, de lado 2 x raio. LADRILHA: uma cadeia de quadrados
-        /// cobre um corredor inteiro sem as folgas em forma de lente que sobram entre discos
-        /// tangentes. É o que faz sentido para uma malha de guia, onde o objetivo é não deixar
-        /// buraco em que o agente fique sem âncora.
-        /// </summary>
+        /// <summary>Quadrado alinhado aos eixos, de lado 2 x raio. Ladrilha corredores sem as folgas em lente entre discos.</summary>
         Square,
 
         /// <summary>
-        /// Retângulo POR NÓ (NavNode._areaSize/_areaOffset), alinhado aos eixos do mundo. É a
-        /// forma do ladrilhamento (NavGraphPlacer, menu 9): os retângulos cobrem o chão sem se
-        /// sobrepor, então todo ponto em que o agente pode estar cai em exatamente um nó — sem
-        /// desempate, sem buraco. Nó sem retângulo cai num quadrado de meia-aresta = raio.
-        /// Os menus de raio do placer (1 a 7) não servem para esta forma.
+        /// Retângulo por nó (NavNode._areaSize/_areaOffset), alinhado aos eixos do mundo; é a forma do ladrilhamento:
+        /// cada ponto cai em um nó só. Nó sem retângulo vira quadrado de meia-aresta = raio.
         /// </summary>
         Rectangle,
     }
 
     /// <summary>
-    /// Consolida os <see cref="NavNode"/> de UMA arena num grafo consultável: índices,
-    /// adjacência, SALAS, áreas e caminho mais curto. É estrutura do mapa, não estado de agente — o
-    /// que o agente já visitou mora na <see cref="GraphExplorationMemory"/> e na
-    /// <see cref="GraphRoomMemory"/>, uma de cada por agente.
-    ///
-    /// SALAS (docs/graph/salas-e-portas.md): no bake, as PORTAS (NodeKind.Door) são tiradas e cada
-    /// pedaço conexo que sobra vira uma sala (ou corredor). Ninguém numera sala à mão: mexeu nos
-    /// nós ou nas ligações, o próximo Play recalcula.
-    ///
-    /// Existe um NavGraph por cópia da arena; os índices são locais a ele, então nove arenas na
-    /// cena não compartilham nada (mesmo motivo pelo qual a grade do seeker é relativa à arena).
+    /// Grafo de UMA arena: consolida os <see cref="NavNode"/> em índices, adjacência, SALAS, áreas de chegada e
+    /// caminho mais curto. É estrutura do mapa; o que o agente visitou mora na <see cref="GraphExplorationMemory"/>
+    /// e na <see cref="GraphRoomMemory"/>. Índices são locais: cada cópia da arena tem o seu grafo.
+    /// No bake as portas (NodeKind.Door) saem e cada pedaço conexo vira uma sala (docs/graph/salas-e-portas.md).
+    /// Quebra em silêncio: esquecer "Coletar nós filhos" após mexer nos nós; porta que não liga exatamente duas
+    /// salas; parede é a layer _wallLayer; mudar a regra de chegada invalida os .onnx.
+    /// Gizmos: aresta verde = livre, vermelha = atravessa parede, cinza = nó desativado; disco por papel.
     /// </summary>
     public class NavGraph : MonoBehaviour
     {
         [Header("-----Nós-----")]
-        // Preencha com "Coletar nós filhos" no menu de contexto do componente.
+        // Preencha com "Coletar nós filhos" (obrigatório depois de adicionar ou remover nós).
         [SerializeField] private List<NavNode> _nodes = new List<NavNode>();
 
-        // Espelha as ligações no bake. Ligar A->B na mão e esquecer B->A produz um grafo
-        // dirigido silencioso: o agente entra numa ala e a busca de fronteira não acha caminho
-        // de volta. Com isto ligado, a autoria fica à prova disso.
+        // Espelha as ligações no bake (A->B vira B->A); sem isso, ligar um lado só gera grafo dirigido silencioso.
         [SerializeField] private bool _makeLinksBidirectional = true;
 
-        // Só no editor: a cada mudança na hierarquia, (1) todo NavNode da MESMA ARENA que não está
-        // debaixo de nenhum NavGraph vira filho deste grafo e (2) a lista acima é recoletada se os
-        // filhos mudaram. Tira da autoria o "esqueci de rodar Coletar nós filhos" (nó sem círculo
-        // e sem ligação no gizmo). Não grava Undo de propósito: desfazer a criação de um nó
-        // dispararia outra coleta, e a coleta com Undo apagaria o Redo.
-        // Desligue se quiser um nó fora do grafo de propósito (ele desenha a própria área).
+        // Só no editor: a cada mudança na hierarquia, adota os NavNode soltos da arena e recoleta a lista
+        // (sem Undo, de propósito). Desligue para manter um nó fora do grafo.
 #pragma warning disable CS0414
         [SerializeField] private bool _autoCollectNodes = true;
 #pragma warning restore CS0414
 
-        // Forma da área de chegada, para o mapa inteiro. No quadrado os dois raios abaixo deixam
-        // de ser raio e passam a ser MEIA-ARESTA: trocar a forma sem mexer nos números aumenta a
-        // área em ~27% e estica o alcance da diagonal em 41%. Reveja o espaçamento ao trocar.
-        // Retângulo: cada nó traz o seu (NavNode._areaSize); os raios abaixo só valem para nó
-        // sem retângulo.
+        // Forma da área de chegada do mapa todo. No quadrado os raios padrão viram meia-aresta (área ~27% maior):
+        // reveja o espaçamento ao trocar. No Retângulo cada nó traz o seu; os raios só valem para nó sem retângulo.
         [SerializeField] private NodeShape _nodeShape = NodeShape.Circle;
 
         [Header("-----Ping-----")]
-        // Multiplica o prêmio de ATENDER o ping (chegar no nó enquanto ele toca). 1 = 2.0 por
-        // ping (GraphRewardSystem._pingReachedReward). A pontuação por TIPO de nó e o peso por
-        // nó (descoberta = pontuação x peso, com o peso gravado pela área do ladrilho) saíram com
-        // as salas: quem paga exploração agora é a GraphRoomMemory, e toda sala vale o mesmo.
+        // Multiplica o prêmio de atender o ping (GraphRewardSystem._pingReachedReward x este valor).
         [SerializeField, Min(0f)] private float _pingNodeScore = 1f;
 
         [Header("-----Raio padrão (Círculo/Quadrado)-----")]
-        // UM RAIO PADRÃO POR PAPEL, porque os dois têm fórmulas de calibração opostas. Deixar os
-        // dois no mesmo campo obrigaria a corrigir um deles nó a nó, no override — e replicar um
-        // valor por nó é a forma mais rápida de dois nós discordarem sobre ele.
-        //
-        // PRIMÁRIO (porta e ping) — certifica presença, então quer ficar APERTADO:
-        //   - grande demais: o raio do vizinho encosta no dele, a chegada acontece no meio do
-        //     caminho e "visitado" deixa de significar "estive lá";
-        //   - pequeno demais: ele passa reto e a visita nunca é registrada.
-        // Ponto de partida: metade da MENOR aresta entre dois primários, nunca menor que o raio
-        // do corpo do agente. O aviso do bake mede exatamente isso.
+        // Um raio padrão por PAPEL (m). Porta e ping certificam presença, então o raio é APERTADO: ~metade da
+        // menor aresta entre dois deles, nunca menor que o corpo. Grande demais, "visitado" deixa de significar
+        // "estive lá"; pequeno demais, o agente passa reto (o aviso do bake mede isso).
         [FormerlySerializedAs("_defaultNodeRadius")]
         [SerializeField] private float _defaultPrimaryRadius = 1.8f;
 
-        // AUXILIAR — o papel dele é PEGAR o agente, então quer ficar GENEROSO. Discos se
-        // sobrepondo ao longo da cadeia é o desenho pretendido: é o que garante que o agente
-        // nunca fique sem âncora no meio de um corredor. Por isso o aviso de sobreposição do
-        // bake ignora arestas que envolvem auxiliar — aqui não há nada a proteger.
-        // Ponto de partida: um pouco acima do espaçamento da cadeia dividido por dois.
+        // Raio do auxiliar (m): GENEROSO, para a cadeia de discos sempre pegar o agente. O aviso de
+        // sobreposição do bake ignora auxiliares.
         [SerializeField] private float _defaultAuxiliaryRadius = 3f;
 
         [Header("-----Checagem de parede-----")]
         // Tudo que o corpo não atravessa: paredes E mobília (Map_Objects também fica na layer Wall).
         [SerializeField] private LayerMask _wallLayer;
 
-        // Altura em que a ARESTA é desenhada no gizmo. Não entra mais na checagem: quem decide
-        // se o corpo passa é a coluna _bodyBottom.._bodyTop abaixo.
+        // Altura em que a aresta é desenhada no gizmo (a checagem usa a coluna _bodyBottom.._bodyTop).
         [SerializeField] private float _linkProbeHeight = 0.5f;
 
-        // Raio da sonda: da ordem do raio do agente. Com 0 a checagem é uma linha, e uma aresta
-        // que passa raspando na quina de uma parede é aprovada — o agente então tenta segui-la
-        // e entala. Com folga, a aresta só é válida se o CORPO dele passa.
-        //
-        // A regra é METADE DA LARGURA DO AGENTE. Com o corpo em 1.7 de largura, 0.85. O valor
-        // antigo (0.3) aprovava passagens por onde ele não cabe, e o sintoma era ele tentar
-        // seguir a aresta e travar na quina — indistinguível, de fora, de "a política é ruim".
+        // Raio da sonda de passagem (m) = metade da largura do agente. Com 0 a checagem é uma linha e a aresta
+        // que raspa a quina passa; o agente entala. Ignorado com _useAgentBodySize.
         [SerializeField] private float _linkClearance = 0.85f;
 
-        // COLUNA DO CORPO, em metros relativos à ALTURA DO NÓ (não do chão). A sonda é uma
-        // cápsula que vai de _bodyBottom a _bodyTop; antes era uma esfera só, a +0.5 do nó.
-        //
-        // Por que mudou: os nós do NodeTraining ficam a ~1.84 m do chão, então a esfera antiga
-        // varria de 1.5 a 3.2 m de altura — e mesa, sofá, bancada e baia (0.8 a 1.5 m) passavam
-        // por BAIXO dela. Com os Map_Objects ligados, arestas atravessando mesa eram aprovadas.
-        //
-        // A conta, com o corpo do NodeSeekerAgent (caixa 1.7 x 3.63 x 1.7) apoiado no chão:
-        // ele vai de nó - 1.84 a nó + 1.79. Base em -1.6 ignora os 24 cm de baixo (rodapé,
-        // soleira, objeto largado no chão, que o corpo empurra ou sobe); topo em +1.8 é a cabeça.
+        // Coluna do corpo (m, relativa à ALTURA DO NÓ, não do chão): a sonda é uma cápsula de _bodyBottom a
+        // _bodyTop, para mesa, sofá e bancada (0.8-1.5 m) também bloquearem a aresta. A base ignora rodapé e soleira.
         [SerializeField] private float _bodyBottom = -1.6f;
         [SerializeField] private float _bodyTop = 1.8f;
 
-        // Folga que o corpo precisa PARADO em cima de um nó para ele servir de SPAWN (do seeker
-        // e do hider). Maior que a de passagem (_linkClearance) porque o spawn sorteia a
-        // rotação: a caixa de 1.7 x 1.7 girada a 45 graus ocupa meia-diagonal 1.2; +5 cm = 1.25.
-        //
-        // Nó mais apertado que isto (corredor estreito, vão de porta) continua valendo como
-        // âncora e caminho — ele existe justamente para o agente não ficar sem nó ali —, só não
-        // é sorteado como ponto de nascimento. É a mesma régua que o NavGraphPlacer usa.
+        // Folga (m) para o nó servir de SPAWN: maior que a de passagem porque o spawn sorteia a rotação e o corpo
+        // girado ocupa a meia-diagonal. Nó mais apertado segue válido como âncora e caminho, só não nasce ali.
         [SerializeField] private float _spawnClearance = 1.25f;
 
-        // MEDIR O CORPO em vez de digitar: ligado, a folga de passagem e a de spawn saem do
-        // CapsuleCollider do agente desta arena (raio x maior escala em X/Z) + as margens abaixo,
-        // e os dois campos manuais acima são ignorados. É o que mantém o grafo honesto quando a
-        // escala do agente muda: o NodeSeekerAgent estava em escala 1.7 (raio real 1.17 m) com
-        // _linkClearance 0.85 — o grafo aprovava vãos por onde o corpo não cabia, e o agente
-        // entalava seguindo uma aresta "válida". A coluna vertical (_bodyBottom/_bodyTop) continua
-        // manual: ela depende de onde os nós ficam em relação ao chão, e errar ali bloqueia tudo.
+        // Mede o corpo em vez de digitar: as folgas saem do CapsuleCollider do agente da arena (raio x maior
+        // escala X/Z) + as margens abaixo, e os campos manuais acima são ignorados. A coluna vertical segue manual.
         [SerializeField] private bool _useAgentBodySize = true;
 
-        // Somada ao raio medido. 5 cm: a sonda não pode ser exatamente o corpo, senão uma aresta
-        // que raspa a quina ainda passa e o agente entala nela.
+        // Somada ao raio medido (m): a sonda não pode ser exatamente o corpo, senão a aresta que raspa a quina passa.
         [SerializeField, Min(0f)] private float _linkClearanceMargin = 0.05f;
 
-        // Somada ao raio medido para o SPAWN: nascer encostado na parede já começa o episódio
-        // pagando contato. 0.4 é da ordem da folga antiga (1.25 - 0.85).
+        // Somada ao raio medido para o spawn (m): nascer encostado na parede já começa o episódio pagando contato.
         [SerializeField, Min(0f)] private float _spawnClearanceMargin = 0.4f;
 
-        // A ÁREA DE CHEGADA PARA NA PAREDE. Ligado: um ponto só está na área de um nó se, além de
-        // estar dentro do raio, houver LINHA LIVRE (na altura do nó, contra a layer de parede) do
-        // centro do nó até ele. Sem isto a área era um quadrado cego: atravessava parede e o
-        // agente "chegava" num nó da sala vizinha sem ter entrado nela — visita de graça e
-        // observação mentindo. O NavGraphPlacer mede a cobertura com a mesma regra, e o gizmo
-        // desenha a área já cortada pelas paredes.
-        //
-        // Custo: um raycast por nó candidato (os que contêm o ponto no raio, do mais perto para o
-        // mais longe, até o primeiro com linha livre) — 1 a 3 por step de física por agente.
-        // Muda a regra de chegada: os .onnx treinados sem isto não servem com isto ligado.
+        // A área de chegada para na parede: só vale com linha livre (raycast na altura do nó) do centro do nó até
+        // o ponto, senão o agente "chega" no nó da sala vizinha. 1 a 3 raycasts por step por agente. Não vale no
+        // Retângulo. Muda a regra de chegada: invalida .onnx treinados sem isto.
         [SerializeField] private bool _areasStopAtWalls = true;
 
-        // FOLGA DA ÂNCORA (m, só na forma Retângulo): o nó atual continua sendo a âncora até o agente
-        // sair MAIS que isto da área dele — e o vizinho só assume depois que ele entrou nele esta
-        // mesma profundidade (ou até a METADE do vizinho, o que for menor). Os ladrilhos se tocam
-        // sem sobreposição, então sem folga a âncora trocava a 1 cm da linha: andando em cima da
-        // borda ela piscava A-B-A, e a lista inteira de saídas que o agente vê mudava junto
-        // (node4_e2_05: ~7 pisca-piscas por episódio, Exploration/AnchorFlicker, subindo).
-        //
-        // O limite pela metade é pelos nós de PORTA: são estreitos (a espessura da parede), e com
-        // a folga cheia a âncora da sala atravessaria o nó da porta sem nunca trocar para ele.
-        // 0 = sem folga (o comportamento antigo). Não muda observação nem vetor.
+        // Folga da âncora (m, só no Retângulo): o nó atual só perde a âncora depois de o agente sair mais que isto
+        // da área, e o vizinho só assume depois de ele entrar isso (ou metade do vizinho, pelas portas estreitas).
+        // Evita a âncora piscar A-B-A na borda comum. 0 = sem folga.
         [SerializeField, Min(0f)] private float _anchorHysteresis = 0.5f;
 
         [Header("-----Auto-ligação-----")]
@@ -191,54 +110,36 @@ namespace Assets.Scripts.Graph
         [Header("-----Gizmos-----")]
         [SerializeField] private bool _drawGizmos = true;
 
-        // Discos de chegada de todos os nós. É o gizmo para calibrar os raios padrão:
-        // dois discos de PRIMÁRIO encostando significa que a chegada acontece no meio do caminho.
+        // Discos de chegada de todos os nós (para calibrar os raios padrão).
         [SerializeField] private bool _drawNodeRadii = true;
 
-        // Rótulo "S#" no centro de cada sala calculada (o número que o Console e a memória usam).
-        // Só lido no editor (Handles), daí o pragma no build.
+        // Rótulo "S#" no centro de cada sala calculada (só editor, daí o pragma).
 #pragma warning disable CS0414
         [SerializeField] private bool _drawRoomLabels = true;
 #pragma warning restore CS0414
 
-        // Cor do disco por PAPEL. São dois canais visuais diferentes de propósito:
-        //   o PONTO do nó continua na cor da REGIÃO (quem desenha é o NavNode),
-        //   o DISCO diz o papel — e o disco é o que se lê olhando o mapa de cima, porque é
-        //   dezenas de vezes maior que o ponto.
-        // Assim as duas informações cabem na mesma figura sem disputarem o mesmo canal.
-        //
-        // Evite verde, laranja, amarelo, magenta e branco: essas cinco já significam outra coisa
-        // nos gizmos de Play (visitado, revisitado, âncora, fronteira, aresta percorrida). Uma
-        // cor com dois significados é pior que nenhuma cor, porque você calibra olhando pra ela.
-        // Azul-claro = PORTA (o nome do campo é o antigo, para não perder o valor salvo).
+        // Cor do disco por papel (o ponto do nó é do NavNode). Evite verde, laranja, amarelo, magenta e branco:
+        // já têm outro significado nos gizmos de Play. Azul-claro = PORTA (nome antigo do campo, para não perder
+        // o valor salvo).
         [SerializeField] private Color _primaryRadiusColor = new Color(0.25f, 0.75f, 0.95f, 0.55f);
 
-        // Bem apagado: a malha é cenário. Se ela competir visualmente com os primários, você
-        // perde de vista justamente os poucos nós que decidem a recompensa.
+        // Apagado de propósito: a malha é cenário.
         [SerializeField] private Color _auxiliaryRadiusColor = new Color(0.55f, 0.60f, 0.72f, 0.22f);
 
-        // Rosa, a cor do farol do GraphPingSystem: "rosa" já significa ping no vocabulário.
+        // Rosa, como o farol do GraphPingSystem.
         [SerializeField] private Color _pingRadiusColor = new Color(1f, 0.45f, 0.8f, 0.5f);
 
-        // Colore as arestas conforme atravessam parede ou não. É um spherecast por aresta por
-        // frame de editor: desligue se a cena ficar pesada.
+        // Colore as arestas por atravessarem parede ou não (um cast por aresta por repaint do editor).
         [SerializeField] private bool _validateLinksInGizmos = true;
 
         private int[][] _adjacency;
 
-        // Comprimento PLANAR de cada aresta, no mesmo arranjo de _adjacency. É o peso do caminho
-        // mais curto: distância em METROS pelo grafo, não em número de arestas.
+        // Comprimento planar (m) de cada aresta, no arranjo de _adjacency: o peso do caminho mais curto.
         private float[][] _adjacencyLength;
         private bool _isBaked;
 
-        // Rascunho do caminho mais curto (Dijkstra), alocado uma vez. O carimbo evita limpar os
-        // arrays a cada busca — ela roda a cada troca de nó, por agente.
-        //
-        // POR QUE METROS E NÃO ARESTAS: contar arestas faz toda distância depender da DENSIDADE
-        // do grafo. O placer agora põe nós até cobrir o chão inteiro, e um corredor que tinha 2
-        // arestas passa a ter 6 — a mesma caminhada viraria "3x mais longe" para a observação e
-        // para a recompensa por aproximação (que pagava por aresta). Em metros, regenerar o grafo
-        // não muda nada do que o agente sente.
+        // Rascunho do Dijkstra, alocado uma vez (o carimbo evita limpar os arrays a cada busca). O custo é em
+        // METROS, não em arestas: assim regenerar o grafo mais denso não muda o que o agente sente.
         private int[] _pathOrder;      // nós fechados, em ordem crescente de distância
         private int[] _pathParent;
         private float[] _pathCost;
@@ -253,7 +154,7 @@ namespace Assets.Scripts.Graph
         private float _pathDiameter = -1f;
         private bool[] _spawnable;
 
-        // Rascunho do OverlapCapsule. Por instância, não estático: cada arena tem o seu grafo.
+        // Rascunho do OverlapCapsule; por instância porque cada arena tem o seu grafo.
         private readonly Collider[] _overlapBuffer = new Collider[1];
 
         public LayerMask WallLayer => _wallLayer;
@@ -276,9 +177,8 @@ namespace Assets.Scripts.Graph
         private bool _loggedMeasuredBody;
 
         /// <summary>
-        /// Raio real do corpo do agente desta arena: raio do CapsuleCollider x maior escala
-        /// planar. Procura o GraphExplorerManager SÓ dentro da arena (nunca na cena): cada cópia
-        /// mede o próprio agente, e uma arena sem agente cai nos valores manuais.
+        /// Raio real do corpo do agente DESTA arena (CapsuleCollider x maior escala planar); false sem agente
+        /// (aí valem as folgas manuais).
         /// </summary>
         public bool TryMeasureAgentRadius(out float radius)
         {
@@ -319,10 +219,8 @@ namespace Assets.Scripts.Graph
         public bool AreasStopAtWalls => _areasStopAtWalls;
 
         /// <summary>
-        /// Linha livre, NA ALTURA DO NÓ, do centro do nó até o ponto (projetado nessa altura)?
-        /// É o teste que corta a área de chegada na parede. Na altura do nó (~1.84 m) e não na do
-        /// chão de propósito: mesa e sofá não cortam a área (o agente passa em volta e "vê" o nó
-        /// por cima deles); parede, divisória alta e armário cortam.
+        /// Linha livre, na altura do nó, do centro do nó até o ponto? Corta a área de chegada na parede (mesa e
+        /// sofá não cortam; parede, divisória alta e armário sim).
         /// </summary>
         public bool CanSeeFromNode(Vector3 nodePosition, Vector3 point)
         {
@@ -337,10 +235,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Distância PLANAR na métrica da forma escolhida — euclidiana no círculo, Chebyshev
-        /// (o maior dos dois eixos) no quadrado. Uma função só, usada pela detecção de chegada,
-        /// pelo desempate do nó mais próximo e pela validação de áreas sobrepostas: assim trocar
-        /// a forma no Inspector muda os três de uma vez, e nenhum deles pode discordar do gizmo.
+        /// Distância planar na métrica da forma (euclidiana no círculo, Chebyshev no quadrado): fonte única da
+        /// chegada, do desempate e da validação de sobreposição.
         /// </summary>
         internal float AreaDistance(Vector3 a, Vector3 b)
         {
@@ -356,16 +252,10 @@ namespace Assets.Scripts.Graph
 
         public float DefaultAuxiliaryRadius => _defaultAuxiliaryRadius;
 
-        /// <summary>
-        /// Raio efetivo de um nó: o override dele, ou o padrão DO PAPEL dele. O override fica
-        /// para a exceção que a geometria exige — um saguão onde o nó deve cobrir mais chão, um
-        /// doorway apertado onde o raio invadiria a sala vizinha — e não para corrigir em massa
-        /// o valor de um papel inteiro; isso se faz aqui, num lugar só.
-        /// </summary>
+        /// <summary>Raio efetivo do nó: o override dele ou o padrão do papel.</summary>
         public float NodeRadius(int index) => RadiusOf(_nodes[index]);
 
-        // Exploração e ping ficam com o raio APERTADO: nos dois, chegar tem que significar "estive
-        // lá". Só o auxiliar, que existe para pegar o agente, usa o generoso.
+        // Porta e ping usam o raio apertado; só o auxiliar usa o generoso.
         internal float RadiusOf(NavNode node)
         {
             float over = node.RadiusOverride;
@@ -376,8 +266,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Meia-largura (X, Z) da área do nó na forma Retângulo: o retângulo dele, ou um
-        /// quadrado de meia-aresta = raio quando ele não tem um.
+        /// Meia-largura (X, Z) da área na forma Retângulo (quadrado de meia-aresta = raio se o nó não tem retângulo).
         /// </summary>
         internal Vector2 HalfExtentsOf(NavNode node)
         {
@@ -390,11 +279,7 @@ namespace Assets.Scripts.Graph
 
         internal Vector3 AreaCenterOf(NavNode node) => node.HasArea ? node.AreaCenter : node.Position;
 
-        /// <summary>
-        /// Na forma Retângulo: o quão CENTRAL o ponto está na área do nó — 0 no centro, 1 na
-        /// borda, acima de 1 fora. Normalizado pela meia-largura de cada eixo, para um ladrilho
-        /// comprido e um curto serem comparáveis no desempate (que só acontece na borda comum).
-        /// </summary>
+        /// <summary>Quão central o ponto está no retângulo: 0 no centro, 1 na borda, acima de 1 fora (normalizado por eixo).</summary>
         private float RectangleMetric(NavNode node, Vector3 point)
         {
             Vector2 half = HalfExtentsOf(node);
@@ -408,8 +293,8 @@ namespace Assets.Scripts.Graph
 
         public IReadOnlyList<NavNode> Nodes => _nodes;
 
-        // Conjunto da lista, para o gizmo de cada NavNode perguntar "estou no grafo?" sem varrer
-        // a lista inteira por nó por repaint. Refeito quando a lista muda de tamanho ou é coletada.
+        // Conjunto da lista, para o gizmo de cada NavNode perguntar "estou no grafo?" sem varrer a lista;
+        // refeito quando ela muda.
         private HashSet<NavNode> _nodeSet;
         private int _nodeSetCount = -1;
 
@@ -434,9 +319,8 @@ namespace Assets.Scripts.Graph
         private void Awake() => EnsureBaked();
 
         /// <summary>
-        /// Idempotente de propósito: o agente chama isto no Initialize e o Awake do grafo pode
-        /// ou não ter rodado antes (a ordem entre componentes de objetos diferentes não é
-        /// garantida). Quem chegar primeiro faz o bake.
+        /// Bake idempotente (índices, adjacência, salas, validação): o Awake do grafo e o Initialize do agente
+        /// podem rodar em qualquer ordem.
         /// </summary>
         public void EnsureBaked()
         {
@@ -460,8 +344,7 @@ namespace Assets.Scripts.Graph
             _pathStampOf = new int[_nodes.Count];
             _pathClosed = new bool[_nodes.Count];
 
-            // Heap "preguiçoso": uma entrada por relaxamento, as velhas são puladas ao sair. O
-            // teto é uma entrada por aresta dirigida + a origem.
+            // Heap preguiçoso (entradas velhas são puladas ao sair): teto = uma por aresta dirigida + a origem.
             _heapNode = new int[directedEdges + 1];
             _heapCost = new float[directedEdges + 1];
 
@@ -488,11 +371,8 @@ namespace Assets.Scripts.Graph
                     if (neighbor == null || neighbor.Index == i)
                         continue;
 
-                    // A checagem de identidade (e não só de faixa) é o que impede uma referência
-                    // vazada de outra cópia da arena de virar uma aresta silenciosamente errada:
-                    // aquele nó TEM um índice válido — o dele, no grafo dele — e um teste de
-                    // faixa aceitaria, ligando este grafo a um nó local qualquer que por acaso
-                    // ocupe aquele número. O sintoma seria uma aresta que atravessa o mapa.
+                    // Identidade, não só faixa: referência vazada de outra arena tem índice válido no grafo dela
+                    // e viraria uma aresta errada.
                     if (neighbor.Index < 0 || neighbor.Index >= _nodes.Count || _nodes[neighbor.Index] != neighbor)
                     {
                         Debug.LogWarning(
@@ -529,8 +409,8 @@ namespace Assets.Scripts.Graph
         // Salas e portas
         // ================================================================================
 
-        // Sala de cada nó (-1 = porta). Calculada sobre TODOS os nós, ativos ou não: é estrutura do
-        // mapa, e uma lição que desliga um nó não pode renumerar as salas no meio do treino.
+        // Sala de cada nó (-1 = porta), sobre TODOS os nós, ativos ou não: lição que desliga nó não pode
+        // renumerar as salas.
         private int[] _roomOf;
         private int[][] _roomNodes;     // nós (não-porta) de cada sala
         private int[][] _roomDoors;     // portas que encostam em cada sala
@@ -557,10 +437,7 @@ namespace Assets.Scripts.Graph
         /// <summary>Centro (média das posições dos nós) da sala — origem estável para ordenar as portas dela.</summary>
         public Vector3 RoomCentroid(int room) => _roomCentroid[room];
 
-        /// <summary>
-        /// A outra sala que a porta liga, vista de <paramref name="room"/>; -1 se a porta não liga
-        /// essa sala a outra.
-        /// </summary>
+        /// <summary>A outra sala que a porta liga, vista de <paramref name="room"/>; -1 se ela não liga duas salas.</summary>
         public int OtherRoom(int door, int room)
         {
             int[] rooms = _doorRooms[door];
@@ -589,11 +466,7 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        /// <summary>
-        /// Tira as portas e numera os pedaços conexos que sobram (BFS). A mesma ideia do antigo
-        /// menu "11. Numerar salas" do NavGraphPlacer, agora em runtime e pela marcação de
-        /// PORTA, não pelo nome do batente nem pelo tamanho do ladrilho.
-        /// </summary>
+        /// <summary>Tira as portas e numera os pedaços conexos que sobram (BFS); monta salas, portas por sala e vizinhança.</summary>
         private void BuildRooms()
         {
             int count = _nodes.Count;
@@ -689,9 +562,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Quantas PORTAS separam cada sala de <paramref name="fromRoom"/> (BFS no grafo de salas; -1 =
-        /// inalcançável). É a "planta do prédio" que o agente conhece: a que distância, em salas, fica
-        /// cada uma. Preenche <paramref name="hops"/> (tamanho RoomCount).
+        /// Quantas portas separam cada sala de <paramref name="fromRoom"/> (BFS no grafo de salas; -1 =
+        /// inalcançável). Preenche <paramref name="hops"/> (tamanho RoomCount).
         /// </summary>
         public void RoomHops(int fromRoom, int[] hops)
         {
@@ -718,8 +590,8 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Erro de autoria em salas é silencioso do mesmo jeito: uma porta que não separa duas
-        // salas não paga travessia nunca, e uma sala sem porta nunca é "saída". Grita no Play.
+        // Avisa no Play erro de autoria de salas: porta que não separa duas salas não paga travessia, e sala
+        // sem porta fica isolada.
         private void ValidateRooms()
         {
             if (RoomCount == 0)
@@ -778,11 +650,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Maior distância em METROS, pelo grafo, entre dois nós ativos (o "diâmetro" do mapa).
-        /// É o normalizador das distâncias de caminho na observação (fronteira e ping): 1.0 =
-        /// "o outro lado do mapa". Calculado uma vez, na primeira consulta, e automático de
-        /// propósito — um número fixo no Inspector ficaria errado a cada grafo regenerado, e
-        /// saturar em 1.0 apaga a informação (era o que acontecia com 25 arestas num mapa de 42).
+        /// Maior distância em metros, pelo grafo, entre dois nós ativos (o "diâmetro" do mapa): normaliza as
+        /// distâncias de caminho na observação (1.0 = outro lado do mapa). Automático, calculado na 1ª consulta.
         /// </summary>
         public float PathDiameter
         {
@@ -810,10 +679,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O nó serve de SPAWN? Ativo e com o corpo cabendo parado nele com _spawnClearance.
-        /// Medido na primeira consulta (e não no bake, que roda no Awake, quando nem todo
-        /// collider da cena foi registrado na física ainda) e guardado: mobília não se mexe
-        /// durante o treino.
+        /// Nó ativo em que o corpo cabe parado (_spawnClearance). Medido na 1ª consulta, não no bake: no Awake
+        /// nem todo collider está registrado na física.
         /// </summary>
         public bool CanSpawnAt(int index)
         {
@@ -837,8 +704,8 @@ namespace Assets.Scripts.Graph
                     count++;
             }
 
-            // Sem nenhum nó com folga (layer errada, nós todos em corredor apertado): melhor
-            // nascer encostado do que não nascer — e gritar, porque é quase certo erro de montagem.
+            // Sem nenhum nó com folga: melhor nascer encostado do que não nascer (e avisa: quase certo erro
+            // de montagem).
             if (count == 0 && _nodes.Count > 0)
             {
                 Debug.LogWarning(
@@ -860,10 +727,7 @@ namespace Assets.Scripts.Graph
 
         public int[] GetNeighbors(int index) => _adjacency[index];
 
-        /// <summary>
-        /// Quanto vale ATENDER o ping neste nó. Igual para todo nó: o peso por nó saiu junto com
-        /// a pontuação por área (ver o cabeçalho de _pingNodeScore).
-        /// </summary>
+        /// <summary>Quanto vale atender o ping neste nó (igual para todos; ver _pingNodeScore).</summary>
         public float PingValue(int index) => _pingNodeScore;
 
         /// <summary>O grafo tem algum nó de PING (senão o ping usa os de exploração).</summary>
@@ -882,25 +746,21 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O nó pode tocar (GraphPingSystem) e a chegada do hider nele vira rastro? Os nós de ping
-        /// DO EPISÓDIO (<see cref="DrawEpisodePingNodes"/>); antes do primeiro sorteio, os marcados
-        /// como Ping ou, sem nenhum, qualquer nó de sala (porta nunca: barulho é dentro de uma sala).
+        /// O nó pode tocar (GraphPingSystem) e a chegada do hider nele vira rastro? Usa os nós do episódio
+        /// (<see cref="DrawEpisodePingNodes"/>); antes do 1º sorteio, os Ping ou, sem nenhum, qualquer nó de sala.
         /// </summary>
         public bool IsPingSource(int index) =>
             _episodePing != null ? _episodePing[index]
             : _hasPingNodes ? _nodes[index].IsPing
             : !_nodes[index].IsDoor;
 
-        // Nós de ping deste episódio. Estado de EPISÓDIO num componente de estrutura, de propósito:
-        // é do AMBIENTE da arena (o hider e o ping do agente têm que concordar sobre onde o barulho
-        // pode acontecer), e o grafo é o único objeto que os dois já compartilham.
+        // Nós de ping do episódio. Mora no grafo porque é o único objeto que o hider e o ping do agente
+        // compartilham.
         private bool[] _episodePing;
 
         /// <summary>
-        /// Sorteia os nós de ping do episódio: UM nó qualquer (não-porta, ativo) por sala. Sala de um
-        /// nó só entra com <paramref name="singleNodeRoomChance"/> — numa sala de um ladrilho o ping
-        /// seria sempre no mesmo lugar, então às vezes ela simplesmente não tem barulho. Variar por
-        /// episódio é o que impede a política de decorar "o barulho é sempre ali". Chamado pela arena.
+        /// Sorteia um nó de ping (ativo, não-porta) por sala a cada episódio, para a política não decorar onde
+        /// toca. Sala de um nó só entra com <paramref name="singleNodeRoomChance"/>. Chamado pela arena.
         /// </summary>
         public void DrawEpisodePingNodes(float singleNodeRoomChance)
         {
@@ -938,14 +798,10 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Medido no bake (o ping e o hider perguntam a cada chegada). Nó ligado/desligado por
-        // lição não muda o TIPO, então a foto do bake continua certa.
+        // Foto do bake: o tipo do nó não muda por lição.
         private bool _hasPingNodes;
 
-        /// <summary>
-        /// Todos os nós ativos, portas e salas. Usado pela checagem de conectividade do
-        /// bake, onde o que importa é alcançabilidade — e um auxiliar isolado também é um bug.
-        /// </summary>
+        /// <summary>Quantidade de nós ativos (portas e salas); base da checagem de conectividade.</summary>
         public int EnabledNodeCount()
         {
             int count = 0;
@@ -959,20 +815,9 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Nó ativo cuja área de chegada contém a posição; havendo mais de um, o mais central.
-        /// Devolve -1 quando o agente está no meio do nada — o que é normal e não é erro: entre
-        /// dois nós ele simplesmente não está em nenhum.
-        ///
-        /// A distância é PLANAR (X/Z) e vem de <see cref="AreaDistance"/>, então a forma
-        /// escolhida no Inspector decide a área: disco no círculo, quadrado no Chebyshev. O
-        /// mapa tem um andar só, e medir em 3D faria a altura do nó em relação ao agente comer
-        /// parte da área — um nó desenhado no chão registraria visita numa área menor que a do
-        /// gizmo, sem nada indicando o porquê.
-        ///
-        /// <paramref name="current"/> é a HISTERESE: enquanto a posição ainda estiver na área do
-        /// nó atual, ele vence o desempate. Sem isso, andar em cima da borda comum de dois
-        /// ladrilhos trocava de nó a cada step (A-B-A-B): a âncora piscava, o "nó anterior"
-        /// alternava e a contagem de visitas inflava sozinha — um loop que o agente não fez.
+        /// Nó ativo cuja área contém a posição (o mais central, se vários); -1 se nenhum (normal entre dois nós).
+        /// Distância planar (X/Z). <paramref name="current"/> é histerese: enquanto a posição ainda está na área
+        /// dele, ele vence o desempate (evita a âncora piscar A-B-A na borda comum de dois ladrilhos).
         /// </summary>
         public int FindNodeAt(Vector3 position, int current = -1)
         {
@@ -984,8 +829,7 @@ namespace Assets.Scripts.Graph
                 if (!node.IsEnabled)
                     continue;
 
-                // Retângulo: a métrica é normalizada (0 no centro, 1 na borda). Os ladrilhos não
-                // se sobrepõem, então o desempate só decide a borda comum de dois vizinhos.
+                // Retângulo: métrica normalizada (0 no centro, 1 na borda); o desempate só decide a borda comum.
                 if (_nodeShape == NodeShape.Rectangle)
                 {
                     float metric = RectangleMetric(node, position);
@@ -1005,13 +849,8 @@ namespace Assets.Scripts.Graph
             if (_nodeShape == NodeShape.Rectangle && KeepAnchor(current, position))
                 return current;
 
-            // Do centro mais perto para o mais longe; o primeiro que ENXERGA o ponto vence. Com a
-            // área cortada pela parede, o nó da sala vizinha (mais perto em linha reta, mas atrás
-            // da parede) perde para o da sala em que o agente está de fato.
-            //
-            // No Retângulo não há corte: o retângulo JÁ É a área declarada (o ladrilhamento só o
-            // desenha sobre chão livre), e o raycast só erraria — um ladrilho de corredor que
-            // engloba um pilar perderia o chão atrás do pilar, onde o agente passa.
+            // Do mais central ao mais longe, o primeiro que enxerga o ponto vence (o nó atrás da parede perde).
+            // No Retângulo não há corte: o retângulo já é a área declarada, e o raycast perderia o chão atrás de pilar.
             _areaCandidates.Sort(_byAreaDistance);
             bool clip = _areasStopAtWalls && _nodeShape != NodeShape.Rectangle;
             foreach ((float _, int index) in _areaCandidates)
@@ -1029,9 +868,8 @@ namespace Assets.Scripts.Graph
             return -1;
         }
 
-        // Folga da âncora (ver _anchorHysteresis): o agente saiu do nó atual há menos da folga e
-        // ainda não entrou fundo o bastante no vizinho mais central que o contém? Então fica.
-        // Chamado só com candidatos na lista (o agente está dentro de algum ladrilho).
+        // Folga da âncora (_anchorHysteresis): fica no nó atual se saiu dele há menos da folga e ainda não
+        // entrou fundo no vizinho mais central.
         private bool KeepAnchor(int current, Vector3 position)
         {
             if (_anchorHysteresis <= 0f || current < 0 || current >= _nodes.Count || !_nodes[current].IsEnabled)
@@ -1040,11 +878,9 @@ namespace Assets.Scripts.Graph
             NavNode currentNode = _nodes[current];
             float outside = RectangleOutside(currentNode, position);
 
-            // Ainda dentro do atual: o desempate normal (abaixo) já o mantém.
             if (outside <= 0f || outside > _anchorHysteresis)
                 return false;
 
-            // O candidato mais central (menor métrica) é quem assumiria.
             int best = -1;
             float bestMetric = float.MaxValue;
             foreach ((float metric, int index) in _areaCandidates)
@@ -1066,8 +902,7 @@ namespace Assets.Scripts.Graph
             return depth < required;
         }
 
-        // Metros para FORA da borda do retângulo do nó (negativo = dentro; o módulo é a distância
-        // até a borda mais próxima). Planar, como a métrica.
+        // Metros para fora da borda do retângulo (negativo = dentro), planar.
         private float RectangleOutside(NavNode node, Vector3 point)
         {
             Vector2 half = HalfExtentsOf(node);
@@ -1083,16 +918,9 @@ namespace Assets.Scripts.Graph
             (a, b) => a.distance != b.distance ? a.distance.CompareTo(b.distance) : a.index.CompareTo(b.index);
 
         /// <summary>
-        /// Nó ativo mais próximo ALCANÇÁVEL EM LINHA RETA, ignorando raio de chegada. Serve para
-        /// o agente saber onde a malha está quando ele se afastou dela — sem isso a única
-        /// referência que ele tem é a âncora, que é um nó que ele já deixou para trás e pode
-        /// estar atrás dele.
-        ///
-        /// A checagem de linha livre NÃO é opcional: o nó geometricamente mais próximo pode
-        /// estar do outro lado de uma parede, e apontar para ele ensinaria o agente a andar
-        /// contra o concreto. Quando nenhum nó tem linha livre (o agente entalou numa quina,
-        /// por exemplo), cai no mais próximo puro — uma referência ruim ainda é melhor que
-        /// nenhuma, e a alternativa seria a observação piscar entre "tem alvo" e "não tem".
+        /// Nó ativo mais próximo ALCANÇÁVEL em linha reta, ignorando o raio de chegada (referência quando o agente
+        /// se afastou da malha). A linha livre importa: o mais próximo geométrico pode estar atrás de uma parede.
+        /// Sem nenhum com linha livre, cai no mais próximo puro, para a observação não piscar.
         /// </summary>
         public int FindNearestReachableNode(Vector3 position)
         {
@@ -1116,7 +944,7 @@ namespace Assets.Scripts.Graph
                     nearestAny = i;
                 }
 
-                // Só paga o custo do SphereCast enquanto ele pode mudar a resposta.
+                // Só paga o cast enquanto ele pode mudar a resposta.
                 if (distance < bestClear && IsSegmentClear(position, node.Position))
                 {
                     bestClear = distance;
@@ -1128,9 +956,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Caminho mais curto até um alvo JÁ ESCOLHIDO. É o que mantém a seta fixa num alvo
-        /// entre dois sorteios: sem isto, cada troca de nó re-sortearia e a seta ficaria
-        /// piscando entre candidatos. Falha se o alvo ficou inalcançável.
+        /// Caminho mais curto até um alvo já escolhido: devolve o próximo passo e a distância em metros;
+        /// false se o alvo ficou inalcançável.
         /// </summary>
         public bool TryFindPathTo(int from, int target, out int nextStep, out float pathDistance)
         {
@@ -1154,25 +981,10 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O QUE RESTA POR ESTA SAÍDA: entrando por <paramref name="via"/> a partir de
-        /// <paramref name="from"/>, soma o <paramref name="value"/> dos nós alcançáveis (quem chama
-        /// já zera o que não vale nada), cada um descontado pela distância em METROS pelo grafo:
-        /// fator = 0.5^(metros / meia-vida). A busca NÃO passa por from — o que está do outro lado
-        /// do nó atual pertence a outra saída.
-        ///
-        /// Com <paramref name="room"/> &gt;= 0 a busca fica DENTRO da sala: entra nas portas dela
-        /// (elas contam o valor que tiverem) mas não as atravessa. É a visão "sala + portas" do
-        /// agente: o que tem do outro lado de uma porta não entra na conta.
-        ///
-        /// É o "o que tem atrás desta porta?" que substitui a seta sem entregar um caminho: num
-        /// beco com tudo visitado por perto, a saída que leva ao inexplorado ainda pontua mais
-        /// que as outras. Sem isto o agente só enxergava 1 aresta à frente e rodava em círculo
-        /// quando todos os vizinhos já estavam visitados (node4_noarrow_01: cobertura parada em
-        /// 13% por 7M steps). Portado do NavGraph.ScoreBeyond da feature/node-unexplored, que
-        /// descontava por ARESTA — aqui é por metro, pelo mesmo motivo do _pathOrder.
-        ///
-        /// Ciclos podem contar o mesmo nó para duas saídas. Aceitável: a observação é
-        /// comparativa entre saídas, e o empate é a resposta certa.
+        /// O que resta por esta saída: entrando por <paramref name="via"/> a partir de <paramref name="from"/>,
+        /// soma o <paramref name="value"/> dos nós alcançáveis, cada um descontado por 0.5^(metros / meia-vida).
+        /// A busca não passa por from. Com <paramref name="room"/> &gt;= 0 fica dentro da sala (entra nas portas
+        /// dela, sem atravessá-las). Ciclos podem contar o mesmo nó em duas saídas; a observação é comparativa.
         /// </summary>
         public float ScoreBeyond(int from, int via, float halfLifeMeters, float[] value, int room = -1)
         {
@@ -1207,17 +1019,10 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// DISTÂNCIA POR ESTA SAÍDA: entrando por <paramref name="via"/> a partir de
-        /// <paramref name="from"/> (sem passar de volta por from), metros pelo grafo até o nó mais
-        /// próximo com <paramref name="value"/> &gt; 0. -1 se não há nenhum por ali.
-        ///
-        /// O par do <see cref="ScoreBeyond"/>: aquele diz QUANTO tem atrás da porta (soma com
-        /// desconto), este diz QUÃO PERTO está o primeiro. A soma com desconto não é um campo de
-        /// distância — no nó A a melhor saída pode ser B e em B a melhor ser A de novo (as somas
-        /// quase empatam e desempatam para lados diferentes), e com tudo visitado por perto todas
-        /// as saídas valem quase zero e ruído vira instrução. A distância ao mais próximo é um
-        /// campo de verdade: seguir sempre a menor só diminui, então não há loop, e num beco
-        /// cercado de visitados ela continua dizendo "por aqui faltam 45 m, por ali 60 m".
+        /// Distância por esta saída: metros pelo grafo, entrando por <paramref name="via"/> (sem voltar por
+        /// <paramref name="from"/>), até o nó mais próximo com <paramref name="value"/> &gt; 0; -1 se não há.
+        /// Par do <see cref="ScoreBeyond"/>: a soma com desconto pode empatar e gerar loop, a distância ao mais
+        /// próximo só diminui seguindo a menor.
         /// </summary>
         public float DistanceToNearestBeyond(int from, int via, float[] value, int room = -1)
         {
@@ -1249,13 +1054,10 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Caminho mais curto a partir de <paramref name="from"/> DENTRO da sala
-        /// <paramref name="room"/>: os nós dela e as portas dela (que entram, mas não são
-        /// atravessadas). Se from for uma porta da sala, a busca sai dela só para dentro da sala.
-        ///
-        /// Devolve quantos nós foram alcançados; leia-os, EM ORDEM DE DISTÂNCIA, com
-        /// <see cref="SearchedNode"/>, <see cref="SearchedCost"/> e <see cref="SearchedFirstStep"/>
-        /// ANTES de qualquer outra busca no grafo (os buffers são compartilhados).
+        /// Dijkstra a partir de <paramref name="from"/> DENTRO da sala <paramref name="room"/> (nós e portas dela;
+        /// portas entram mas não são atravessadas). Devolve quantos nós foram alcançados: leia-os, em ordem de
+        /// distância, com <see cref="SearchedNode"/>/<see cref="SearchedCost"/>
+        /// ANTES de outra busca (os buffers são compartilhados).
         /// </summary>
         public int SearchRoom(int from, int room)
         {
@@ -1272,20 +1074,14 @@ namespace Assets.Scripts.Graph
         /// <summary>Distância (m pelo grafo) até o nó na última <see cref="SearchRoom"/>.</summary>
         public float SearchedCost(int node) => _pathCost[node];
 
-        /// <summary>Primeiro passo de from até o nó na última <see cref="SearchRoom"/> (from = a origem dela).</summary>
-        public int SearchedFirstStep(int from, int node) => node == from ? from : FirstStepTowards(from, node);
 
         /// <summary>
-        /// Caminho mais curto em METROS a partir de <paramref name="from"/>, só por nós ativos
-        /// (Dijkstra com heap). Deixa em _pathOrder[0.._pathCount) os nós fechados em ordem de
-        /// distância e em _pathParent/_pathCost o caminho de cada um. Com <paramref name="stopAt"/>
-        /// &gt;= 0 para assim que esse nó fecha — a distância dele já é a final.
+        /// Dijkstra em metros por nós ativos; deixa em _pathOrder os nós fechados em ordem de distância e em
+        /// _pathParent/_pathCost o caminho de cada um. <paramref name="stopAt"/> &gt;= 0 para ao fechar esse nó.
         /// </summary>
-        // blocked: nó que a busca não atravessa (-1 = nenhum). startCost: custo já pago até from.
-        // Os dois só são usados pelo ScoreBeyond, que isola uma saída do nó atual.
-        // room >= 0: só entra em nós dessa sala e nas portas dela, e PORTA NÃO É EXPANDIDA (a busca
-        // para no vão). A exceção é a própria origem quando expandDoorOrigin: o agente parado num
-        // vão ainda precisa achar o caminho para dentro da sala.
+        // blocked: nó que a busca não atravessa (ScoreBeyond/DistanceToNearestBeyond isolam uma saída, com startCost).
+        // room >= 0: só entra nos nós da sala e nas portas dela, e porta não é expandida (exceto a origem, se
+        // expandDoorOrigin: o agente parado num vão precisa achar o caminho para dentro da sala).
         private void RunDijkstra(int from, int stopAt, int blocked = -1, float startCost = 0f,
             int room = -1, bool expandDoorOrigin = true)
         {
@@ -1293,8 +1089,7 @@ namespace Assets.Scripts.Graph
             _pathCount = 0;
             _heapCount = 0;
 
-            // Carimbado como fechado sem entrar na lista: é a parede que separa esta saída das
-            // outras.
+            // Fechado sem entrar na lista: separa esta saída das outras.
             if (blocked >= 0)
             {
                 _pathStampOf[blocked] = _pathStamp;
@@ -1414,17 +1209,10 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O segmento entre dois pontos passa livre? Usado pelo gizmo de validação, pela
-        /// auto-ligação, pelo nó alcançável mais próximo e pelo <see cref="NavGraphPlacer"/>. É a
-        /// única definição de "não atravessa parede" do sistema.
-        ///
-        /// Varre a COLUNA do corpo (cápsula de _bodyBottom a _bodyTop), não uma altura só. Como
-        /// todo cast do Unity, ignora collider que já envolve o ponto de partida — de propósito:
-        /// em runtime a partida é o agente, e um agente encostado na parede não pode perder a
-        /// linha livre para o mapa inteiro. Para "o ponto em si está livre?" use IsBodyClear.
-        ///
-        /// Usa a física da CENA do grafo, e não a global: no Prefab Mode o prefab vive numa cena
-        /// de preview com física própria, e a consulta global olharia para a cena errada.
+        /// O segmento passa livre para o corpo? Varre a COLUNA do corpo (cápsula de _bodyBottom a _bodyTop) e é a
+        /// única definição de "não atravessa parede" (gizmo, auto-ligação, nó alcançável, NavGraphPlacer). Como todo
+        /// cast, ignora collider que já envolve a partida (para "o ponto está livre?" use IsBodyClear). Usa a física
+        /// da CENA do grafo: no Prefab Mode a global olharia a cena errada.
         /// </summary>
         public bool IsSegmentClear(Vector3 a, Vector3 b)
         {
@@ -1448,10 +1236,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O corpo, com este raio, cabe parado em <paramref name="position"/> sem encostar em
-        /// nada da layer de parede? Mesma coluna do <see cref="IsSegmentClear"/>. É o teste de
-        /// "o nó está dentro de um móvel?" — que o cast não responde, porque ignora o collider
-        /// em que ele começa.
+        /// O corpo, com este raio, cabe parado em <paramref name="position"/> sem tocar a layer de parede? O cast
+        /// não responde isso: ele ignora o collider em que começa.
         /// </summary>
         public bool IsBodyClear(Vector3 position, float radius)
         {
@@ -1460,8 +1246,7 @@ namespace Assets.Scripts.Graph
             return physics.OverlapCapsule(bottom, top, radius, _overlapBuffer, _wallLayer, QueryTriggerInteraction.Ignore) == 0;
         }
 
-        // Centros das semiesferas da cápsula. Se o raio for maior que meia coluna, as duas
-        // colapsam no meio (vira uma esfera), em vez de inverterem.
+        // Centros das semiesferas da cápsula; se o raio passa de meia coluna as duas colapsam no meio.
         private void BodyCapsule(Vector3 position, float radius, out Vector3 bottom, out Vector3 top)
         {
             float low = _bodyBottom + radius;
@@ -1473,8 +1258,7 @@ namespace Assets.Scripts.Graph
             top = position + Vector3.up * high;
         }
 
-        // Erro de autoria em grafo é silencioso do mesmo jeito que erro de wiring em ML-Agents:
-        // o treino roda, só não converge. Melhor gritar no Play.
+        // Avisa no Play erro de autoria do grafo (silencioso: o treino roda, só não converge).
         private void ValidateBakedGraph()
         {
             if (_nodes.Count == 0)
@@ -1498,14 +1282,8 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            // Áreas de PRIMÁRIOS que se sobrepõem: o agente entra na área do outro antes de sair
-            // da deste, e a "chegada" passa a acontecer no meio do caminho. Funciona, mas a
-            // visita deixa de significar "estive lá" — e num doorway isso vira crédito por
-            // entrar numa sala em que ele nunca pôs o pé.
-            //
-            // TODOS os pares, não só os ligados: dois primários em salas vizinhas não têm aresta
-            // entre si (a parede está no meio), e é justamente aí que a área de um atravessa a
-            // parede e cobre a sala do outro. Antes o aviso só olhava arestas e isso passava.
+            // Áreas de PORTAS sobrepostas: a chegada acontece no meio do caminho e "visitado" deixa de significar
+            // "estive lá". Confere todos os pares, não só os ligados: portas de salas vizinhas não têm aresta entre si.
             int overlapping = 0;
             NavNode worstA = null;
             NavNode worstB = null;
@@ -1515,16 +1293,11 @@ namespace Assets.Scripts.Graph
             {
                 for (int j = i + 1; j < _nodes.Count; j++)
                 {
-                    // Só entre PRIMÁRIOS. O aviso existe para proteger o significado de
-                    // "cheguei", e isso só importa onde a chegada paga alguma coisa. Numa malha
-                    // auxiliar os discos se tocando é o desenho pretendido — é assim que ela
-                    // pega o agente sem buracos — e avisar aqui encheria o Console de ruído a
-                    // cada elo da cadeia, escondendo os avisos que importam.
+                    // Só entre portas, onde a chegada paga. Na malha auxiliar discos se tocando é o desenho pretendido.
                     if (!_nodes[i].IsDoor || !_nodes[j].IsDoor || !_nodes[i].IsEnabled || !_nodes[j].IsEnabled)
                         continue;
 
-                    // Na métrica da forma: dois quadrados se tocam quando a distância de
-                    // Chebyshev iguala a soma das meia-arestas, não quando a euclidiana iguala.
+                    // Na métrica da forma (Chebyshev no quadrado, euclidiana no círculo).
                     float length = AreaDistance(_nodes[i].Position, _nodes[j].Position);
                     float sum = NodeRadius(i) + NodeRadius(j);
 
@@ -1556,20 +1329,9 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// AUXILIAR EM CIMA DE PRIMÁRIO. FindNodeAt devolve o nó mais próximo do CENTRO, não o
-        /// primário: onde as duas áreas se cruzam, quem ganha é quem tem o centro mais perto.
-        ///
-        /// Áreas se cruzando é normal e desejado — a malha existe justamente para levar até o
-        /// primário, então ela tem que chegar perto. O que quebra é o centro do auxiliar ficar
-        /// EM CIMA do centro do primário: aí a região em que o primário ganha encolhe até um
-        /// sliver, e com o agente andando 0.1 m por step de física ele passa por cima sem
-        /// registrar. Nos centros exatamente coincidentes o desempate vira a ordem da lista —
-        /// silencioso e arbitrário — e o primário pode ficar INALCANÇÁVEL: a cobertura-alvo
-        /// nunca é atingida e nenhum episódio termina em sucesso.
-        ///
-        /// Não é a mesma checagem do laço acima: aquela só olha pares LIGADOS e ignora
-        /// auxiliares de propósito (a cadeia deve mesmo ter áreas sobrepostas). Esta olha todos
-        /// os pares, porque um auxiliar não precisa estar ligado ao primário para eclipsá-lo.
+        /// Auxiliar em cima de porta: o FindNodeAt devolve o nó de centro mais perto, então um auxiliar quase
+        /// coincidente encolhe a região da porta a um sliver (ou a deixa inalcançável, por desempate arbitrário) e
+        /// a travessia nunca é registrada. Confere todos os pares, ligados ou não.
         /// </summary>
         private void ValidateShadowedPrimaries()
         {
@@ -1578,8 +1340,7 @@ namespace Assets.Scripts.Graph
                 if (!_nodes[p].IsEnabled || !_nodes[p].IsDoor)
                     continue;
 
-                // Metade do raio: deixa a região de vitória do primário com pelo menos um quarto
-                // do raio dele, que a 0.1 m por step são vários steps de margem.
+                // Metade do raio: deixa a região da porta com ao menos 1/4 do raio (vários steps de margem).
                 float minSeparation = NodeRadius(p) * 0.5f;
 
                 for (int a = 0; a < _nodes.Count; a++)
@@ -1602,10 +1363,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Forma Retângulo: nenhum par de áreas pode se SOBREPOR (a promessa do ladrilhamento é
-        /// "cada ponto em exatamente um nó"). Sobreposição de até 2 cm é tolerada — é arredondamento
-        /// da grade, não autoria. Todos os pares, todos os tipos: aqui não há o "auxiliar pode
-        /// encostar" dos discos, porque o retângulo não é mais raio de captura, é o chão do nó.
+        /// Forma Retângulo: nenhum par de áreas pode se sobrepor (promessa do ladrilhamento: cada ponto em um nó
+        /// só); até 2 cm é arredondamento da grade. Avisa também nós sem retângulo.
         /// </summary>
         private void ValidateRectangles()
         {
@@ -1663,10 +1422,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Um grafo desconexo faz a cobertura total ser inatingível a partir de metade dos
-        /// spawns, e o episódio nunca termina em sucesso. Vale detectar na autoria.
-        /// </summary>
+        /// <summary>Grafo desconexo torna a cobertura total inatingível a partir de metade dos spawns.</summary>
         private void ValidateConnectivity()
         {
             var reachable = new bool[_nodes.Count];
@@ -1710,9 +1466,8 @@ namespace Assets.Scripts.Graph
 
 #if UNITY_EDITOR
         /// <summary>
-        /// Refaz o bake e escreve no Console cada sala (nós, portas) e cada porta problemática.
-        /// Depois disso o gizmo mostra o rótulo "S#" de cada sala (fora do Play também, até o
-        /// próximo recarregamento de scripts).
+        /// Refaz o bake e loga cada sala (nós, portas) e cada porta problemática; depois o gizmo mostra "S#"
+        /// em cada sala (até recarregar scripts).
         /// </summary>
         [ContextMenu("Relatório de salas e portas")]
         internal void LogRoomReport()
@@ -1753,9 +1508,8 @@ namespace Assets.Scripts.Graph
         internal void SetShape(NodeShape shape) => _nodeShape = shape;
 
         /// <summary>
-        /// Traz para dentro deste grafo todo NavNode da MESMA ARENA que não está debaixo de
-        /// nenhum NavGraph (criado solto, arrastado para fora do Graph, colado na raiz da arena)
-        /// e recoleta a lista. Com Undo: é o que o menu faz; a versão automática não grava.
+        /// Traz para este grafo todo NavNode da MESMA arena sem NavGraph acima e recoleta a lista (com Undo; a
+        /// versão automática não grava).
         /// </summary>
         [ContextMenu("Adotar nós soltos da arena e coletar")]
         private void AdoptAndCollect()
@@ -1767,9 +1521,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Chamado pelo editor a cada mudança de hierarquia (ver NavGraphAutoCollect), com
-        /// _autoCollectNodes ligado: adota os nós soltos da arena e recoleta SE a lista mudou.
-        /// A comparação evita marcar as 9 instâncias da arena como modificadas a cada clique.
+        /// Chamado pela hierarquia do editor (NavGraphAutoCollect) com _autoCollectNodes ligado: adota nós soltos e
+        /// recoleta SE a lista mudou (evita marcar as arenas como modificadas a cada clique).
         /// </summary>
         internal void AutoCollect()
         {
@@ -1792,10 +1545,8 @@ namespace Assets.Scripts.Graph
                 UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications(this);
         }
 
-        // Nós SOLTOS = na mesma arena (GraphArenaController, ou a raiz do objeto quando não há
-        // arena) e sem NavGraph acima. Nó de outro grafo nunca é roubado. Nó que é parte de uma
-        // instância de prefab não pode trocar de pai pela cena (o Unity não deixa reestruturar
-        // instância): esse fica onde está, desenhando a própria área, até você abrir o prefab.
+        // Nós soltos = na mesma arena e sem NavGraph acima; nó de outro grafo nunca é roubado. Nó de instância de
+        // prefab não pode trocar de pai pela cena: fica onde está, desenhando a própria área, até abrir o prefab.
         private int AdoptStrayNodes(bool recordUndo)
         {
             GraphArenaController arena = GetComponentInParent<GraphArenaController>(true);
@@ -1823,10 +1574,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Liga automaticamente todo par de nós dentro de <see cref="_autoLinkMaxDistance"/> com
-        /// linha de visão livre. Ponto de PARTIDA da autoria, não substituto dela: gera ligações
-        /// redundantes em sala aberta (onde três nós em linha viram um triângulo) e você limpa na
-        /// mão. Só adiciona — nunca remove uma ligação que você fez.
+        /// Liga todo par de nós a até <see cref="_autoLinkMaxDistance"/> com linha livre. Ponto de partida, não
+        /// substituto da autoria: gera ligações redundantes em sala aberta. Só adiciona, nunca remove.
         /// </summary>
         [ContextMenu("Auto-ligar por linha de visão")]
         private void AutoLinkByLineOfSight()
@@ -1934,8 +1683,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Roda fora do Play também, então resolve o raio pelo NÓ (RadiusOf) em vez de por índice
-        // (NodeRadius): antes do bake os índices ainda não existem.
+        // Roda fora do Play também: resolve o raio pelo NÓ (RadiusOf), pois antes do bake não há índices.
         private void DrawNodeRadii()
         {
             foreach (NavNode node in _nodes)
@@ -1952,11 +1700,7 @@ namespace Assets.Scripts.Graph
                 }
                 else
                 {
-                    // O disco SEMPRE fica na cor do papel: o override não pode trocar a matiz,
-                    // senão um primário com raio ajustado deixa de parecer primário e você perde
-                    // a leitura do mapa de cima (que é o motivo de o disco ter cor por papel).
-                    // A decisão de autoria continua visível pela OPACIDADE: disco cheio é
-                    // override, disco apagado é o padrão do grafo.
+                    // O disco fica sempre na cor do papel; o override aparece só pela opacidade (cheio = override).
                     Color color = node.IsDoor ? _primaryRadiusColor : node.IsPing ? _pingRadiusColor : _auxiliaryRadiusColor;
                     if (hasOverride)
                         color.a = Mathf.Min(1f, color.a * 1.6f);
@@ -1972,8 +1716,7 @@ namespace Assets.Scripts.Graph
         // Desenho da área (cortada pelas paredes)
         // ================================================================================
 
-        // Direções amostradas no contorno. 48 = a cada 7.5 graus, incluindo os múltiplos de 45 (os
-        // cantos do quadrado caem exatamente numa amostra).
+        // Direções amostradas no contorno (48 = a cada 7.5 graus; os cantos do quadrado caem numa amostra).
         private const int OutlineSamples = 48;
 
         private sealed class AreaOutline
@@ -1986,9 +1729,8 @@ namespace Assets.Scripts.Graph
             public readonly float[] Boundary = new float[OutlineSamples];
         }
 
-        // Um raycast por direção por nó é caro para refazer a cada repaint (e a memória desenha
-        // todos os nós das 9 arenas em Play). Guardado por nó; refeito quando o nó ou o raio
-        // mudam e, fora do Play, a cada 2 s (para acompanhar parede/móvel arrastado).
+        // Cache do contorno por nó (um raycast por direção é caro por repaint); refeito quando nó ou raio mudam
+        // e, fora do Play, a cada 2 s.
         private readonly Dictionary<NavNode, AreaOutline> _outlines = new Dictionary<NavNode, AreaOutline>();
 
         /// <summary>Desenha a área do nó <paramref name="index"/> (contorno, ou cheia com anéis).</summary>
@@ -1997,8 +1739,7 @@ namespace Assets.Scripts.Graph
 
         private void DrawArea(NavNode node, float radius, float height, int rings)
         {
-            // Retângulo: sem corte pela parede (FindNodeAt também não corta), anéis encolhendo
-            // para o centro do retângulo — o "cheio" da memória em Play.
+            // Retângulo: sem corte pela parede (como o FindNodeAt); anéis encolhem para o centro (o "cheio" da memória).
             if (_nodeShape == NodeShape.Rectangle)
             {
                 Vector3 center = AreaCenterOf(node);
@@ -2059,8 +1800,7 @@ namespace Assets.Scripts.Graph
                 float angle = k * Mathf.PI * 2f / OutlineSamples;
                 var direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
 
-                // Até onde a forma vai nesta direção: o raio no círculo; no quadrado (Chebyshev),
-                // raio / o maior componente da direção.
+                // Até onde a forma vai nesta direção: o raio no círculo; raio / maior componente no quadrado.
                 float boundary = _nodeShape == NodeShape.Square
                     ? radius / Mathf.Max(Mathf.Abs(direction.x), Mathf.Abs(direction.z))
                     : radius;
@@ -2078,11 +1818,9 @@ namespace Assets.Scripts.Graph
 
 #if UNITY_EDITOR
     /// <summary>
-    /// Liga o "Coletar nós automaticamente" do <see cref="NavGraph"/> à hierarquia do editor. Um
-    /// gancho estático, e não OnEnable no componente: fora do Play o Unity não chama OnEnable de
-    /// um MonoBehaviour comum. Adiado para o próximo tick (delayCall) porque mexer na hierarquia
-    /// DENTRO do evento de hierarquia dispararia o evento de novo no meio da coleta.
-    /// Olha só o estágio aberto: no Prefab Mode, o prefab; fora dele, as cenas.
+    /// Liga o auto-coletar do <see cref="NavGraph"/> à hierarquia do editor. Gancho estático porque fora do Play o
+    /// Unity não chama OnEnable de MonoBehaviour comum; adiado (delayCall) para não reentrar no evento de hierarquia.
+    /// Olha só o estágio aberto (o prefab no Prefab Mode, senão as cenas).
     /// </summary>
     [UnityEditor.InitializeOnLoad]
     internal static class NavGraphAutoCollect

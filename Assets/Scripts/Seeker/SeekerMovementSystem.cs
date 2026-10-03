@@ -11,6 +11,12 @@ namespace Assets.Scripts.Seeker
         public float StepDistance => _moveSpeed * Time.fixedDeltaTime;
 
         [SerializeField, Min(0f)] private float _acceleration = 0f;
+
+        // Desaceleração quando a velocidade desejada é MENOR que a atual na direção em que ele já anda
+        // (soltar, virar, parar). Maior que a aceleração = freia firme em vez de escorregar: com a mesma
+        // taxa para acelerar e frear, a 40 m/s ele deslizava metros depois de "querer" parar e se jogava
+        // na parede (steer assist cobrindo o erro). 0 = usa _acceleration (comportamento antigo).
+        [SerializeField, Min(0f)] private float _brakeAcceleration = 0f;
         [SerializeField, Min(0f)] private float _minTurnSpeed = 0.5f;
 
         [Header("-----Olhar (só com Move(direção, olhar))-----")]
@@ -21,6 +27,11 @@ namespace Assets.Scripts.Seeker
         [SerializeField, Min(0f)] private float _steerMargin = 0.5f;
         [SerializeField] private bool _frictionlessBody = false;
         [SerializeField] private bool _lockHeight = false;
+
+        // Parte da velocidade REAL do corpo a cada step, não da última pedida: o que a colisão tirou (a
+        // componente contra a parede) não volta de graça, então bater custa tempo de reaceleração em vez
+        // de a parede servir de trilho. Desligado = comportamento antigo (o Seeker por grade).
+        [SerializeField] private bool _syncVelocityWithBody = false;
 
         private Vector3 _velocity;
         private CapsuleCollider _capsule;
@@ -126,7 +137,17 @@ namespace Assets.Scripts.Seeker
 
         private void AccelerateTowards(Vector3 desired)
         {
-            _velocity = Vector3.MoveTowards(_velocity, desired, _acceleration * Time.fixedDeltaTime);
+            if (_syncVelocityWithBody)
+            {
+                Vector3 actual = Body.linearVelocity;
+                _velocity = new Vector3(actual.x, 0f, actual.z);
+            }
+
+            // Freia (menor velocidade desejada na direção atual do movimento) com _brakeAcceleration.
+            float rate = _brakeAcceleration > 0f && Vector3.Dot(desired - _velocity, _velocity) < 0f
+                ? _brakeAcceleration
+                : _acceleration;
+            _velocity = Vector3.MoveTowards(_velocity, desired, rate * Time.fixedDeltaTime);
             SetHorizontalVelocity(_velocity);
         }
 
@@ -139,7 +160,8 @@ namespace Assets.Scripts.Seeker
             Vector3 scale = _capsule.transform.lossyScale;
             float radius = 0.9f * _capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
             float speed = _velocity.magnitude;
-            float range = speed * speed / (2f * _acceleration) + _steerMargin;
+            float stopRate = _brakeAcceleration > 0f ? _brakeAcceleration : _acceleration;
+            float range = speed * speed / (2f * stopRate) + _steerMargin;
 
             for (int iteration = 0; iteration < 2; iteration++)
             {

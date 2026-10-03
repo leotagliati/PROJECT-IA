@@ -4,101 +4,76 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// A exploração por SALAS e PORTAS (docs/graph/salas-e-portas.md): o que este agente já cobriu
-    /// de cada sala, quantas vezes atravessou cada porta, e o que ainda vale. Lê a
-    /// <see cref="GraphExplorationMemory"/> (camada de nó) a cada step de física; as salas e
-    /// portas vêm do <see cref="NavGraph"/>.
-    ///
-    /// O QUE VALE (em UNIDADES; o GraphRewardSystem converte em recompensa — todo o tuning mora lá):
-    ///   nó novo da sala      1/⌈limiar x N⌉ da sala por nó: a sala inteira vale 1 até concluir,
-    ///                        qualquer que seja o tamanho (o peso por área saiu). Depois de concluída,
-    ///                        os nós que sobram pagam como "cauda" (o reward desconta).
-    ///   sala concluída       1 ao chegar a ⌈limiar x N⌉ nós pisados (limiar = room_complete_threshold).
-    ///   travessia de porta   NOVIDADE da porta: 1 na primeira, decai x _doorNoveltyDecay a cada
-    ///                        repetição. Sair pela porta por onde entrou é a 2ª travessia dela (vale
-    ///                        metade); sair por outra é a 1ª (cheia) — é isso que faz "sair por outra
-    ///                        porta" compensar, sem guardar pilha de entradas. Numa sala de UMA porta a
-    ///                        ida e a volta contam como uma travessia só (não há outra saída).
-    ///   saída de concluída   a mesma novidade, paga ao atravessar uma porta saindo de sala concluída.
-    ///
-    /// SALA QUENTE (ping, S4): quando um ping começa, a sala dele fica quente — se estava concluída,
-    /// volta a ser explorável — e cada fatia dela vale _hotRoomValue vezes mais até ela ser concluída
-    /// de novo. Uma sala quente por vez (a do último barulho). O agente vê o calor na sala atual [21]
-    /// e nas portas que dão para a sala quente: é o "mapa de calor" da sala até as portas dela.
-    ///
-    /// VER CONTA COMO EXPLORAR (vision_explores): nós de QUALQUER sala que entram no cone de visão
-    /// (GraphHiderPerception.CanSeePoint) contam como pisados. Explorar = ver; olhar a sala da porta,
-    /// ou a sala vizinha pelo vão, já vale. É o "querer ver tudo".
-    ///
-    /// SUSPEITA MULTIPLICA (com hider, GraphSuspicionMap): a suspeita não paga sozinha. Ela MULTIPLICA o
-    /// valor de ver a sala (sala com o dobro da suspeita média vale o dobro, até _maxSuspicionScale) e
-    /// REABRE sala concluída onde ela voltou a crescer (o hider pode ter ido para lá). Um sinal só:
-    /// ver tudo, começando por onde ele provavelmente está.
-    ///
-    /// LIBERAÇÃO (release_fraction, 0 = desligada): com essa fração das portas já usadas, a porta
-    /// usada há mais tempo volta a valer; com essa fração das salas concluídas, a sala concluída há
-    /// mais tempo volta a ser explorável. As duas voltam valendo _releasedValue (menos que uma nova:
-    /// explorar o inédito sempre compensa mais).
-    ///
-    /// Uma instância por agente (é estado de episódio). Mesmo ritmo da memória de nós: Tick por
-    /// step de física, flags acumuladas até o <see cref="ClearStepFlags"/>.
+    /// Memória de salas e portas de UM agente (estado de episódio): quanto cada sala foi coberta,
+    /// quantas vezes cada porta foi atravessada e o que ainda vale. Lê a GraphExplorationMemory a
+    /// cada step de física e entrega UNIDADES (sala inteira = 1, porta nova = 1); o GraphRewardSystem
+    /// converte em recompensa. Também serve a observação (Refresh, saídas, slots de porta).
+    /// Regras: sala concluída com ⌈limiar x N⌉ nós pisados; novidade da porta decai por travessia
+    /// (sala de UMA porta: ida e volta contam como uma); sala quente = a do último ping, com calor
+    /// pelo prédio; suspeita multiplica o valor de ver a sala; vision_explores conta nós vistos
+    /// como pisados; liberação devolve a porta/sala mais antiga valendo _releasedValue.
+    /// Invariante: Tick DEPOIS do Tick da memória de nós; flags acumulam até o ClearStepFlags.
     /// </summary>
     public class GraphRoomMemory : MonoBehaviour
     {
         [Header("-----Portas-----")]
-        // Quanto a porta perde a cada travessia: 0.5 -> 1, 0.5, 0.25... A soma de um vai-e-vem
-        // infinito no mesmo vão é 1/(1-0.5) = 2x a primeira travessia: não vira renda.
+        // Quanto a porta perde a cada travessia (1, 0.5, 0.25...). Um vai-e-vem infinito soma no máximo 2x a primeira.
         [SerializeField, Range(0.05f, 0.95f)] private float _doorNoveltyDecay = 0.5f;
 
         [Header("-----Liberação (release_fraction no currículo)-----")]
-        // Valor com que porta e sala liberadas voltam (1 = igual a uma nova). Abaixo de 1 de
-        // propósito: o inédito tem que pagar mais que o revisitado, senão patrulhar e explorar empatam.
+        // Valor com que porta e sala liberadas voltam (1 = igual a nova). Abaixo de 1 para o inédito pagar mais.
         [SerializeField, Range(0f, 1f)] private float _releasedValue = 0.5f;
 
         [Header("-----Sala quente (ping)-----")]
-        // Quanto vale cada fatia da sala do ping (e a conclusão dela) em relação a uma sala normal.
-        // 2 = "explorar a sala do barulho vale o dobro". Não é renda: a sala só esquenta quando um
-        // ping começa nela, e re-esquentar a MESMA sala quente não faz nada.
+        // Valor de cada fatia da sala do ping (e da conclusão dela) em relação a uma sala normal.
+        // Só esquenta quando um ping começa; re-esquentar a mesma sala não faz nada.
         [SerializeField, Min(1f)] private float _hotRoomValue = 2f;
 
         [Header("-----Visão (vision_explores no currículo)-----")]
-        // A cada quantos steps de física o cone é testado contra os nós da sala atual. 5 = uma vez
-        // por decisão; são até ~20 raycasts (a maior sala), só com a visão ligada.
+        // Steps de física entre testes do cone contra os nós da sala atual (5 = uma vez por decisão).
         [SerializeField, Min(1)] private int _visionIntervalSteps = 5;
 
         [Header("-----Suspeita (com hider)-----")]
-        // Teto do multiplicador da suspeita no valor de ver uma sala (sala 3x mais suspeita que a média
-        // vale 3x; acima disso, 3x). Sem teto, o nó do ping (90% da crença) valeria dezenas de salas.
+        // Teto do multiplicador da suspeita na OBSERVAÇÃO (normalizada por ele) e na leitura da razão.
         [SerializeField, Min(1f)] private float _maxSuspicionScale = 3f;
 
-        // Teto do multiplicador na RECOMPENSA (a observação segue normalizada por _maxSuspicionScale).
-        // 8 na fuga (era 3): com discovery_reward_scale 0.5 a sala comum paga metade do v4b, e a mais
-        // suspeita 4x o valor base (era 3x) — explorar à toa fica barato, procurar onde ele pode estar
-        // fica caro. Ainda limitado: sem teto o nó do ping (90% da crença) valeria dezenas de salas.
+        // Teto do multiplicador na RECOMPENSA: a faixa [1, _maxSuspicionScale] da observação é esticada
+        // até aqui. Sem teto, o nó do ping valeria dezenas de salas.
         [SerializeField, Min(1f)] private float _rewardSuspicionScale = 8f;
 
-        // Sala concluída REABRE quando a suspeita dela passa disto (x a média). 2 = "o dobro da chance
-        // de um lugar qualquer". Abaixo, ela continua vista.
+        // Sala concluída REABRE quando a suspeita dela passa deste múltiplo da média.
         [SerializeField, Min(1f)] private float _suspicionReopenRatio = 2f;
 
+        [Header("-----Mapa de calor do ping-----")]
+        // Fator de calor por porta de distância da sala do ping (1, 0.65, 0.42, ... 0.03 a 8 portas):
+        // dá gradiente em qualquer ponto do prédio.
+        [SerializeField, Range(0.1f, 0.95f)] private float _heatFalloffPerHop = 0.65f;
+
+        // Meia-vida do calor, em segundos: o ping esfria sozinho se ninguém o atende.
+        [SerializeField, Min(1f)] private float _heatHalfLifeSeconds = 25f;
+
+        // Soma do calor ao multiplicador do valor de VER a sala: x (quieto + boost x calor). Sala do
+        // ping com calor cheio: 2 (_hotRoomValue) x (0.25 + 4) = ~8.5x o valor base.
+        [SerializeField, Min(0f)] private float _heatValueBoost = 4f;
+
+        // Valor de explorar NO FRIO enquanto há calor (lerp 1 -> este, com o calor): o ping desvia
+        // o agente de varrer o outro lado do mapa. Volta a 1 conforme esfria.
+        [SerializeField, Range(0.05f, 1f)] private float _pingQuietScale = 0.25f;
+
         [Header("-----Observação das saídas-----")]
-        // Meia-vida, em METROS pelo grafo, do desconto do "quanto resta por esta saída" (dentro da
-        // sala). Uma sala grande do v4 tem ~25 m de ponta a ponta.
+        // Meia-vida, em METROS pelo grafo, do desconto do "quanto resta por esta saída" (dentro da sala).
         [SerializeField, Min(0.1f)] private float _exitHalfLifeMeters = 20f;
 
-        // Quanto uma porta "pesa" no quanto-resta, vezes a novidade dela, em unidades de SALA (a
-        // sala inteira vale 1). 0.5 = uma porta nova vale meia sala: dentro de uma sala que falta,
-        // os nós dela ganham; com a sala concluída, as portas novas passam a ganhar. Só observação.
+        // Peso de uma porta no quanto-resta, vezes a novidade dela, em unidades de SALA (0.5 = meia
+        // sala). Só observação.
         [SerializeField, Min(0f)] private float _doorPotential = 0.5f;
 
-        // Fração do valor de um nó de sala JÁ CONCLUÍDA no quanto-resta (a "cauda" que ainda paga um
-        // pouco). Só observação — o quanto a cauda PAGA é do reward system.
+        // Fração do valor de um nó de sala JÁ CONCLUÍDA no quanto-resta (a cauda). Só observação.
         [SerializeField, Range(0f, 1f)] private float _completedNodePotential = 0.2f;
 
         [Header("-----Gizmos (só em Play)-----")]
-        // Legenda:
-        //   disco ciano -> azul-escuro   porta, da novidade cheia à gasta
-        //   rótulo "S# 3/4 ok"           sala, nós pisados / necessários, concluída
+        // Legenda: disco ciano -> azul-escuro = novidade da porta (cheia -> gasta);
+        // rótulo "S# 3/4 ok" = nós pisados / necessários da sala, concluída.
         [SerializeField] private bool _drawGizmos = true;
 
         private static readonly Color FreshDoorColor = new Color(0.2f, 0.9f, 1f, 0.9f);
@@ -118,8 +93,11 @@ namespace Assets.Scripts.Graph
         private bool[] _roomPrevisited;
         private int[] _roomCompletedStep;
         private float[] _roomValueScale;   // base: 1, liberada (_releasedValue) ou quente (_hotRoomValue)
-        private float[] _roomSuspicion;    // multiplicador da suspeita (>= 1), refeito a cada _visionIntervalSteps
-        private int[] _roomHops;           // portas da sala atual até cada sala (planta do prédio)
+        private float[] _roomSuspicion;    // multiplicador da suspeita (>= 1)
+        private int[] _roomHops;           // portas da sala atual até cada sala
+        private int[] _heatHops;           // portas da sala do último ping até cada sala
+        private float[] _heatShape;        // calor por sala logo após o ping (1 na sala dele)
+        private float _heatLevel;          // 1 no ping, esfria com a meia-vida
         private int _hopsRoom = -2;
 
         // Por nó (só faz sentido em porta).
@@ -183,8 +161,8 @@ namespace Assets.Scripts.Graph
         public int DoorCount => _doorCount;
 
         /// <summary>
-        /// Fração das salas concluídas, sem as que já nasceram concluídas (elas saem do numerador
-        /// e do denominador). É a cobertura que encerra o episódio e que o agente observa.
+        /// Fração das salas concluídas, sem as que já nasceram concluídas (saem do numerador e do
+        /// denominador). É a cobertura que encerra o episódio e que o agente observa.
         /// </summary>
         public float CompletedFraction
         {
@@ -213,6 +191,8 @@ namespace Assets.Scripts.Graph
             _roomValueScale = new float[rooms];
             _roomSuspicion = new float[rooms];
             _roomHops = new int[rooms];
+            _heatHops = new int[rooms];
+            _heatShape = new float[rooms];
             _shuffle = new int[rooms];
 
             int count = _graph.NodeCount;
@@ -234,11 +214,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Zera o episódio. <paramref name="completeThreshold"/> é a fração de nós da sala que a
-        /// conclui (0.8); <paramref name="previsitedFraction"/> a fração das salas que já nasce
-        /// concluída (anti-decoreba, sempre sobra uma); <paramref name="releaseFraction"/> liga a
-        /// liberação (0 = desligada); <paramref name="visionExplores"/> faz o que o agente VÊ na sala
-        /// atual contar como pisado. Chamar DEPOIS do ResetEpisode da memória de nós.
+        /// Zera o episódio. Chamar DEPOIS do ResetEpisode da memória de nós. Sempre sobra ao menos
+        /// uma sala por concluir (previsitedFraction).
         /// </summary>
         public void ResetEpisode(float completeThreshold, float previsitedFraction, float releaseFraction, bool visionExplores)
         {
@@ -246,6 +223,8 @@ namespace Assets.Scripts.Graph
             _releaseFraction = Mathf.Clamp01(releaseFraction);
             _visionExplores = visionExplores && _perception != null;
             _hotRoom = -1;
+            _heatLevel = 0f;
+            System.Array.Clear(_heatShape, 0, _heatShape.Length);
             _hopsRoom = -2;
             _step = 0;
             _pendingDoor = -1;
@@ -282,8 +261,7 @@ namespace Assets.Scripts.Graph
             ClearStepFlags();
         }
 
-        // Sorteia salas que já nascem concluídas (nós marcados como pisados). Sempre sobra pelo
-        // menos uma, senão a cobertura nasce em 100%.
+        // Sorteia salas que já nascem concluídas; sempre sobra uma, senão a cobertura nasce em 100%.
         private void DrawPrevisited(float fraction)
         {
             int rooms = _graph.RoomCount;
@@ -329,6 +307,13 @@ namespace Assets.Scripts.Graph
         public void Tick(Transform agent)
         {
             _step++;
+
+            if (_heatLevel > 0f)
+            {
+                _heatLevel *= Mathf.Pow(0.5f, Time.fixedDeltaTime / _heatHalfLifeSeconds);
+                if (_heatLevel < 0.01f)
+                    _heatLevel = 0f;
+            }
             bool progress = false;
             Vector3 agentPosition = agent.position;
 
@@ -341,8 +326,7 @@ namespace Assets.Scripts.Graph
                 {
                     _pendingDoor = node;
 
-                    // Nasceu num vão: adota uma das salas dele como a atual (a travessia para a
-                    // outra conta normalmente).
+                    // Nasceu num vão: adota uma das salas dele (a travessia para a outra conta normal).
                     if (CurrentRoom < 0 && _graph.RoomsOfDoor(node).Length > 0)
                         CurrentRoom = _graph.RoomsOfDoor(node)[0];
                 }
@@ -375,9 +359,8 @@ namespace Assets.Scripts.Graph
             StepsSinceProgress = progress ? 0 : StepsSinceProgress + 1;
         }
 
-        // Nós de sala (de QUALQUER sala) ainda não vistos que estão no cone: contam como pisados e pagam
-        // a fatia deles. O filtro por distância vem antes do raycast — só os nós ao alcance do cone
-        // (15 m) chegam a testar parede.
+        // Nós de QUALQUER sala dentro do cone contam como pisados. O filtro por distância vem antes
+        // do raycast, para só testar parede nos nós ao alcance.
         private bool SeeVisibleNodes(Transform agent)
         {
             bool progress = false;
@@ -405,8 +388,8 @@ namespace Assets.Scripts.Graph
             return progress;
         }
 
-        // Refaz o multiplicador da suspeita de cada sala e REABRE sala concluída onde ela voltou a
-        // crescer. Sem procura (sem hider), tudo fica em 1 e nada reabre.
+        // Refaz o multiplicador da suspeita por sala e reabre sala concluída onde ela voltou a crescer.
+        // Sem hider, tudo fica em 1 e nada reabre.
         private void UpdateSuspicion()
         {
             bool active = _suspicion != null && _suspicion.IsActive;
@@ -420,7 +403,7 @@ namespace Assets.Scripts.Graph
                     _dirty = true;
                 }
 
-                // A sala em que ele está não reabre: zerar o chão debaixo dele seria renda de graça.
+                // A sala atual não reabre: zerar o chão debaixo do agente seria renda de graça.
                 if (active && _roomCompleted[r] && r != CurrentRoom && ratio >= _suspicionReopenRatio)
                     Reopen(r, 1f);
             }
@@ -445,28 +428,51 @@ namespace Assets.Scripts.Graph
             _dirty = true;
         }
 
-        // Valor efetivo de uma fatia da sala: base (normal, liberada, quente) x suspeita.
-        // O multiplicador de recompensa estica a faixa [1, _maxSuspicionScale] da observação para
-        // [1, _rewardSuspicionScale]: a OBSERVAÇÃO (RoomSuspicion) continua normalizada pelo teto
-        // antigo, então a rede herdada do v4b não vê o vetor mudar; só a renda da sala suspeita sobe.
+        // Valor efetivo de uma fatia da sala: base (normal, liberada, quente) x suspeita x calor do ping.
+        // A observação (RoomSuspicion) segue normalizada por _maxSuspicionScale; só a recompensa é esticada.
         private float Scale(int room)
         {
             float stretch = _maxSuspicionScale > 1f
                 ? (_rewardSuspicionScale - 1f) / (_maxSuspicionScale - 1f)
                 : 1f;
-            return _roomValueScale[room] * (1f + (_roomSuspicion[room] - 1f) * stretch);
+            float suspicion = 1f + (_roomSuspicion[room] - 1f) * stretch;
+
+            float ping = Mathf.Lerp(1f, _pingQuietScale, _heatLevel) + _heatValueBoost * RoomHeat(room);
+            return _roomValueScale[room] * suspicion * ping;
+        }
+
+        /// <summary>Calor da sala (0..1): 1 na sala do último ping, cai por porta de distância e com o tempo.</summary>
+        public float RoomHeat(int room) => room >= 0 ? _heatLevel * _heatShape[room] : 0f;
+
+        public float CurrentRoomHeat => RoomHeat(CurrentRoom);
+
+        /// <summary>Calor da sala do OUTRO lado da porta (vista da sala atual).</summary>
+        public float DoorHeat(int door)
+        {
+            int other = CurrentRoom >= 0 ? _graph.OtherRoom(door, CurrentRoom) : -1;
+            return RoomHeat(other);
         }
 
         /// <summary>
-        /// Esquenta a sala de um ping que começou (S4): concluída volta a ser explorável, e cada fatia
-        /// dela vale _hotRoomValue vezes até ela ser concluída de novo. A sala quente anterior esfria.
-        /// Re-esquentar a sala que já está quente não faz nada (senão um hider passeando nela viraria
-        /// renda: cada barulho apagaria a sala de novo).
+        /// Esquenta a sala de um ping que começou: concluída volta a ser explorável, e a sala quente
+        /// anterior esfria. Re-esquentar a sala que já está quente só renova o calor (senão um hider
+        /// passeando nela viraria renda).
         /// </summary>
         public void HeatRoom(int room)
         {
-            if (room < 0 || room == _hotRoom)
+            if (room < 0)
                 return;
+
+            if (room == _hotRoom)
+            {
+                _heatLevel = 1f;
+                return;
+            }
+
+            _graph.RoomHops(room, _heatHops);
+            for (int r = 0; r < _heatShape.Length; r++)
+                _heatShape[r] = _heatHops[r] >= 0 ? Mathf.Pow(_heatFalloffPerHop, _heatHops[r]) : 0f;
+            _heatLevel = 1f;
 
             CoolHotRoom();
             _hotRoom = room;
@@ -486,9 +492,8 @@ namespace Assets.Scripts.Graph
             _hotRoom = -1;
         }
 
-        // A porta da travessia A -> B: a que o agente pisou entre as duas (o normal), ou — se a
-        // âncora pulou o vão (ladrilho de porta estreito, agente rápido) — a porta entre A e B mais
-        // perto dele. -1 se A e B não têm porta entre si (mudou de sala por uma ligação sem vão).
+        // Porta da travessia A -> B: a pisada entre as duas ou, se a âncora pulou o vão (ladrilho
+        // estreito, agente rápido), a mais perto do agente. -1 se não há porta entre A e B.
         private int ResolveDoor(int from, int to, Vector3 position)
         {
             if (_pendingDoor >= 0 && _graph.OtherRoom(_pendingDoor, from) == to)
@@ -528,9 +533,8 @@ namespace Assets.Scripts.Graph
             if (door < 0)
                 return false;
 
-            // Sala de UMA porta: a volta pela mesma porta fecha o par aberto na ida e não conta
-            // como nova travessia (paga a mesma novidade da ida). Sem isso, entrar num beco e sair
-            // custaria metade só por ser beco — e não existe "outra porta" para preferir.
+            // Sala de UMA porta: a volta fecha o par aberto na ida e paga a mesma novidade; sem isso,
+            // entrar num beco custaria metade só por ser beco.
             float novelty;
             if (_doorPairOpen[door] && _graph.DoorsOfRoom(from).Length == 1)
             {
@@ -552,7 +556,7 @@ namespace Assets.Scripts.Graph
             if (novelty < 0.999f)
                 RepeatCrossings++;
 
-            // Sair de sala concluída paga a mesma novidade. Pré-concluída não: o mérito não foi dele.
+            // Sala pré-concluída não paga saída: o mérito não foi do agente.
             if (_roomCompleted[from] && !_roomPrevisited[from])
                 RoomExitValue += novelty;
 
@@ -590,7 +594,7 @@ namespace Assets.Scripts.Graph
             return true;
         }
 
-        // Uma liberação de cada tipo por step, no máximo — a fração cai logo abaixo do limiar.
+        // Uma liberação de cada tipo por step, no máximo.
         private void ReleaseOldest()
         {
             if (_doorCount > 0 && _usedDoorCount >= _releaseFraction * _doorCount)
@@ -614,8 +618,7 @@ namespace Assets.Scripts.Graph
 
             if (_completedCount >= _releaseFraction * _graph.RoomCount)
             {
-                // A sala em que ele está não é liberada: zerar o chão debaixo dele não é "voltar a
-                // valer", é recompensa de graça no próximo passo.
+                // A sala atual não é liberada: zerar o chão debaixo do agente seria renda de graça.
                 int oldest = -1;
                 for (int r = 0; r < _graph.RoomCount; r++)
                 {
@@ -630,13 +633,12 @@ namespace Assets.Scripts.Graph
         }
 
         // ================================================================================
-        // Leitura para a observação e o shaping (refeita só quando algo mudou)
+        // Leitura para a observação (refeita só quando algo mudou)
         // ================================================================================
 
         /// <summary>
-        /// Recalcula as distâncias até as portas da sala e o quanto-resta das saídas da âncora. Chamar uma
-        /// vez por decisão, antes de ler qualquer coisa abaixo; só refaz a conta quando a âncora
-        /// mudou ou algo foi pisado/liberado.
+        /// Recalcula distâncias até as portas da sala e o quanto-resta das saídas da âncora. Chamar
+        /// uma vez por decisão, antes de ler qualquer coisa abaixo; é barato quando nada mudou.
         /// </summary>
         public void Refresh()
         {
@@ -685,9 +687,8 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Distância pelo grafo, DENTRO da sala atual, da âncora até cada porta dela. É informação
-        // (a observação da porta), não um caminho: nenhum algoritmo escolhe para onde o agente deve ir
-        // — quem escolhe a porta é a política, olhando a novidade de cada uma.
+        // Distância pelo grafo, dentro da sala atual, da âncora até cada porta. Só informação para a
+        // observação: quem escolhe a porta é a política.
         private void MeasureDoorPaths(int anchor)
         {
             int count = _graph.SearchRoom(anchor, CurrentRoom);
@@ -703,8 +704,7 @@ namespace Assets.Scripts.Graph
         {
             foreach (int neighbor in _graph.GetNeighbors(anchor))
             {
-                // Saída para uma porta: conta dentro da sala atual. Saída para chão: dentro da sala
-                // daquele chão (parado num vão, o agente vê as duas salas que ele liga).
+                // Saída para porta conta na sala atual; para chão, na sala daquele chão (num vão o agente vê as duas).
                 int room = _graph.IsDoor(neighbor) ? CurrentRoom : _graph.RoomOf(neighbor);
 
                 float value = _graph.ScoreBeyond(anchor, neighbor, _exitHalfLifeMeters, _potential, room);
@@ -742,13 +742,6 @@ namespace Assets.Scripts.Graph
 
         public int CurrentRoomDoorCount => CurrentRoom >= 0 ? _graph.DoorsOfRoom(CurrentRoom).Length : 0;
 
-        /// <summary>A sala atual é a do último ping (quente)?</summary>
-        public bool CurrentRoomHot => CurrentRoom >= 0 && CurrentRoom == _hotRoom;
-
-        /// <summary>A porta é da sala quente (dá para ela, ou a sala atual é a quente)?</summary>
-        public bool DoorIsHot(int door) =>
-            _hotRoom >= 0 && (CurrentRoom == _hotRoom || _graph.OtherRoom(door, CurrentRoom) == _hotRoom);
-
         /// <summary>Portas da sala atual, em ordem ESTÁVEL (ângulo em volta do centro da sala).</summary>
         public IReadOnlyList<int> DoorSlots => _doorSlots;
 
@@ -767,8 +760,6 @@ namespace Assets.Scripts.Graph
         /// <summary>Quanto da sala já foi visto, rumo à conclusão (1 = concluída).</summary>
         public float RoomProgress(int room) => Mathf.Clamp01((float)_roomVisited[room] / _roomNeeded[room]);
 
-        public bool IsRoomHot(int room) => room == _hotRoom;
-
         /// <summary>Multiplicador da suspeita da sala normalizado (0 = média ou menos, 1 = o teto).</summary>
         public float RoomSuspicion(int room) =>
             _maxSuspicionScale > 1f ? Mathf.Clamp01((_roomSuspicion[room] - 1f) / (_maxSuspicionScale - 1f)) : 0f;
@@ -785,8 +776,7 @@ namespace Assets.Scripts.Graph
             return _roomHops[room];
         }
 
-        // A ordem do slot só muda quando a SALA muda (mesma lógica dos vizinhos: slot com
-        // significado geométrico, "a porta mais ao norte desta sala").
+        // A ordem dos slots só muda quando a SALA muda: slot com significado geométrico ("a porta mais ao norte").
         private void FillDoorSlots()
         {
             _slotsRoom = CurrentRoom;

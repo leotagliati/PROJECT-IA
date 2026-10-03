@@ -627,12 +627,12 @@ NIGHT_CONSTANTS = """  room_complete_threshold: 0.8
   ping_single_room_chance: 0.5
 """
 
-# ---- V4B (02/10): planta de salas + explorar = VER + suspeita multiplica, do zero ----
+# ---- V4.1 (02/10, era "V4B"): planta de salas + explorar = VER + suspeita multiplica, do zero ----
 # O v4_noite_01 pegou o hider em 62-70%, mas com hider a cobertura caia a cada licao (54% -> 51%)
 # enquanto a suspeita limpa subia: "limpar suspeita" e "explorar" pagavam separado e a suspeita
 # ganhava; e as salas S24 (corredor de 20 nos em anel) e S25 (sala de 23x24 m dentro dele) quase
 # nunca eram vistas - de longe nada dizia que elas existiam.
-V4B_BODY = NIGHT_BODY.replace(
+V4_1_BODY = NIGHT_BODY.replace(
     "# Tudo num run de ~8 h, herdando o cerebro do v4_s1_01 (o vetor 182 nao mudou).",
     """# DO ZERO (sensor novo = rede nova). O que mudou do v4_noite_01:
 #   - PLANTA DE SALAS: BufferSensor "Rooms" com as 26 salas (direcao, distancia, portas ate la,
@@ -645,7 +645,7 @@ V4B_BODY = NIGHT_BODY.replace(
 #
 # (Texto abaixo herdado do v4_noite_01; os valores da tabela de licoes sao os deste arquivo.)
 #""")
-V4B_PARAMS = []
+V4_1_PARAMS = []
 for _name, _comment, _values in NIGHT_PARAMS:
     if _name == "vision_explores":
         _values = [1] * len(_values)
@@ -653,66 +653,186 @@ for _name, _comment, _values in NIGHT_PARAMS:
     elif _name == "discovery_reward_scale":
         _values = [1.0] * len(_values)
         _comment = "Escala da exploracao. 1.0 sempre: a suspeita so multiplica, entao explorar nao compete com nada."
-    V4B_PARAMS.append((_name, _comment, _values))
+    V4_1_PARAMS.append((_name, _comment, _values))
 
-# ---- V4C (03/10): FUGA, hider na velocidade do seeker, caca e suspeita valendo muito mais ----
-# Herda o v4b_noite_01 (parou aos 7.17M na HiderFoge; pegava 83-87% com o hider a 2.2 m/s). O vetor
-# nao mudou (182 + BufferSensor Rooms), entao --initialize-from serve.
-V4C_BODY = """# FUGA A 6 m/s. Herda o v4b_noite_01 (HiderFoge: pegava ~85% com o hider a 2.2 m/s).
+# ---- V4.2 (03/10, era "V5"): DO ZERO, caca com hider rapido, calor do ping, raios duplos, menos steering ----
+# ABANDONADA aos 3.72M (v4.2_noite_01): parou de bater na parede porque parou de chegar perto dela,
+# ou seja, de passar em porta (22% das salas na Metade; a v4.1 tinha 41%). Fica aqui como registro: o
+# prefab ja NAO tem mais esses valores (voltou a fisica, a parede e o sensor da v4.1).
+# Sensor novo (2 RayPerceptionSensors x 13 raios no lugar de 1 x 9) => obs_0/obs_3 mudam de tamanho =>
+# o v4 e o modelo de 41k NAO carregam e nao servem de --initialize-from. Do zero, na escada da v4.1.
+V4_2_BODY = """# V4.2 DO ZERO (03/10, ABANDONADA aos 3.72M - ver historico). O que mudou da v4.1 (v4.1_noite_01):
+#   - PERCEPCAO: 2 sensores de raios de parede (RaysHigh/RaysLow, 13 raios cada, alcance 15 m, alturas
+#     ajustaveis em WorldAlignedSensor._heightOffset) no lugar de 1 de 9 raios a 20 m. Sensor novo =
+#     rede nova (por isso do zero).
+#   - MOVIMENTO: seeker 20 m/s (era 40) com aceleracao 7 (era 15), freio 30 e atrito 1 (corpo nao e mais
+#     sem atrito): ele deslizava e se jogava na parede, e o steering assist cobria o erro.
+#   - STEERING MENOR: 0.6 -> 0.1 (era 1.0 -> 0.3); parede custa o dobro: contato 0.0015/step e batida 0.1.
+#   - CALOR DO PING NO MAPA INTEIRO (GraphRoomMemory): 1 na sala do barulho, x0.65 por porta, meia-vida
+#     25 s; observacao continua (sala atual, portas, planta). Explorar no frio vale 0.25x enquanto ha
+#     calor; a sala quente vale ~8x. Ping chegado paga 5 (era 2). Suspeita zerada volta a pagar (1.0).
+#   - CACA MUITO MAIS VALIOSA: captura 20 + ate 25 por pegar cedo, avistar 2, aproximar 0.4 por metro
+#     (so com visao livre = linha reta), manter em visao 0.004/step; exploracao 0.5x na caca.
+#   - HIDER: 10 m/s, sem pausa, foge do seeker a menos de 18 m, vagueia fora disso.
 #
-#   #  Licao       vel   barulho desc  ping$ solto  criterio
-#   1  FogeLenta   4.0   0.4     0.5   1.0   0      progresso 0.30 (300)
-#   2  FogeIgual   6.0   0.3     0.5   1.0   0      progresso 0.65 (300)
-#   3  Solto       6.0   0.3     0.5   1.0   1      (final)
+#   #  Licao        salas assist pre  libera ping  hider  vel  barulho desc ping$ visao solto  criterio
+#   1  Perto        0.2   0.6    0    0      0     -      -    -       1.0  1.0   1     0      reward 5.0  (80 ep.)
+#   2  Metade       0.5   0.5    0    0      0     -      -    -       1.0  1.0   1     0      reward 8.0  (80)
+#   3  Quase        0.8   0.3    0    0      0     -      -    -       1.0  1.0   1     0      reward 10.0 (150)
+#   4  MenosAssist  0.8   0.15   0.3  0      0     -      -    -       1.0  1.0   1     0      reward 7.5  (150)
+#   5  Patrulha     1.1   0.1    0    0.85   0     -      -    -       1.0  1.0   1     0      progresso 0.30 (300)
+#   6  Ping         1.1   0.1    0    0.85   2000  -      -    -       1.0  1.0   1     0      progresso 0.40 (300)
+#   7  HiderParado  1.1   0.1    0    0      0     parado -    1.0     0.5  1.0   1     0      progresso 0.52 (300)
+#   8  HiderAnda    1.1   0.1    0    0      0     anda   5.0  0.8     0.5  1.0   1     0      progresso 0.64 (300)
+#   9  HiderFoge    1.1   0.1    0    0      0     foge   8.0  0.7     0.5  1.0   1     0      progresso 0.78 (300)
+#  10  HiderSolto   1.1   0.1    0    0      0     foge  10.0  0.7     0.5  1.0   1     1      (final)
 #
-# O QUE MUDOU (pedido do Arthur):
-#   - hider na velocidade do seeker (6 m/s) - em escada (4.0 -> 6.0): pular de 2.2 para 6 de uma vez
-#     seria tirar a muleta toda de uma vez. Com velocidades iguais so se pega encurralando (a fuga
-#     escolhe vizinho no grafo), entao o criterio e Hunt/Caught, nao a velocidade;
-#   - EXPLORACAO MENOS VALIOSA: discovery_reward_scale 0.5 (era 1.0): mapa inteiro ~12, nao ~25;
-#   - CACA BEM MAIS VALIOSA (prefab): captura 20 + 25 x tempo que sobra (era 10 + 15): 20..45;
-#     avistar 1.0 (era 0.5), aproximar 0.1/m (era 0.05);
-#   - MANTER EM VISAO: _hiderInViewReward 0.003 por decisao com ele no cone (teto ~4.8);
-#   - SALA SUSPEITA MAIS VALIOSA: teto do multiplicador na recompensa 8x (era 3x; a observacao
-#     continua normalizada pelo 3x, entao a rede herdada nao ve o vetor mudar). A sala mais suspeita
-#     paga 8 x 0.5 = 4x o valor base (era 3x); a comum paga metade;
-#   - PING VALENDO: ping_reward_scale 1.0 (era 0 na caca): chegar +2, expirar -0.5.
-#     CUIDADO: foi isso que virou renda no night_04 (seguir rastro em vez de explorar). Se aparecer
-#     cobertura despencando com reward subindo, volte para 0.3 antes de mexer em outra coisa.
-#
-# PASSA QUANDO: Hunt/Caught nao cair abaixo de ~60% na FogeIgual. Se cair a < 40%, a velocidade
-# igual e demais: segure em 4.0-5.0. 4M steps; checkpoint a cada 500k (tools/best_onnx.py).
-# DEPENDE do C# novo (GraphRewardSystem/GraphRoomMemory) e do prefab NodeTraining5 (valores novos).
+# THRESHOLDS: os da v4.1 menos ~1 (a parede custa o dobro; v4.1: Quase 10.9, MenosAssist 10.0 de media).
+# ATENCAO: ping$ 1.0 na caca e o que virou renda no night_04. Se Exploration/Coverage cair enquanto o
+# reward sobe, baixe ping_reward_scale para ~0.3. Compare tambem a captura x reward.
+# O que olhar: Hunt/Caught e Hunt/Seen, Exploration/Coverage, WallContactFraction, Movement/IdleFraction.
 """
-V4C_LESSONS = [
-    ("FogeLenta", 0.30, 300, "progress"),
-    ("FogeIgual", 0.65, 300, "progress"),
+V4_2_LESSONS = [
+    ("Perto", 5.0, 80),
+    ("Metade", 8.0, 80),
+    ("Quase", 10.0, 150),
+    ("MenosAssist", 7.5, 150),
+    ("Patrulha", 0.30, 300, "progress"),
+    ("Ping", 0.40, 300, "progress"),
+    ("HiderParado", 0.52, 300, "progress"),
+    ("HiderAnda", 0.64, 300, "progress"),
+    ("HiderFoge", 0.78, 300, "progress"),
+    ("HiderSolto", None, None),
+]
+V4_2_OVERRIDES = {
+    "steer_assist": ("Steering assistido (0..1). Menor que na v4.1: ele aprendia a se jogar na parede e deslizar.",
+                     [0.6, 0.5, 0.3, 0.15, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]),
+    "hider_speed": ("m/s do hider. 10 no fim (sem pausa, foge a menos de 18 m).",
+                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.0, 8.0, 10.0]),
+    "hider_noise": ("Chance de cada chegada do hider num no de ping virar ping.",
+                    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.7, 0.7]),
+    "ping_reward_scale": ("Ping valendo tambem na caca (chegar +5). Cuidado: night_04.",
+                          [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
+    "discovery_reward_scale": ("Escala da exploracao. 0.5 na caca: o objetivo e pegar.",
+                               [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5]),
+}
+V4_2_PARAMS = []
+for _name, _comment, _values in V4_1_PARAMS:
+    if _name in V4_2_OVERRIDES:
+        _comment, _values = V4_2_OVERRIDES[_name]
+    V4_2_PARAMS.append((_name, _comment, _values))
+
+# ---- V4.3 (03/10): CACA, herdando o cerebro da v4.1 ----
+# Depois da v4.2: em vez de refazer tudo do zero, parte do explorador bom (v4.1, pegava ~85% do hider a
+# 2.2 m/s) e muda UMA coisa - a caca. Fisica, parede e sensor de raios sao os da v4.1 (o 2o sensor
+# RaysWorldLow esta DESATIVADO no prefab: com ele a observacao muda e o --initialize-from nao carrega).
+V4_3_BODY = """# CACA, herdando a v4.1 (v4.1_noite_01, HiderFoge: pegava ~85% com o hider a 2.2 m/s e pausa nos nos).
+#
+#   #  Licao       vel  barulho solto  criterio
+#   1  FogeLenta   4.0  0.4     0      progresso 0.20 (300 ep.)
+#   2  FogeMedia   6.0  0.3     0      progresso 0.45 (300)
+#   3  FogeRapida  8.0  0.3     0      progresso 0.70 (300)
+#   4  Solto       8.0  0.3     1      (final)
+#   Todas: sem fim por cobertura (1.1), assist 0.3, hider foge (modo 3), exploracao x0.5, ping x0.4.
+#
+# O QUE MUDA DA v4.1 (so a caca; fisica 40 m/s / acel. 15 / sem atrito, parede 0.00075 + 0.03 e raios
+# 1 x 9 a 20 m continuam iguais):
+#   - HIDER MAIS DIFICIL: sem pausa nos nos (_maxPauseSteps 0), foge a menos de 18 m (era 12) e mais
+#     rapido em escada (4 -> 6 -> 8 m/s; a v4.1 parou em 2.2). O seeker anda a 40, mas numa sala de ~25 m
+#     chega a ~19 m/s: 8 ja e metade disso. Subir de uma vez seria tirar a muleta toda de uma vez;
+#   - CACA MAIS VALIOSA (prefab): captura 20 + ate 25 por pegar cedo, avistar 2, aproximar 0.4/m (so com
+#     visao livre), manter em visao 0.004/step (teto 32 < 45 de pegar cedo), suspeita zerada 1.0;
+#   - CALOR DO PING NO MAPA INTEIRO (GraphRoomMemory): x0.65 por porta, meia-vida 25 s, observacao
+#     continua nos mesmos slots (a rede herdada so ve valores entre 0 e 1 onde antes via 0 ou 1);
+#   - PING: chegar paga 5 no prefab; aqui x0.4 = 2, o valor que o plano da fuga previa. Ping pago na caca
+#     foi o que virou renda no night_04: se Exploration/Coverage cair com o reward subindo, baixe para 0.2;
+#   - exploracao x0.5 na caca (a v4.1 usava 1.0): o objetivo e pegar.
+#
+# PASSA QUANDO: Hunt/Caught nao cair abaixo de ~60% na FogeMedia/FogeRapida. Se cair a < 40%, a
+# velocidade e demais: segure (rode de novo com a escada mais baixa) antes de mexer em recompensa.
+# O que olhar: Hunt/Caught, Hunt/Seen, Exploration/Coverage, WallContactFraction (a v4.1 tinha ~18%
+# na caca), Movement/IdleFraction. 5M steps, checkpoint a cada 500k (tools/best_onnx.py).
+"""
+V4_3_LESSONS = [
+    ("FogeLenta", 0.20, 300, "progress"),
+    ("FogeMedia", 0.45, 300, "progress"),
+    ("FogeRapida", 0.70, 300, "progress"),
     ("Solto", None, None),
 ]
-V4C_PARAMS = [
-    ("coverage_target", "Sem fim por cobertura: o episodio acaba pegando o hider ou no tempo.", [1.1, 1.1, 1.1]),
-    ("steer_assist", "Steering assistido (0..1).", [0.3, 0.3, 0.3]),
-    ("previsited_fraction", "Fracao das SALAS que ja nasce concluida.", [0.0, 0.0, 0.0]),
-    ("release_fraction", "Sem liberacao por tempo: a suspeita faz o papel.", [0.0, 0.0, 0.0]),
-    ("ping_interval", "0: os pings vem dos passos do hider.", [0, 0, 0]),
-    ("hider_mode", "3 = foge.", [3, 3, 3]),
-    ("hider_speed", "m/s do hider (o seeker anda a 6). Escada ate a mesma velocidade.", [4.0, 6.0, 6.0]),
-    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.", [0.4, 0.3, 0.3]),
-    ("discovery_reward_scale", "Exploracao vale metade da do v4b: a caca e o objetivo.", [0.5, 0.5, 0.5]),
-    ("ping_reward_scale", "Ping valendo (chegar +2, expirar -0.5). Cuidado: night_04.", [1.0, 1.0, 1.0]),
-    ("vision_explores", "1 = o que ele VE conta como visto.", [1, 1, 1]),
-    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde.", [0, 0, 1]),
+V4_3_PARAMS = [
+    ("coverage_target", "Sem fim por cobertura: o episodio acaba pegando o hider ou no tempo.", [1.1, 1.1, 1.1, 1.1]),
+    ("steer_assist", "Steering assistido (0..1). O mesmo do fim da v4.1.", [0.3, 0.3, 0.3, 0.3]),
+    ("previsited_fraction", "Fracao das SALAS que ja nasce concluida.", [0.0, 0.0, 0.0, 0.0]),
+    ("release_fraction", "Sem liberacao por tempo: a suspeita faz o papel.", [0.0, 0.0, 0.0, 0.0]),
+    ("ping_interval", "0: os pings vem dos passos do hider.", [0, 0, 0, 0]),
+    ("hider_mode", "3 = foge.", [3, 3, 3, 3]),
+    ("hider_speed", "m/s do hider (sem pausa, foge a menos de 18 m). Escada: a v4.1 parou em 2.2.", [4.0, 6.0, 8.0, 8.0]),
+    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.", [0.4, 0.3, 0.3, 0.3]),
+    ("discovery_reward_scale", "Exploracao vale metade da v4.1: a caca e o objetivo.", [0.5, 0.5, 0.5, 0.5]),
+    ("ping_reward_scale", "Ping chegado 5 x 0.4 = 2 (expirar -0.2). Cuidado: night_04.", [0.4, 0.4, 0.4, 0.4]),
+    ("vision_explores", "1 = o que ele VE (qualquer sala) conta como visto.", [1, 1, 1, 1]),
+    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde.", [0, 0, 0, 1]),
 ]
 
+# ---- V4.4 (03/10): MOVIMENTO, herdando a v4.3 ----
+# A 40 m/s com aceleracao 15 ele levava 53 m para parar: nao fazia curva sem a parede, e o steer assist +
+# corpo sem atrito viravam trilho. Muda SO o movimento; a tarefa (caca) e a da v4.3, com a escada do
+# hider reduzida na proporcao da velocidade real nova (~19 -> ~9.5 m/s dentro de uma sala).
+V4_4_BODY = """# MOVIMENTO, herdando a v4.3 (v4.3_caca_01, 532k: via ~89% e pegava ~72% do hider a 4 m/s).
+#
+#   #  Licao       vel  assist barulho solto  criterio
+#   1  Adapta      2.0  0.3    0.4     0      progresso 0.20 (300 ep.)
+#   2  MenosAssist 3.0  0.15   0.3     0      progresso 0.45 (300)
+#   3  SemAssist   4.0  0      0.3     0      progresso 0.70 (300)
+#   4  Solto       4.0  0      0.3     1      (final)
+#   Todas: sem fim por cobertura (1.1), hider foge (modo 3), exploracao x0.5, ping x0.4.
+#
+# O QUE MUDA DA v4.3 (so o movimento). APLICAR NO PREFAB antes do run: o commit da v4.3 deixou o
+# NodeTraining5 com a fisica dela (40 / 15 / sem freio / sync off / assist padrao 0.3), para o modelo v4.3 rodar.
+# No SeekerMovementSystem e na arena:
+#   - velocidade 40 -> 10 m/s, aceleracao 15 -> 35, freio 50: para em ~1 m e chega ao maximo em 0.3 s
+#     (era 53 m e 2.7 s). O jogador anda a 5 e corre a 8.5;
+#   - _syncVelocityWithBody: a velocidade parte da real do corpo, entao bater na parede custa tempo
+#     (reacelerar) em vez de ela servir de trilho. Parede: mesmo preco da v4.1 (0.00075 + 0.03);
+#   - steer assist 0.3 -> 0.15 -> 0: com freio e curva de verdade ele nao precisa mais dele;
+#   - hider na escada 2 -> 3 -> 4 m/s (a v4.3 usava 4 -> 6 -> 8 contra um seeker ~2x mais rapido).
+#
+# PASSA QUANDO: Hunt/Caught volta a >= ~70% na SemAssist com WallContactFraction < 0.15 e
+# Exploration/WallHits caindo. Se a cobertura/avistamento despencar (Hunt/Seen < 60%), o episodio
+# de 160 s ficou curto para a velocidade nova: aumentar _maxEpisodeSteps e reescalar as penalidades
+# por step e outra mudanca, para o run seguinte. 5M steps, checkpoint a cada 500k.
+"""
+V4_4_LESSONS = [
+    ("Adapta", 0.20, 300, "progress"),
+    ("MenosAssist", 0.45, 300, "progress"),
+    ("SemAssist", 0.70, 300, "progress"),
+    ("Solto", None, None),
+]
+V4_4_PARAMS = []
+for _name, _comment, _values in V4_3_PARAMS:
+    if _name == "steer_assist":
+        _comment, _values = "Steering assistido (0..1). Sai aos poucos: com o movimento novo ele nao precisa.", [0.3, 0.15, 0.0, 0.0]
+    elif _name == "hider_speed":
+        _comment, _values = "m/s do hider (sem pausa, foge a menos de 18 m). Seeker a 10 m/s.", [2.0, 3.0, 4.0, 4.0]
+    V4_4_PARAMS.append((_name, _comment, _values))
+
+# Versoes do mapa v4 (salas e portas): v4.0 = v4_s1_01 + v4_noite_01; v4.1 = planta de salas (era
+# "v4b"); v4.2 = do zero contra a parede (era "v5", abandonada); v4.3 = caca herdando a v4.1;
+# v4.4 = movimento (para em 1 m) herdando a v4.3.
+# Versao nova (v5) so quando mudar o mapa ou a forma de treinar; ajuste na mesma tarefa = v4.x.
 V4_STAGES = [
-    ("graph_v4_s1_salas", "v4_s1_01", None, "S1 SALAS E PORTAS (do zero, sem seta)",
+    ("graph_v4_s1_salas", "v4_s1_01", None, "V4.0 S1 SALAS E PORTAS (do zero, sem seta)",
      S1_BODY, 5000000, V4_EXPLORE_ONLY, S1_LESSONS, S1_PARAMS),
-    ("graph_v4_noite", "v4_noite_01", "v4_s1_01", "NOITE: S1 -> S6 NUM RUN SO (~8 h)",
+    ("graph_v4_noite", "v4_noite_01", "v4_s1_01", "V4.0 NOITE: S1 -> S6 NUM RUN SO (~8 h)",
      NIGHT_BODY, 10000000, NIGHT_CONSTANTS, NIGHT_LESSONS, NIGHT_PARAMS),
-    ("graph_v4b_noite", "v4b_noite_01", None, "V4B: PLANTA DE SALAS + VER TUDO (do zero, ~8 h)",
-     V4B_BODY, 10000000, NIGHT_CONSTANTS, NIGHT_LESSONS, V4B_PARAMS),
-    ("graph_v4c_fuga", "v4c_fuga_01", "v4b_noite_01", "V4C: FUGA A 6 m/s, CACA E SUSPEITA MAIS VALIOSAS",
-     V4C_BODY, 4000000, NIGHT_CONSTANTS, V4C_LESSONS, V4C_PARAMS),
+    ("graph_v4.1_noite", "v4.1_noite_01", None, "V4.1: PLANTA DE SALAS + VER TUDO (do zero, ~8 h)",
+     V4_1_BODY, 10000000, NIGHT_CONSTANTS, NIGHT_LESSONS, V4_1_PARAMS),
+    ("graph_v4.2_noite", "v4.2_noite_01", None, "V4.2 (ABANDONADA): DO ZERO - CACA RAPIDA, CALOR DO PING, RAIOS DUPLOS",
+     V4_2_BODY, 10000000, NIGHT_CONSTANTS, V4_2_LESSONS, V4_2_PARAMS),
+    ("graph_v4.3_caca", "v4.3_caca_01", "v4.1_noite_01", "V4.3: CACA, HERDANDO A V4.1",
+     V4_3_BODY, 5000000, NIGHT_CONSTANTS, V4_3_LESSONS, V4_3_PARAMS),
+    ("graph_v4.4_movimento", "v4.4_movimento_01", "v4.3_caca_01", "V4.4: MOVIMENTO (para em 1 m, sem trilho na parede)",
+     V4_4_BODY, 5000000, NIGHT_CONSTANTS, V4_4_LESSONS, V4_4_PARAMS),
 ]
 
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)
@@ -726,4 +846,4 @@ for name, run, init, title, body, steps, constants, lessons, params in V4_STAGES
     # Um checkpoint a cada 500k guardado o run inteiro: num run sem supervisao, e o que permite
     # voltar ao melhor ponto se o fim piorar (overtraining / esquecimento).
     write(name + '.yaml', v4_header(title, name, run, init, body), steps, constants, lessons, params,
-          beta=BETA_NIGHT if name in ('graph_v4_noite', 'graph_v4b_noite') else BETA_STAGES, keep=max(10, steps // 500000))
+          beta=BETA_NIGHT if name in ('graph_v4_noite', 'graph_v4.1_noite', 'graph_v4.2_noite') else BETA_STAGES, keep=max(10, steps // 500000))

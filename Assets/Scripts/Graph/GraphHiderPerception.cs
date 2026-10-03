@@ -3,57 +3,46 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// A VISÃO do seeker sobre o hider: cone à frente + linha de visão livre de parede. É a
-    /// única percepção do hider que não passa pelo grafo — e é LOCAL de propósito: fora do cone
-    /// ou atrás de uma parede, o seeker não sabe onde ele está. O que fica é a MEMÓRIA da
-    /// última posição em que o viu, que é o que uma pessoa também teria.
+    /// A VISÃO do seeker sobre o hider: cone à frente + linha livre de parede, a memória da última
+    /// posição vista e a CAPTURA (hider ao alcance, sem parede no meio). É local de propósito:
+    /// fora do cone ou atrás de parede o seeker não sabe onde o hider está.
     ///
-    /// O QUE O AGENTE RECEBE (bloco [16..20] da observação, que estava reservado para isto):
-    ///   vendo (0/1), já viu neste episódio (0/1), direção X/Z + distância à ÚLTIMA POSIÇÃO
-    ///   VISTA. Enquanto vê, a última posição é a atual; ao perder, ela congela — é para lá
-    ///   que ele vai procurar.
+    /// Observação [16..20]: vendo, já viu, direção X/Z e distância à última posição vista (congela
+    /// ao perder de vista). Paga, no GraphRewardSystem: avistar (com cooldown), metros de
+    /// aproximação enquanto vê e capturar (terminal).
     ///
-    /// O QUE PAGA (GraphRewardSystem): um bônus ao AVISTAR (transição não-vendo -> vendo, com
-    /// cooldown para não render piscando numa quina) e por METRO de aproximação enquanto vê.
-    ///
-    /// Uma instância por agente; Tick a cada step de física (como a memória e o ping), para a
-    /// aquisição/perda de visão ser vista no step em que acontece.
+    /// Um por agente; Tick a cada step de física. CanSeePoint também é usado pela GraphRoomMemory
+    /// e pela GraphSuspicionMap.
     /// </summary>
     public class GraphHiderPerception : MonoBehaviour
     {
         [Header("-----Cone-----")]
-        // Abertura TOTAL do cone, em graus. 100 = 50 para cada lado do frente do corpo, que gira
-        // para onde a política manda OLHAR (ações [2..3], SeekerMovementSystem.Move(direção,
-        // olhar)) — não necessariamente para onde ela anda.
+        // Abertura TOTAL do cone, em graus, em torno de para onde o corpo OLHA (ações [2..3]), não
+        // necessariamente para onde anda.
         [SerializeField, Range(10f, 360f)] private float _viewAngle = 100f;
 
-        // Alcance, em metros. Da ordem de uma sala grande + corredor; acima disso a linha de
-        // visão num escritório raramente é livre de qualquer jeito.
+        // Alcance da visão, em metros.
         [SerializeField, Min(1f)] private float _viewDistance = 15f;
 
-        // Altura dos "olhos" e do ponto olhado, acima da posição de cada transform (o pivô fica
-        // ~0.15 m acima do chão). 1.4 = olho a ~1.55 m do chão, altura de adulto: enxerga por cima
-        // de mesa (~0.75 m) e não por cima de armário alto — a mobília está na layer Wall e
-        // BLOQUEIA a visão. Era 0.5 (~0.65 m do chão): qualquer mesa tapava o cone inteiro. O ponto
-        // olhado usa a mesma altura: a cabeça do hider, ou a de alguém de pé no nó (procura).
+        // Altura (m) dos olhos e do ponto olhado acima do pivô de cada transform. Mobília está na
+        // layer Wall e bloqueia a visão: baixo demais, qualquer mesa tapa o cone.
         [SerializeField] private float _eyeHeight = 1.4f;
 
         [Header("-----Captura-----")]
-        // Distância planar (m) entre os CENTROS em que o hider conta como pego, com linha livre de
-        // parede. O corpo do seeker tem 1.7 de largura (meia-largura 0.85) e o hider é menor, então
-        // encostar dá ~1.3–1.7 entre centros; 2.5 aceita "alcançou" sem exigir trombar de frente
-        // — trombar faria a política aprender a acertar o hider em alta velocidade, e a pegada
-        // natural é chegar perto. Não exige o cone: estando ao alcance do braço, pegou.
+        // Distância planar (m) entre centros em que o hider conta como pego (com linha livre).
+        // Não exige o cone nem trombar de frente.
         [SerializeField, Min(0.5f)] private float _captureDistance = 2.5f;
 
         [Header("-----Avistar-----")]
-        // Steps de física sem ver que precisam passar para uma nova aquisição de visão contar
-        // como "avistou de novo" (e pagar de novo). 250 = 5 s. Sem isto, ficar numa quina
-        // entrando e saindo do cone seria uma máquina de bônus.
+        // Steps de física sem ver (250 = 5 s) para uma nova aquisição pagar de novo; evita
+        // farmar bônus entrando e saindo do cone numa quina.
         [SerializeField, Min(0)] private int _respotCooldownSteps = 250;
 
         [Header("-----Referências-----")]
         [SerializeField] private GraphHider _hider;
+
+        // O alvo de fato: o hider no treino, o jogador no modo de jogo (SetTarget).
+        private IGraphTarget _target;
 
         private NavGraph _graph;
         private int _lastSeenStep = int.MinValue;
@@ -75,9 +64,8 @@ namespace Assets.Scripts.Graph
         public float CurrentDistance { get; private set; }
 
         /// <summary>
-        /// Velocidade planar do hider (m/s), medida entre dois steps em que o seeker o via. Zero
-        /// quando não vê, ou no primeiro step de visão (sem posição anterior para comparar). É o
-        /// que permite INTERCEPTAR — cortar caminho — em vez de só seguir atrás.
+        /// Velocidade planar do hider (m/s), medida entre dois steps seguidos de visão. Zero sem
+        /// ver ou no primeiro step de visão.
         /// </summary>
         public Vector3 HiderVelocity { get; private set; }
 
@@ -90,8 +78,7 @@ namespace Assets.Scripts.Graph
         public bool Spotted { get; private set; }
 
         /// <summary>
-        /// Pegou o hider (ao alcance de _captureDistance, com linha livre de parede). Fica de pé
-        /// até o ResetEpisode: é um evento TERMINAL, o manager paga e encerra o episódio.
+        /// Pegou o hider. Fica de pé até o ResetEpisode: é evento TERMINAL, o manager paga e encerra.
         /// </summary>
         public bool Caught { get; private set; }
 
@@ -105,7 +92,12 @@ namespace Assets.Scripts.Graph
                 if (arena != null)
                     _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
             }
+
+            if (_target == null && _hider != null)
+                _target = _hider;
         }
+
+        public void SetTarget(IGraphTarget target) => _target = target;
 
         public void ResetEpisode()
         {
@@ -123,18 +115,21 @@ namespace Assets.Scripts.Graph
 
         public void ClearStepFlags() => Spotted = false;
 
+        /// <summary>Desfaz a captura (modo de jogo: encostar no jogador antes de a partida começar).</summary>
+        public void ForgetCaught() => Caught = false;
+
         /// <summary>Chamar a cada step de física, com o transform do seeker.</summary>
         public void Tick(Transform seeker)
         {
             _step++;
 
-            bool seeing = _hider != null && _hider.IsActive && CanSeePoint(seeker, _hider.transform.position);
+            bool seeing = GraphTarget.IsLive(_target) && CanSeePoint(seeker, _target.Position);
 
             if (seeing)
             {
-                Vector3 delta = _hider.transform.position - seeker.position;
+                Vector3 delta = _target.Position - seeker.position;
                 CurrentDistance = new Vector2(delta.x, delta.z).magnitude;
-                LastSeenPosition = _hider.transform.position;
+                LastSeenPosition = _target.Position;
                 HasSeen = true;
 
                 Vector3 moved = LastSeenPosition - _previousSeenPosition;
@@ -144,7 +139,6 @@ namespace Assets.Scripts.Graph
                 _previousSeenPosition = LastSeenPosition;
                 _hasPreviousSeenPosition = true;
 
-                // Aquisição: não via, passou a ver, e faz tempo o bastante desde a última vez.
                 if (!IsSeeing && _step - _lastSeenStep > _respotCooldownSteps)
                     Spotted = true;
 
@@ -152,15 +146,14 @@ namespace Assets.Scripts.Graph
             }
             else
             {
-                // Perdeu de vista: a próxima aquisição mede a partir dela, e não da posição em
-                // que ele sumiu (senão o salto viraria uma velocidade absurda num step).
+                // Sem posição anterior, a próxima aquisição não vira um salto de velocidade absurdo.
                 HiderVelocity = Vector3.zero;
                 _hasPreviousSeenPosition = false;
             }
 
             IsSeeing = seeing;
 
-            if (!Caught && _hider != null && _hider.IsActive && IsWithinReach(seeker, _hider.transform.position))
+            if (!Caught && GraphTarget.IsLive(_target) && IsWithinReach(seeker, _target.Position))
                 Caught = true;
         }
 
@@ -170,7 +163,7 @@ namespace Assets.Scripts.Graph
             if (new Vector2(delta.x, delta.z).magnitude > _captureDistance)
                 return false;
 
-            // Linha livre: pegar através de uma parede fina não conta.
+            // Pegar através de parede fina não conta.
             LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
             if (walls.value == 0)
                 return true;
@@ -182,9 +175,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O ponto está no cone, ao alcance e com linha livre de parede? O mesmo teste que decide
-        /// se o hider foi visto — a GraphSuspicionMap usa com os NÓS para saber que lugares o
-        /// seeker está olhando (e onde, portanto, o hider não está).
+        /// O ponto está no cone, ao alcance e com linha livre de parede? É o teste que decide se o
+        /// hider foi visto e que a GraphSuspicionMap/GraphRoomMemory aplicam aos nós.
         /// </summary>
         public bool CanSeePoint(Transform seeker, Vector3 point)
         {
@@ -204,9 +196,7 @@ namespace Assets.Scripts.Graph
             if (Vector3.Angle(forward, planar) > _viewAngle * 0.5f)
                 return false;
 
-            // Bloqueia o que está na layer Wall — a mesma máscara que valida as ligações do grafo. No
-            // NodeTraining4 isso inclui a MOBÍLIA (armários, mesas, caixas estão na layer Wall), por
-            // isso a altura do olho importa: baixa demais, mesa tapa tudo.
+            // Mesma máscara que valida as ligações do grafo; inclui a mobília, por isso _eyeHeight importa.
             LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
             if (walls.value == 0)
                 return true;
@@ -214,8 +204,7 @@ namespace Assets.Scripts.Graph
             return !Physics.Raycast(eye, delta.normalized, delta.magnitude, walls, QueryTriggerInteraction.Ignore);
         }
 
-        // Cone em azul-claro (não é cor de nenhum outro gizmo); linha até o hider enquanto vê,
-        // e um X na última posição vista quando não vê.
+        // Gizmo (azul-claro): cone, linha até o hider enquanto vê e X na última posição vista quando não vê.
         private void OnDrawGizmosSelected()
         {
             Vector3 eye = transform.position + Vector3.up * _eyeHeight;
@@ -232,9 +221,9 @@ namespace Assets.Scripts.Graph
             if (!Application.isPlaying)
                 return;
 
-            if (IsSeeing && _hider != null)
+            if (IsSeeing && GraphTarget.IsLive(_target))
             {
-                Gizmos.DrawLine(eye, _hider.transform.position + Vector3.up * _eyeHeight);
+                Gizmos.DrawLine(eye, _target.Position + Vector3.up * _eyeHeight);
             }
             else if (HasSeen)
             {
