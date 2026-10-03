@@ -79,9 +79,11 @@ crashlytics-build.properties
 
 # Documentação local (não versionar): notas de treino, planos e instruções para IA (Claude).
 # Exceção: o resumo legível das fases de treino, que vai para o repo.
+# O CLAUDE.md da raiz é do time (versionado); instruções pessoais vão no CLAUDE.local.md.
 /docs/*
 !/docs/graph/
 /docs/graph/*
 !/docs/graph/fases-de-treino.md
-CLAUDE.md
+CLAUDE.local.md
 /.claude/
+*.slnx
