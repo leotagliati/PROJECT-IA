@@ -56705,6 +56705,8 @@ GameObject:
   - component: {fileID: 375631126}
   - component: {fileID: 375631125}
   - component: {fileID: 375631124}
+  - component: {fileID: 375631127}
+  - component: {fileID: 375631128}
   m_Layer: 5
   m_Name: Play
   m_TagString: Untagged
@@ -56729,7 +56731,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 144, y: -147}
+  m_AnchoredPosition: {x: -482, y: 20}
   m_SizeDelta: {x: 400, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &375631124
@@ -56826,6 +56828,35 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 375631122}
   m_CullTransparentMesh: 1
+--- !u!114 &375631127
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 375631122}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
+--- !u!114 &375631128
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 375631122}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!4 &376486143 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -215746,6 +215777,8 @@ GameObject:
   - component: {fileID: 1482876396}
   - component: {fileID: 1482876395}
   - component: {fileID: 1482876394}
+  - component: {fileID: 1482876398}
+  - component: {fileID: 1482876399}
   m_Layer: 5
   m_Name: Quit
   m_TagString: Untagged
@@ -215770,7 +215803,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 397, y: -148}
+  m_AnchoredPosition: {x: -477, y: -176}
   m_SizeDelta: {x: 400, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1482876394
@@ -215867,6 +215900,35 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1482876392}
   m_CullTransparentMesh: 1
+--- !u!114 &1482876398
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1482876392}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
+--- !u!114 &1482876399
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1482876392}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!4 &1483140815 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 8300888472574270570, guid: 9f028dc2d1ae5e643bb94b4e679f1a48, type: 3}
@@ -236585,8 +236647,8 @@ Light:
   m_Color: {r: 0.90943396, g: 0.8426647, b: 0.6571947, a: 1}
   m_Intensity: 20
   m_Range: 23
-  m_SpotAngle: 99.64672
-  m_InnerSpotAngle: 49.85118
+  m_SpotAngle: 132.19221
+  m_InnerSpotAngle: 82.39664
   m_CookieSize: 10
   m_Shadows:
     m_Type: 0
