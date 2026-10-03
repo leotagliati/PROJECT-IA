@@ -6256,6 +6256,8 @@ MonoBehaviour:
   hoverScale: 1.2
   animationSpeed: 0.15
   brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!1001 &42770925
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -285109,6 +285111,8 @@ MonoBehaviour:
   hoverScale: 1.2
   animationSpeed: 0.15
   brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!1001 &1942633804
 PrefabInstance:
   m_ObjectHideFlags: 0
