@@ -7,62 +7,29 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// Metade do <see cref="NavGraphPlacer"/> que decide ONDE e QUANTOS nós existem, e quem liga
-    /// com quem — a outra metade só corrige nós que já existem, e a cobertura do chão (raios e
-    /// auxiliares que fecham buracos) mora em NavGraphPlacer.Coverage.
-    ///
-    /// Tudo parte de um MAPA DO CHÃO ANDÁVEL da arena inteira (<see cref="WalkGrid"/>): grade
-    /// no plano dos nós, cada célula marcada com "o corpo passa aqui?" (a mesma cápsula do
-    /// NavGraph) e só as células conectadas a um ponto de dentro do prédio (flood fill). Em cima
-    /// dela, três ideias:
-    ///
-    /// - DISTÂNCIA ANDANDO, não em linha reta. Duas salas separadas por uma parede estão a 30 cm
-    ///   em linha reta e a 15 m andando; espaçar nós pela reta deixaria uma das salas sem nó.
-    /// - REGIÃO de um nó = o chão que fica mais perto dele ANDANDO do que de qualquer outro.
-    ///   Dois nós são vizinhos quando as regiões se encostam. É isso que liga dois nós de uma
-    ///   sala grande mesmo a 20 m um do outro (a sala "quebrava no meio" porque nenhuma regra de
-    ///   distância máxima os ligava) e nunca liga através de parede (região não atravessa
-    ///   parede, porque a faixa em volta dela não é andável).
-    /// - FOLGA de cada célula (transformada de distância): o centro de sala/corredor tem folga
-    ///   alta. O primário novo vai para onde a folga é maior — fica no meio, longe dos móveis.
-    ///
-    /// As operações montam um RASCUNHO (<see cref="Draft"/>) e só no fim tocam na cena, num
-    /// grupo de Undo só.
+    /// Menus 5-7 (ligar, podar, gerar) sobre o RASCUNHO (<see cref="Draft"/>) e o MAPA DO CHÃO (<see cref="WalkGrid"/>, distância ANDANDO):
+    /// nós cujas regiões (o chão mais perto de cada um) se encostam são vizinhos. Também: portas, poda de ligações. Raios e cobertura: Coverage.
     /// </summary>
     public partial class NavGraphPlacer
     {
         [Header("-----Geração / ligação / limpeza-----")]
-        // Resolução do mapa do chão. 0.3 m numa arena de ~100 x 80 m são ~90 mil células —
-        // alguns segundos de física no editor. Menor é mais preciso nas portas estreitas.
+        // Resolução (m) do mapa do chão: 0.3 m numa arena de ~100 x 80 m são ~90 mil células (alguns segundos).
         [SerializeField] private float _generationStep = 0.3f;
 
-        // Altura dos nós GERADOS relativa a este GameObject, usada só quando o grafo está vazio
-        // (com nós, vale a altura mediana deles). No NodeTraining é 0: os nós ficam no plano do
-        // Graph, 1.84 m acima do chão.
+        // Altura dos nós gerados relativa a este GameObject; só vale com o grafo vazio (senão, a mediana dos nós).
         [SerializeField] private float _generationHeight = 0f;
 
-        // Distância ANDANDO entre primários gerados. Medido no NodeTraining2 (réplica offline do
-        // PlacePrimaries): 10 m -> 59 primários, 14 -> 41, 16 -> 31, 18 -> 27, 20 -> 23 (o número
-        // do grafo feito à mão). Era 10: o escritório é quase todo aberto e corredor, e 10 m punha
-        // um primário a cada trecho de corredor — cada um com raio apertado, sombra e posse, que
-        // empurravam a cobertura para muitos auxiliares pequenos colados nele. 18 m deixa ~1 por
-        // sala e 2 num salão, e o peso de cada um fica ~0.85 (orçamento 23 repartido).
+        // Distância ANDANDO (m) entre os alvos gerados pelo menu 7.
         [SerializeField] private float _primarySpacing = 18f;
 
-        // Teto de vizinhos por nó = _neighborSlots do GraphExplorerManager. Vizinho além disso
-        // é cortado da observação em silêncio.
+        // Teto de vizinhos por nó = _neighborSlots do GraphExplorerManager (o excedente some da observação).
         [SerializeField, Range(2, 8)] private int _maxDegree = 8;
 
-        // Pontos "de dentro do prédio" de onde o flood fill começa. Vazio = usa os nós que já
-        // existem e o agente da arena. Só precisa preencher numa arena sem nó nenhum.
+        // Pontos "de dentro do prédio" para o flood fill; vazio usa os nós e o agente (só preencha numa arena sem nós).
         [SerializeField] private Transform[] _generationSeeds;
 
-        // Objetos cujo NOME contém isto são BATENTES DE PORTA (no kit do escritório,
-        // "Wall_01_Door_Hole"): passagem, e não parede. Cada um ganha um auxiliar no meio do vão
-        // (se ainda não houver nó a menos de 1 m), que a limpeza não apaga, e o relatório acusa
-        // porta sem ligação atravessando. O vão tem 2.54 m e o corpo 1.70: só uma linha quase
-        // perpendicular passa, então sem um nó NA porta as ligações diagonais batiam no batente
-        // e a sala do outro lado ficava sem conexão. Vazio = desliga o tratamento de portas.
+        // Objetos cujo nome contém isto são batentes de porta: ganham um auxiliar no vão (AddDoorNodes), poupado pela limpeza,
+        // e ReportDoors acusa porta sem ligação atravessando. Vazio desliga o tratamento de portas.
         [SerializeField] private string _doorNameContains = "Door_Hole";
 
 #if UNITY_EDITOR
@@ -75,9 +42,7 @@ namespace Assets.Scripts.Graph
         private static readonly int[] HalfStepX = { 1, 0, 1, 1 };
         private static readonly int[] HalfStepZ = { 0, 1, 1, -1 };
 
-        // ================================================================================
-        // Menus
-        // ================================================================================
+        // ===== Menus =====
 
         [ContextMenu("5. Ligar vizinhos (por região)")]
         private void LinkByRegions()
@@ -92,8 +57,7 @@ namespace Assets.Scripts.Graph
                 int before = draft.Count;
                 LinkRegions(draft, grid);
 
-                // Auxiliar de portal nasce com o raio padrão; o raio certo depende do chão em
-                // volta dele (vazamento, posse do primário vizinho).
+                // O auxiliar de portal nasce com o raio padrão; o raio certo depende do chão em volta.
                 FitRadiiDraft(draft, grid, NewIndices(draft, before));
                 ApplyDraft(draft);
             });
@@ -150,20 +114,10 @@ namespace Assets.Scripts.Graph
             });
         }
 
-        // ================================================================================
-        // Geração
-        // ================================================================================
+        // ===== Geração =====
 
         /// <summary>
-        /// Primários: varre as células em ordem de FOLGA decrescente (centro de salão primeiro,
-        /// depois salas menores, depois corredores) e aceita a célula se não houver primário a
-        /// menos de _primarySpacing ANDANDO. É amostragem de Poisson com prioridade: cada sala
-        /// ganha o primário no ponto mais aberto dela, que é o melhor ponto de vantagem que a
-        /// geometria sozinha sabe apontar.
-        ///
-        /// O PESO é o orçamento repartido igualmente (_primaryWeightBudget / quantidade): assim o
-        /// teto de recompensa do mapa — e com ele os thresholds do currículo — não muda quando a
-        /// geração produz mais ou menos primários.
+        /// Gera alvos (menu 7): amostragem de Poisson por FOLGA decrescente, com _primarySpacing ANDANDO entre eles.
         /// </summary>
         private void PlacePrimaries(Draft draft, WalkGrid grid)
         {
@@ -172,8 +126,7 @@ namespace Assets.Scripts.Graph
             var queue = new Queue<int>();
             var placed = new List<int>();
 
-            // O vão de cada porta ganha um auxiliar (AddDoorNodes) que a limpeza não apaga; um
-            // primário a menos de _minNodeSpacing dele seria um par colado que nada desfaz.
+            // O vão de cada porta ganha um auxiliar (AddDoorNodes); alvo a menos de _minNodeSpacing dele seria um par colado.
             List<DoorInfo> doors = FindDoors();
 
             foreach (int cell in grid.CellsByClearance(SpawnClearance))
@@ -188,31 +141,18 @@ namespace Assets.Scripts.Graph
                 if (!Graph.IsBodyClear(position, SpawnClearance))
                     continue;
 
-                placed.Add(draft.Add(position, primary: true, source: null, Graph.DefaultPrimaryRadius, 1f));
+                placed.Add(draft.Add(position, primary: true, source: null, Graph.DefaultPrimaryRadius));
                 Relax(grid, cell, spacing, distance, queue);
             }
 
-            float weight = placed.Count > 0 ? _primaryWeightBudget / placed.Count : 0f;
-            foreach (int i in placed)
-                draft.Weights[i] = weight;
-
-            Debug.Log(
-                $"{name}: {placed.Count} primário(s) gerado(s), peso {weight:0.###} cada (orçamento " +
-                $"{_primaryWeightBudget:0.##}).", this);
+            Debug.Log($"{name}: {placed.Count} primário(s) gerado(s).", this);
         }
 
-        // ================================================================================
-        // Ligação por regiões
-        // ================================================================================
+        // ===== Ligação por regiões =====
 
         /// <summary>
-        /// Liga todo par de nós cujas REGIÕES se encostam (ver cabeçalho). Só ADICIONA: ligação
-        /// que você fez à mão nunca é removida aqui (a bloqueada é assunto do passo 3).
-        ///
-        /// Para cada par vizinho guarda o PORTAL — o ponto da fronteira entre as regiões com mais
-        /// folga, que numa porta é o meio do vão. Se a reta entre os dois nós passa, liga direto;
-        /// se não passa (a região contorna uma quina), põe um auxiliar no portal e liga pelos
-        /// dois lados. Depois: junta pedaços soltos e corta o excesso de vizinhos.
+        /// Liga todo par de nós cujas regiões se encostam (só ADICIONA; ligação à mão nunca sai): reta direta, auxiliar no portal da
+        /// fronteira ou caminho pelo chão; depois junta pedaços soltos e corta o excesso de vizinhos.
         /// </summary>
         private void LinkRegions(Draft draft, WalkGrid grid)
         {
@@ -278,10 +218,7 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                // Nem reta nem um ponto só: o caminho faz curva (porta vista de lado, corredor em
-                // L). Segue o CHÃO de uma região até a outra e põe auxiliares nas curvas. As duas
-                // regiões são conexas e se encostam, então esse caminho sempre existe — era aqui
-                // que a ligação sumia em silêncio antes.
+                // Sem reta nem ponto único (porta vista de lado, corredor em L): segue o chão com auxiliares nas curvas.
                 int labelA = a;
                 int labelB = b;
                 if (ConnectByWalking(draft, grid, a, b, cell => label[cell] == labelA || label[cell] == labelB, added))
@@ -306,23 +243,14 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Reaproveita um nó que já está ali perto — de portal, de porta ou qualquer outro (três
-        // regiões se encontrando numa porta pediriam três nós quase no mesmo lugar); senão cria um
-        // no portal, desde que ele não fique a menos de _minNodeSpacing de nó nenhum.
-        //
-        // Antes só reaproveitava outro auxiliar de PORTAL: o portal de uma porta caía a 0.3–1.3 m
-        // do nó da porta e virava um par colado (medido no NodeTraining2: 8 arestas assim).
-        //
-        // A folga exigida é a de PASSAGEM, não a de spawn: o portal de um vão estreito (porta de
-        // 2 m, corredor de serviço) é exatamente onde não cabe a folga de 1.25 — e era ali que o
-        // portal falhava e o par ficava sem ligação. Nó apertado não vira spawn (NavGraph.CanSpawnAt).
+        // Reaproveita um nó perto do portal (com reta livre para os dois lados) ou cria um auxiliar nele, a mais de _minNodeSpacing
+        // de qualquer nó. Exige a folga de PASSAGEM, não a de spawn: vão estreito não comporta a de spawn.
         private int FindOrCreatePortalNode(Draft draft, Vector3 portal, int a, int b)
         {
             Vector3 pa = draft.Positions[a];
             Vector3 pb = draft.Positions[b];
 
-            // Raio de reaproveitamento = o do auxiliar padrão: um nó a 3 m do portal, com reta
-            // livre para os dois lados, faz o mesmo papel que um nó novo no portal.
+            // Reaproveita nó até o raio do auxiliar padrão: faz o mesmo papel que um nó novo no portal.
             float reuse = Mathf.Max(_minNodeSpacing, Graph.DefaultAuxiliaryRadius);
             int nearby = NearestUsable(draft, portal, reuse,
                 i => i != a && i != b && IsSegmentClearBothWays(pa, draft.Positions[i]) && IsSegmentClearBothWays(draft.Positions[i], pb));
@@ -338,17 +266,12 @@ namespace Assets.Scripts.Graph
             if (!IsSegmentClearBothWays(pa, portal) || !IsSegmentClearBothWays(portal, pb))
                 return -1;
 
-            return draft.Add(portal, primary: false, source: null, Graph.DefaultAuxiliaryRadius, 0f);
+            return draft.Add(portal, primary: false, source: null, Graph.DefaultAuxiliaryRadius);
         }
 
         /// <summary>
-        /// Pedaço solto (nó sem caminho até o resto) torna a cobertura total impossível e deixa
-        /// o agente preso numa ilha. Liga o menor pedaço ao resto, até sobrar um só:
-        ///   1. pelo par de nós mais próximo com RETA livre;
-        ///   2. sem reta (porta vista de lado, corredor em L): pelo caminho mais curto no CHÃO
-        ///      até o nó mais perto de outro pedaço, com auxiliares nas curvas.
-        /// Só falha se o chão em si não liga os dois pedaços — aí é geometria (porta estreita
-        /// demais para o corpo, móvel fechando a passagem) e o Console diz onde.
+        /// Liga o menor pedaço ao resto até sobrar um só: par mais próximo com reta livre, senão caminho pelo chão com auxiliares
+        /// nas curvas. Só falha se o chão não liga os pedaços (geometria); o Console diz onde.
         /// </summary>
         private int BridgeComponents(Draft draft, WalkGrid grid, List<long> added)
         {
@@ -360,7 +283,6 @@ namespace Assets.Scripts.Graph
                 if (count <= 1)
                     return bridges;
 
-                // O menor pedaço.
                 var sizes = new int[count];
                 for (int i = 0; i < draft.Count; i++)
                 {
@@ -433,9 +355,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Nó com mais vizinhos que _maxDegree perde os excedentes na observação. Corta as
-        /// ligações NOVAS mais longas desse nó, só enquanto o grafo continuar inteiro. Ligação
-        /// feita à mão não é cortada; se ela sozinha estoura o teto, o aviso é seu.
+        /// Corta as ligações NOVAS mais longas de nós acima de _maxDegree, sem partir o grafo (ligação à mão nunca é cortada).
         /// </summary>
         private int PruneDegree(Draft draft, List<long> candidates)
         {
@@ -478,25 +398,11 @@ namespace Assets.Scripts.Graph
             return PlanarDistance(draft.Positions[a], draft.Positions[b]);
         }
 
-        // ================================================================================
-        // Limpeza
-        // ================================================================================
+        // ===== Limpeza =====
 
         /// <summary>
-        /// Apaga AUXILIARES que não servem para nada. Primário nunca: ele carrega peso de
-        /// recompensa, e apagar um muda o teto do episódio — isso é decisão sua (o Console avisa).
-        ///
-        /// Inútil, em ordem:
-        ///   1. DENTRO de obstáculo ou fora do chão andável — o corpo nunca chega nele;
-        ///   2. ISOLADO — sem ligação nenhuma;
-        ///   3. REDUNDANTE — sem ele a COBERTURA DO CHÃO continua na meta, ou não piora se já
-        ///      estava abaixo (mesma regra do FindNodeAt), e os vizinhos dele continuam
-        ///      conectados (direto, ou por uma ligação nova de reta livre entre eles). Testados
-        ///      do que menos chão cobre para o que mais cobre (RemoveRedundant).
-        ///
-        /// O critério antigo do 3 era "nenhum ponto a mais de 6 m ANDANDO de algum nó" — que não
-        /// é cobertura: com áreas de ±3 m, o chão entre dois nós a 6 m já ficava fora de todas as
-        /// áreas, e a limpeza apagava justamente os nós que davam área a esse chão.
+        /// Apaga auxiliares inúteis: dentro de obstáculo ou fora do chão, isolados ou redundantes (a cobertura segue na meta e os
+        /// vizinhos seguem conectados; ver RemoveRedundant). Alvo e auxiliar de porta nunca saem.
         /// </summary>
         private void PruneUseless(Draft draft, WalkGrid grid)
         {
@@ -538,9 +444,7 @@ namespace Assets.Scripts.Graph
                     order.Add(i);
             }
 
-            // Auxiliar de PORTA não sai: ele é o ponto por onde as ligações atravessam o batente
-            // (ver _doorNameContains). Tirá-lo raramente perde cobertura, mas devolve o problema
-            // das ligações diagonais batendo no batente.
+            // Auxiliar de porta fica: é por ele que as ligações atravessam o batente (_doorNameContains).
             List<DoorInfo> doors = FindDoors();
             order.RemoveAll(i => IsDoorNode(doors, draft.Positions[i]));
             redundant = RemoveRedundant(draft, grid, order);
@@ -550,11 +454,10 @@ namespace Assets.Scripts.Graph
                 $"{redundant} redundante(s) (a cobertura do chão continua na meta, ou não piorou).", this);
         }
 
-        /// <param name="coverage">
-        /// Null = remove sem olhar cobertura (nó dentro de obstáculo). Senão, o mapa com o estado
-        /// ATUAL: a remoção só vale se o chão ruim não aumentar OU se a cobertura continuar na meta
-        /// (CoverageMeets); se valer, o mapa fica com o estado novo.
-        /// </param>
+        /// <summary>
+        /// Remove o nó religando os vizinhos pela reta livre mais curta; desfaz se não der ou se a cobertura cair
+        /// (<paramref name="coverage"/> null = remove sem olhar cobertura).
+        /// </summary>
         private bool TryRemove(Draft draft, WalkGrid grid, int node, CoverageMap coverage)
         {
             if (!draft.Alive(node))
@@ -575,7 +478,6 @@ namespace Assets.Scripts.Graph
             draft.Remove(node);
             var bypass = new List<long>();
 
-            // Reconecta os vizinhos entre si, pela reta livre mais curta, só se precisar.
             while (true)
             {
                 int[] component = draft.Components(out int after);
@@ -612,9 +514,7 @@ namespace Assets.Scripts.Graph
                 bypass.Add(best);
             }
 
-            // Pode piorar, desde que continue na meta (CoverageMeets). Antes a regra era "nenhuma
-            // célula piora", e quase todo nó cobre alguma célula sozinho: a limpeza não tirava
-            // quase nada (medido no NodeTraining2: 5 de 152 auxiliares).
+            // Pode piorar desde que a cobertura continue na meta (CoverageMeets).
             if (coverage != null)
             {
                 BuildCoverage(draft, grid, coverage);
@@ -630,11 +530,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Tenta tirar cada auxiliar de <paramref name="order"/> sem tirar a cobertura da meta (ou
-        /// sem piorá-la, se já estava abaixo) nem partir o grafo. Sem lista: todos os auxiliares
-        /// vivos que não são de porta. A ordem é do que MENOS chão vence no FindNodeAt para o que
-        /// mais vence — o que cobre pouco sai primeiro e gasta pouco da folga até a meta; empate:
-        /// o mais perto de outro nó. Devolve quantos saíram.
+        /// Tenta tirar cada auxiliar de <paramref name="order"/> (sem lista: todos os vivos que não são de porta), do que menos chão
+        /// vence no FindNodeAt para o que mais vence. Devolve quantos saíram.
         /// </summary>
         private int RemoveRedundant(Draft draft, WalkGrid grid, List<int> order = null)
         {
@@ -649,7 +546,7 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // Um mapa de cobertura reaproveitado: cada teste reconstrói nele (só aloca uma vez).
+            // Um mapa de cobertura reaproveitado: cada teste reconstrói nele (aloca uma vez).
             CoverageMap map = BuildCoverage(draft, grid, null);
             var owned = new Dictionary<int, int>();
             var nearest = new Dictionary<int, float>();
@@ -706,13 +603,10 @@ namespace Assets.Scripts.Graph
             return created;
         }
 
-        // ================================================================================
-        // Mapa do chão
-        // ================================================================================
+        // ===== Mapa do chão =====
 
         /// <summary>
-        /// Região de cada célula (índice do nó mais perto ANDANDO, -1 se nenhum) por BFS de
-        /// várias fontes. <paramref name="distance"/> sai em células (métrica de 8 vizinhos).
+        /// Região de cada célula = nó mais perto ANDANDO (-1 se nenhum), por BFS multi-fonte; <paramref name="distance"/> em células.
         /// </summary>
         private int[] Regions(Draft draft, WalkGrid grid, out int[] distance)
         {
@@ -763,8 +657,7 @@ namespace Assets.Scripts.Graph
             return label;
         }
 
-        // BFS de uma fonte que só desce valores do campo: rodada fonte a fonte, dá a distância
-        // andando até a fonte mais próxima, sem nunca expandir além de limit.
+        // BFS que só baixa valores do campo, limitado a limit: rodado fonte a fonte, dá a distância andando até a mais próxima.
         private static void Relax(WalkGrid grid, int source, int limit, int[] distance, Queue<int> queue)
         {
             if (distance[source] == 0)
@@ -801,10 +694,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Mede o chão da arena: caixa de todos os colliders de parede ATIVOS dela, grade de
-        /// "o corpo passa?", flood fill a partir de pontos de dentro, e folga por transformada de
-        /// distância (chamfer 1 / raiz de 2) — sem física extra, a folga sai da própria grade.
-        /// Null se o usuário cancelar ou faltar dado.
+        /// Mede o chão da arena: grade de "o corpo passa?" ligada por flood fill a partir de pontos de dentro, com folga por célula.
+        /// Null se cancelado ou sem dado.
         /// </summary>
         private WalkGrid BuildWalkGrid(float height, Draft draft)
         {
@@ -826,10 +717,8 @@ namespace Assets.Scripts.Graph
             var grid = new WalkGrid(new Vector3(bounds.min.x, height, bounds.min.z), step, sizeX, sizeZ);
             var free = new bool[grid.Count];
 
-            // Com a área cortada pela parede (NavGraph.AreasStopAtWalls), a cobertura precisa
-            // saber o que BLOQUEIA A VISÃO na altura dos nós — a mesma altura do raycast do jogo.
-            // Uma caixinha do tamanho da célula, fina, no plano dos nós. O alcance da visibilidade
-            // é o maior raio que um nó pode ter nesta operação.
+            // Com a área cortada pela parede (AreasStopAtWalls), a cobertura precisa saber o que bloqueia a visão na altura dos nós;
+            // o alcance é o maior raio possível.
             bool clip = Graph.AreasStopAtWalls;
             if (clip)
             {
@@ -867,8 +756,7 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // Flood fill a partir de pontos de dentro: o que está fora do prédio (livre, mas
-            // inalcançável) não pode receber nó.
+            // Flood fill de dentro: o chão livre fora do prédio não pode receber nó.
             var queue = new Queue<int>();
             foreach (Vector3 seed in Seeds(draft))
             {
@@ -956,8 +844,7 @@ namespace Assets.Scripts.Graph
             return any;
         }
 
-        // Plano dos nós: a altura mediana dos que existem (os do NodeTraining variam 13 cm);
-        // sem nó nenhum, a do Graph + _generationHeight.
+        // Altura do plano dos nós: mediana dos existentes (variam ~13 cm) ou a do Graph + _generationHeight.
         private float GridHeight()
         {
             var heights = new List<float>();
@@ -980,8 +867,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Auxiliar a menos de MEIO RAIO de um primário eclipsa o primário no FindNodeAt (o
-        // centro mais perto vence): o agente passaria pelo primário sem registrar a visita.
+        // Auxiliar a menos de MEIO RAIO de um alvo eclipsa o alvo no FindNodeAt (vence o centro mais perto).
         private bool ShadowsPrimary(Draft draft, Vector3 position)
         {
             for (int i = 0; i < draft.Count; i++)
@@ -1008,8 +894,7 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        // O nó vivo mais perto do ponto, a até maxDistance, que passa no teste; -1 se nenhum. É o
-        // "reaproveite o que já está ali" do portal, das curvas do caminho e do desvio.
+        // Nó vivo mais perto do ponto (até maxDistance) que passa em usable; -1 se nenhum.
         private static int NearestUsable(Draft draft, Vector3 position, float maxDistance, System.Func<int, bool> usable)
         {
             var near = new List<(float distance, int node)>();
@@ -1033,8 +918,7 @@ namespace Assets.Scripts.Graph
             return -1;
         }
 
-        // Apagar filho de uma instância de prefab não é permitido pelo Unity — e seria a forma
-        // errada de mexer no NodeTraining de qualquer jeito (valeria só para aquela cópia).
+        // Unity não deixa apagar filho de instância de prefab; rode no Prefab Mode para valer nas cópias.
         private bool CanRemoveNodes()
         {
             if (!UnityEditor.PrefabUtility.IsPartOfPrefabInstance(gameObject))
@@ -1046,9 +930,7 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        // ================================================================================
-        // Rascunho <-> cena
-        // ================================================================================
+        // ===== Rascunho <-> cena =====
 
         private Draft DraftFromScene()
         {
@@ -1058,11 +940,8 @@ namespace Assets.Scripts.Graph
 
             foreach (NavNode node in nodes)
             {
-                // Ping entra no rascunho como "primário": para o placer os dois são nó de CHEGADA
-                // (raio apertado, nunca apagado, posse protegida). O peso só vai para a soma do
-                // orçamento quando é de exploração — o do ping é de outro prêmio.
-                index[node] = draft.Add(node.Position, node.IsTarget, node, Graph.RadiusOf(node),
-                    node.IsPrimary ? node.ExplorationWeight : 0f);
+                // Ping entra como alvo, como a porta: raio apertado, nunca apagado.
+                index[node] = draft.Add(node.Position, node.IsTarget, node, Graph.RadiusOf(node));
             }
 
             foreach (KeyValuePair<NavNode, List<NavNode>> entry in BuildAdjacency(nodes))
@@ -1076,11 +955,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Leva o rascunho para a cena com a MENOR mudança possível: cria os nós novos, apaga os
-        /// removidos e, nas listas de vizinhos, só tira o que saiu e acrescenta o que entrou —
-        /// uma ligação que já existia fica declarada do lado em que você a declarou. O RAIO de
-        /// cada nó vai para o override (0 quando dá o padrão do papel) e o PESO dos primários
-        /// criados sai do rascunho (orçamento repartido).
+        /// Leva o rascunho para a cena com a MENOR mudança: cria/apaga nós e só mexe nas listas de vizinhos no que mudou; o raio vira override.
         /// </summary>
         private void ApplyDraft(Draft draft)
         {
@@ -1107,8 +982,7 @@ namespace Assets.Scripts.Graph
                 go.transform.position = draft.Positions[i];
 
                 nodes[i] = go.AddComponent<NavNode>();
-                nodes[i].SetKind(draft.Primary[i] ? NodeKind.Primary : NodeKind.Auxiliary);
-                nodes[i].SetExplorationWeight(draft.Primary[i] ? draft.Weights[i] : 0f);
+                nodes[i].SetKind(draft.Primary[i] ? NodeKind.Door : NodeKind.Auxiliary);
                 created++;
             }
 
@@ -1119,7 +993,6 @@ namespace Assets.Scripts.Graph
                     alive[nodes[i]] = i;
             }
 
-            // Tira o que saiu.
             for (int i = 0; i < draft.Count; i++)
             {
                 if (!draft.Alive(i) || draft.Source[i] == null)
@@ -1130,7 +1003,6 @@ namespace Assets.Scripts.Graph
                     n == null || !alive.TryGetValue(n, out int other) || !draft.Edges.Contains(Draft.Key(self, other)));
             }
 
-            // Põe o que entrou.
             foreach (long edge in draft.Edges)
             {
                 Draft.Split(edge, out int a, out int b);
@@ -1141,8 +1013,7 @@ namespace Assets.Scripts.Graph
                     nodes[a].EditableNeighbors.Add(nodes[b]);
             }
 
-            // Raio: o override só guarda a EXCEÇÃO. Perto do padrão do papel (5 cm) vira 0, para o
-            // padrão do NavGraph continuar sendo o lugar em que se calibra o mapa inteiro.
+            // O override só guarda a EXCEÇÃO: perto do padrão do tipo (5 cm) vira 0, para o padrão do NavGraph seguir calibrando o mapa.
             for (int i = 0; i < draft.Count; i++)
             {
                 if (!draft.Alive(i))
@@ -1174,7 +1045,6 @@ namespace Assets.Scripts.Graph
         {
             int primaries = 0;
             int auxiliaries = 0;
-            float weight = 0f;
             int maxDegree = 0;
             float longest = 0f;
 
@@ -1184,14 +1054,9 @@ namespace Assets.Scripts.Graph
                     continue;
 
                 if (draft.Primary[i])
-                {
                     primaries++;
-                    weight += draft.Weights[i];
-                }
                 else
-                {
                     auxiliaries++;
-                }
 
                 maxDegree = Mathf.Max(maxDegree, draft.Degree(i));
             }
@@ -1212,20 +1077,15 @@ namespace Assets.Scripts.Graph
                     $"{name}: o grafo terminou em {pieces} PEDAÇOS — algum nó não alcança os outros. Rode " +
                     "\"1. Diagnosticar\" para ver quais (X vermelho) e o motivo no Console.", this);
             }
-            string budget = Mathf.Abs(weight - _primaryWeightBudget) > 0.05f
-                ? $" DIFERENTE do orçamento ({_primaryWeightBudget:0.##}) — rode \"8. Normalizar pesos\" ou refaça a conta de recompensa"
-                : " (= orçamento)";
-
             Debug.Log(
-                $"{name}: grafo com {primaries} primários (peso total {weight:0.##}{budget}), {auxiliaries} auxiliares, " +
+                $"{name}: grafo com {primaries} primários, {auxiliaries} auxiliares, " +
                 $"{draft.Edges.Count} ligações, grau máx. {maxDegree}, maior aresta {longest:0.0} m, diâmetro " +
                 $"{diameter:0} m pelo grafo — {created} nó(s) criado(s), {destroyed} apagado(s). Confira " +
                 "_maxNodeDistance do GraphExplorerManager (~ maior aresta). O diâmetro é só informativo: o " +
                 "agente normaliza as distâncias de caminho por ele sozinho (NavGraph.PathDiameter).", this);
         }
 
-        // Maior caminho mais curto (em metros, pelas arestas do rascunho) entre dois nós vivos.
-        // Dijkstra simples O(V²) por origem: roda uma vez por menu, e V fica na casa das centenas.
+        // Maior caminho mais curto (m) entre dois nós vivos; Dijkstra O(V²) por origem, roda uma vez por menu.
         private static float PathDiameter(Draft draft)
         {
             int n = draft.Count;
@@ -1286,13 +1146,10 @@ namespace Assets.Scripts.Graph
             return diameter;
         }
 
-        // ================================================================================
-        // Caminho pelo chão
-        // ================================================================================
+        // ===== Caminho pelo chão =====
 
         /// <summary>
-        /// Liga <paramref name="a"/> a <paramref name="b"/> seguindo o chão (só por células em que
-        /// <paramref name="allowed"/> vale), com auxiliares nas curvas do caminho.
+        /// Liga a a b seguindo o chão (só por células em que allowed vale), com auxiliares nas curvas.
         /// </summary>
         private bool ConnectByWalking(Draft draft, WalkGrid grid, int a, int b, System.Func<int, bool> allowed, List<long> added)
         {
@@ -1305,7 +1162,7 @@ namespace Assets.Scripts.Graph
             return path != null && InsertChain(draft, grid, a, b, path, added);
         }
 
-        // Caminho pelo chão do menor pedaço até o nó mais perto (andando) de qualquer outro pedaço.
+        // Caminho pelo chão do menor pedaço até o nó mais perto de outro pedaço.
         private bool BridgeByWalking(Draft draft, WalkGrid grid, int[] component, int smallest, List<long> added)
         {
             var nodeAt = new Dictionary<int, int>();
@@ -1337,15 +1194,11 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Transforma um caminho de células em ligações: "puxa a corda" (de cada ponto, vai até o
-        /// ponto mais adiante do caminho ainda com reta livre para o corpo) e põe um auxiliar em
-        /// cada curva. Como as células do caminho são todas andáveis, cada trecho curto passa —
-        /// então a cadeia sempre fecha, até dentro de uma porta vista de lado.
+        /// Transforma um caminho de células em ligações: "puxa a corda" até o ponto mais distante ainda com reta livre e põe um auxiliar
+        /// em cada curva.
         /// </summary>
         private bool InsertChain(Draft draft, WalkGrid grid, int a, int b, List<int> cells, List<long> added)
         {
-            // Os pontos do caminho ficam na altura do nó de origem: a cadeia nova fica no mesmo
-            // plano dos nós que ela liga.
             float y = draft.Positions[a].y;
             var points = new List<Vector3>(cells.Count + 2) { draft.Positions[a] };
             foreach (int cell in cells)
@@ -1376,11 +1229,8 @@ namespace Assets.Scripts.Graph
                     return false;
             }
 
-            // Cada curva reaproveita um nó que já esteja a menos de _minNodeSpacing dela, se ele
-            // enxerga o trecho de trás e o da frente (inclusive o próprio nó anterior: aí a curva
-            // some). Sem nó assim, cria — o caminho tem que fechar, então aqui o espaçamento é
-            // preferência, não regra. Antes toda curva virava nó novo, e as curvas de uma porta
-            // caíam coladas no nó da porta.
+            // Cada curva reaproveita um nó a menos de _minNodeSpacing que enxergue o trecho de trás e o da frente; senão cria
+            // (o caminho tem que fechar, então o espaçamento é preferência, não regra).
             int previous = a;
             for (int k = 0; k < waypoints.Count; k++)
             {
@@ -1396,7 +1246,7 @@ namespace Assets.Scripts.Graph
                     break;
 
                 if (node < 0)
-                    node = draft.Add(waypoints[k], primary: false, source: null, Graph.DefaultAuxiliaryRadius, 0f);
+                    node = draft.Add(waypoints[k], primary: false, source: null, Graph.DefaultAuxiliaryRadius);
 
                 if (draft.AddEdge(previous, node))
                     added.Add(Draft.Key(previous, node));
@@ -1409,11 +1259,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Caminho mais curto no chão andável (8 vizinhos) de qualquer célula de
-        /// <paramref name="sources"/> até a primeira que satisfaz <paramref name="isGoal"/>, só por
-        /// células permitidas. O custo cresce perto de parede (folga abaixo de _desiredClearance),
-        /// então o caminho corre pelo meio de corredores e salas e só encosta onde precisa — numa
-        /// porta. Devolve as células da origem ao destino, ou null.
+        /// Caminho mais curto (Dijkstra, 8 vizinhos) de sources até a primeira célula de isGoal, só por células allowed;
+        /// o custo sobe perto de parede. Devolve as células da origem ao destino, ou null.
         /// </summary>
         private List<int> WalkPath(WalkGrid grid, List<int> sources, System.Func<int, bool> isGoal, System.Func<int, bool> allowed)
         {
@@ -1482,7 +1329,7 @@ namespace Assets.Scripts.Graph
             return path;
         }
 
-        /// <summary>Heap mínimo (custo, célula) com remoção preguiçosa: WalkPath, profundidade do chão ruim e a fila da gulosa.</summary>
+        /// <summary>Heap mínimo (custo, célula) com remoção preguiçosa, usado pelas buscas de caminho.</summary>
         private sealed class CellHeap
         {
             private readonly List<int> _cells = new List<int>();
@@ -1540,9 +1387,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // ================================================================================
-        // Portas
-        // ================================================================================
+        // ===== Portas =====
 
         /// <summary>Um batente de porta da arena: meio do vão e a direção ao longo da parede.</summary>
         private struct DoorInfo
@@ -1552,16 +1397,13 @@ namespace Assets.Scripts.Graph
             public Vector3 Along;
             public float HalfWidth;
 
-            // Meia-espessura da PAREDE no vão (a do pilar mais fino), na normal da parede. É a
-            // profundidade do ladrilho de porta (menu 9), que preenche o buraco exatamente.
+            // Meia-espessura da parede no vão (na normal da parede): profundidade do ladrilho de porta (menu 9).
             public float HalfDepth;
         }
 
         /// <summary>
-        /// Batentes de porta ATIVOS da arena (nome contém _doorNameContains). O meio do vão é o
-        /// ponto médio entre os dois colliders ALTOS mais distantes do objeto — os dois pilares do
-        /// batente (a laje baixa do piso fica de fora por não ter 1 m de altura). Sem dois
-        /// pilares, cai no centro dos colliders.
+        /// Batentes ativos da arena (nome contém _doorNameContains). Meio do vão = ponto médio dos dois colliders ALTOS (>= 1 m)
+        /// mais distantes, os pilares; sem dois, o centro dos colliders.
         /// </summary>
         private List<DoorInfo> FindDoors()
         {
@@ -1642,9 +1484,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Um auxiliar no meio de cada vão de porta que ainda não tem nó a menos de 1 m. É o ponto
-        /// por onde as ligações atravessam o batente de frente. Vão que não é chão andável (o corpo
-        /// não cabe) é avisado: é porta estreita demais, não problema do grafo.
+        /// Põe um auxiliar no meio de cada vão sem nó a menos de 1 m; vão sem chão andável para o corpo só é avisado.
         /// </summary>
         private void AddDoorNodes(Draft draft, WalkGrid grid)
         {
@@ -1676,7 +1516,7 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                draft.Add(position, primary: false, source: null, Graph.DefaultAuxiliaryRadius, 0f);
+                draft.Add(position, primary: false, source: null, Graph.DefaultAuxiliaryRadius);
                 created++;
             }
 
@@ -1689,8 +1529,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Confere que toda porta tem uma ligação ATRAVESSANDO o vão (e não só um nó perto dela).
-        /// Porta sem travessia = as salas dos dois lados só se ligam dando a volta, ou nem isso.
+        /// Confere que toda porta tem uma ligação ATRAVESSANDO o vão; devolve quantas não têm.
         /// </summary>
         private int ReportDoors(Draft draft)
         {
@@ -1715,10 +1554,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Alguma ligação atravessa o vão? Vale uma aresta cruzando a linha da porta, ou o NÓ DA
-        /// PORTA (em cima da linha) com vizinhos dos dois lados — uma aresta que só encosta na
-        /// linha, no nó da porta, não "cruza" no teste de segmentos, mas o caminho vizinho → porta
-        /// → vizinho atravessa. Antes só a primeira forma contava.
+        /// Alguma aresta cruza a linha da porta, ou o nó da porta tem vizinhos dos dois lados?
         /// </summary>
         private bool DoorCrossed(Draft draft, DoorInfo door)
         {
@@ -1756,8 +1592,8 @@ namespace Assets.Scripts.Graph
             return best;
         }
 
-        // Distância com sinal do ponto até a linha da porta (a normal da parede). 0.5 m é "do
-        // lado de lá": o nó da porta fica na linha (a grade o desloca até ~0.2 m).
+        // Distância com sinal até a linha da porta (normal da parede). DoorSideMargin (0.5 m) separa "do lado de lá",
+        // pois o nó da porta fica na linha (a grade o desloca ~0.2 m).
         private static float DoorSide(DoorInfo door, Vector3 position)
         {
             var normal = new Vector3(-door.Along.z, 0f, door.Along.x);
@@ -1778,11 +1614,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Todo nó de porta ligado a um nó de CADA lado da parede. A ligação por região não
-        /// garante isso: medido no NodeTraining2, duas portas tinham o nó do vão com uma ligação
-        /// só — um lado só —, e as salas não se ligavam por ali. Para cada lado sem vizinho: o nó
-        /// mais perto daquele lado com reta livre; sem reta, o caminho pelo chão (curvas viram
-        /// auxiliares, reaproveitando os que já existem).
+        /// Liga cada nó de porta a um vizinho de CADA lado da parede (o mais perto com reta livre, senão caminho pelo chão);
+        /// a ligação por região não garante isso.
         /// </summary>
         private void LinkDoors(Draft draft, WalkGrid grid, List<long> added)
         {
@@ -1867,15 +1700,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Tira as ligações REDUNDANTES: A–B sai quando existe um C ligado aos dois com as duas
-        /// pernas mais curtas que A–B (grafo de vizinhança relativa, restrito aos triângulos do
-        /// próprio grafo). A ligação por região liga TODO par de regiões que se encostam, o que
-        /// num grupo de nós vira uma triangulação — medido no NodeTraining2: 76 triângulos e 73
-        /// ligações assim, contra 6 e 4 no grafo feito à mão. O caminho A–C–B continua existindo,
-        /// então o grafo nunca parte (e cada remoção posterior tem a sua própria testemunha).
-        ///
-        /// Da mais longa para a mais curta. Não sai: ligação feita à mão (SceneEdges) nem uma
-        /// cuja falta deixaria alguma porta sem travessia (DoorCrossed).
+        /// Tira a ligação A-B quando há um C ligado aos dois com as duas pernas mais curtas (a triangulação da ligação por região),
+        /// da mais longa para a mais curta. Poupa ligação à mão (SceneEdges) e a que deixaria uma porta sem travessia (DoorCrossed).
         /// </summary>
         private void PruneRedundantEdges(Draft draft)
         {
@@ -1924,8 +1750,7 @@ namespace Assets.Scripts.Graph
                 if (!redundant)
                     continue;
 
-                // As portas que esta ligação pode estar atravessando: a dela como nó de porta, ou
-                // a que o segmento cruza. Tira, confere e devolve se alguma ficou sem travessia.
+                // Portas que esta ligação pode atravessar: tira, confere e devolve se alguma ficou sem travessia.
                 var affected = new List<int>();
                 for (int d = 0; d < doors.Count; d++)
                 {
@@ -1969,28 +1794,21 @@ namespace Assets.Scripts.Graph
             return Side(p, q, a) * Side(p, q, b) < 0f && Side(a, b, p) * Side(a, b, q) < 0f;
         }
 
-        // ================================================================================
-        // Estruturas
-        // ================================================================================
+        // ===== Estruturas =====
 
-        /// <summary>O grafo em edição: posições, papéis, raios, pesos, quem veio da cena e as arestas.</summary>
+        /// <summary>O grafo em edição: posições, papéis (Primary = alvo), raios, pesos, origem na cena e arestas.</summary>
         private sealed class Draft
         {
             public readonly List<Vector3> Positions = new List<Vector3>();
             public readonly List<bool> Primary = new List<bool>();
             public readonly List<NavNode> Source = new List<NavNode>();
 
-            // Raio EFETIVO (override ou padrão do papel). É o que a cobertura do chão mede, e o
-            // ApplyDraft converte de volta em override.
+            // Raio efetivo (override ou padrão do tipo); ApplyDraft o converte de volta em override.
             public readonly List<float> Radii = new List<float>();
 
-            // Peso de exploração (só primário conta). Nó da cena: o dele; primário gerado: o
-            // orçamento repartido.
-            public readonly List<float> Weights = new List<float>();
             public readonly HashSet<long> Edges = new HashSet<long>();
 
-            // Ligações que já estavam na cena quando o rascunho foi montado (autoria à mão). A
-            // poda de redundantes não toca nelas: a regra do placer é só tirar o que ele criou.
+            // Ligações que já estavam na cena (autoria à mão): a poda de redundantes não toca nelas.
             public readonly HashSet<long> SceneEdges = new HashSet<long>();
             private readonly List<bool> _removed = new List<bool>();
 
@@ -2002,13 +1820,12 @@ namespace Assets.Scripts.Graph
 
             public void Restore(int i) => _removed[i] = false;
 
-            public int Add(Vector3 position, bool primary, NavNode source, float radius, float weight)
+            public int Add(Vector3 position, bool primary, NavNode source, float radius)
             {
                 Positions.Add(position);
                 Primary.Add(primary);
                 Source.Add(source);
                 Radii.Add(radius);
-                Weights.Add(weight);
                 _removed.Add(false);
                 return Positions.Count - 1;
             }
@@ -2120,11 +1937,8 @@ namespace Assets.Scripts.Graph
             private readonly Dictionary<int, bool[]> _visibility = new Dictionary<int, bool[]>();
 
             /// <summary>
-            /// Células VISÍVEIS a partir de <paramref name="center"/>, num quadrado de VisReach em
-            /// volta (índice local). Raios do centro até cada célula da borda do quadrado, andando
-            /// meia célula por vez e parando na primeira célula que bloqueia a visão — a versão em
-            /// grade do raycast do NavGraph.CanSeeFromNode. Guardado por origem: a mesma célula
-            /// serve a um nó e a todos os candidatos testados ali.
+            /// Células visíveis de <paramref name="center"/> num quadrado de VisReach (índice local): versão em grade do raycast de
+            /// NavGraph.CanSeeFromNode, guardada por origem.
             /// </summary>
             public bool[] VisibilityFrom(int center)
             {
@@ -2257,9 +2071,7 @@ namespace Assets.Scripts.Graph
             }
 
             /// <summary>
-            /// Distância de cada célula andável até a não-andável mais próxima (chamfer de duas
-            /// passadas, 1 e raiz de 2), convertida em folga do corpo: a borda do não-andável já
-            /// está a bodyRadius do obstáculo, então folga = bodyRadius + distância.
+            /// Folga do corpo por célula andável: distância (chamfer 1 / raiz de 2) até a não-andável mais próxima + bodyRadius.
             /// </summary>
             public void ComputeClearance(float bodyRadius)
             {

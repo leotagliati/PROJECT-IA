@@ -4,20 +4,17 @@ namespace Assets.Scripts.Graph
 {
     /// <summary>
     /// Conta BATIDAS em parede (início de um contato, não cada step encostado) e quantas houve
-    /// numa janela recente. É o estado que a punição escalonada precisa: bater uma vez é
-    /// acidente; bater três vezes em cinco segundos é o agente ricocheteando pelo corredor —
-    /// e cada batida seguida passa a custar mais (GraphRewardSystem._wallHitPenalty).
-    ///
-    /// Classe simples, e não MonoBehaviour: quem recebe o OnCollisionStay é o GameObject do
-    /// Rigidbody (o do Manager); aqui só mora a memória entre steps, fora do Manager.
+    /// numa janela recente; é o estado da punição escalonada (GraphRewardSystem._wallHitPenalty).
+    /// Classe simples, não MonoBehaviour: o OnCollisionStay chega no GameObject do Manager, que
+    /// chama Step(touching) uma vez por step de física e lê as contagens ao montar o contexto.
     /// </summary>
     public class WallHitTracker
     {
         // Janela da "batida seguida", em steps de física. 250 = 5 s.
         private readonly int _windowSteps;
 
-        // Steps SEM contato para o próximo contato contar como batida nova. Sem isto, deslizar
-        // raspando a parede (o contato pisca a cada step) viraria dezenas de "batidas".
+        // Steps SEM contato para o próximo contato contar como batida nova; sem isso, raspar a
+        // parede (contato pisca a cada step) viraria dezenas de batidas.
         private readonly int _debounceSteps;
 
         private readonly Queue<int> _recentHitSteps = new Queue<int>();

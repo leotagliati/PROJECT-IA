@@ -7,117 +7,71 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// Ferramenta de AUTORIA do grafo: encaixa os nós no espaço livre de verdade — paredes E
-    /// mobília (tudo na layer de parede do <see cref="NavGraph"/>). Não roda no treino: são só
-    /// menus de contexto, e o componente pode ficar no prefab sem custo nenhum.
-    ///
-    /// O problema que resolve: os nós foram posicionados com os Map_Objects desligados. Ligando a
-    /// mobília, parte deles fica dentro de mesa/armário (o agente nasce entalado, a chegada é
-    /// impossível) e parte das arestas passa por cima de móvel (o hider anda através dela, a
-    /// política aprende a trombar). Corrigir 100 nós à mão é lento e impreciso; a medida certa
-    /// é a mesma que o jogo usa — a coluna do corpo contra a física.
-    ///
-    /// COMO: tudo é amostragem em GRADE no plano X/Z, com a física da cena do grafo:
-    ///   - "o corpo cabe aqui?"    -> NavGraph.IsBodyClear (cápsula da coluna do corpo)
-    ///   - "o corpo passa daqui a ali?" -> NavGraph.IsSegmentClear (a mesma cápsula, varrida)
-    ///   - "a que distância está o obstáculo mais perto?" -> busca binária numa caixa
-    /// Nenhuma regra nova de "livre" nasce aqui: se o placer aprova, o gizmo e o runtime aprovam.
-    ///
-    /// MENUS: 1 Diagnosticar, 2 Reposicionar, 3 Consertar ligações (aqui); 4 Ajustar raios e
-    /// cobrir o chão, 8 Normalizar pesos (NavGraphPlacer.Coverage); 5 Ligar vizinhos, 6 Remover
-    /// inúteis, 7 Gerar do zero (NavGraphPlacer.Generation).
-    /// Para arrumar um grafo existente: "Tudo". Para um mapa sem nós: 7. Os dois terminam com o
-    /// relatório de cobertura do chão (marrom no gizmo = chão sem nó ou no nó errado).
-    /// Tudo tem Undo (Ctrl+Z desfaz o passo inteiro). Rode no Prefab Mode do NodeTraining para a
-    /// correção valer para as 9 cópias da arena (e porque apagar nó de instância não é permitido).
+    /// Ferramenta de AUTORIA do grafo (só editor, via menus de contexto; não roda no treino): encaixa os nós no espaço
+    /// livre real (parede + mobília na layer de parede do <see cref="NavGraph"/>) e gera/liga/poda nós pelo mapa do chão,
+    /// medindo com a física do jogo (NavGraph.IsBodyClear / IsSegmentClear).
+    /// Menus: 1 Diagnosticar, 2 Reposicionar nós, 3 Consertar ligações, 4 Ajustar raios e cobrir o chão, 5 Ligar vizinhos,
+    /// 6 Remover nós inúteis, 7 Gerar do zero, 9 Ladrilhar o chão, 11 Relatório de salas e portas; "Tudo" = 2 -> 3 -> 6 -> 4.
+    /// Tudo tem Undo; rode no Prefab Mode do NodeTraining para valer nas cópias da arena.
+    /// Parciais: este arquivo = campos, menus 1-3 e base de física; Generation = 5-7, rascunho, mapa do chão e portas;
+    /// Coverage = 4 e 11 (raios e cobertura); Tiling = 9 (ladrilhos retangulares).
+    /// "Primário" nos comentários = nó alvo (Porta/Ping, NavNode.IsTarget); os demais são auxiliares.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(NavGraph))]
     public partial class NavGraphPlacer : MonoBehaviour
     {
         [Header("-----Corpo-----")]
-        // A folga de SPAWN (1.25) saiu daqui e foi para o NavGraph (_spawnClearance): é o jogo
-        // que decide onde o agente e o hider nascem (NavGraph.CanSpawnAt), e duas cópias do
-        // mesmo número discordariam no dia em que alguém mudasse uma só. O placer lê de lá.
+        // A folga de spawn vem do NavGraph (_spawnClearance); o placer só lê.
 
-        // Folga "boa" até o obstáculo mais próximo. Acima disto a folga não vale mais nada no
-        // placar: o nó não é arrastado para o centro geométrico de um salão só porque lá é mais
-        // vazio — ele fica perto de onde você o pôs, só que fora do alcance dos móveis.
+        // Folga "boa" (m) até o obstáculo; acima dela não pontua, para o nó não ir ao centro do salão.
         [SerializeField] private float _desiredClearance = 2f;
 
         [Header("-----Reposicionamento-----")]
-        // Até onde um nó pode ser empurrado. Maior que isso já não é "corrigir", é outro nó: a
-        // decisão de autoria ("daqui se vê a sala") deixaria de valer. O que não couber aqui é
-        // listado como sem solução para você resolver na mão.
+        // Deslocamento máximo (m) de um nó; o que não couber é listado como sem solução.
         [SerializeField] private float _maxDisplacement = 3f;
 
-        // Resolução da grade grossa e do refinamento. 0.2 m é da ordem de 2 steps de física do
-        // agente (0.1 m/step); o refinamento de 0.05 m acerta a posição final com folga.
+        // Passo (m) da grade grossa e do refinamento final.
         [SerializeField] private float _sampleStep = 0.2f;
         [SerializeField] private float _refineStep = 0.05f;
 
-        // Quanto 1 m de deslocamento custa em metros de folga. 0.3: o nó aceita andar ~3 m para
-        // ganhar 1 m de folga — o suficiente para sair de trás de uma mesa, sem atravessar a sala.
+        // Custo de 1 m de deslocamento em metros de folga (0.3: aceita ~3 m para ganhar 1 m).
         [SerializeField] private float _displacementCost = 0.3f;
 
-        // Ligado: só mexe em nó obstruído (corpo não cabe, ou alguma ligação dele bloqueada).
-        // Desligado: também CENTRALIZA os nós livres (útil numa arena nova, desfaz o
-        // "nó colado na parede" de quem posicionou de cima).
+        // Ligado: só mexe em nó obstruído. Desligado: também centraliza os nós livres.
         [SerializeField] private bool _moveOnlyObstructed = true;
 
         [Header("-----Ligações-----")]
-        // Margem da busca por um ponto de desvio em volta de uma aresta bloqueada. 4 m contorna
-        // uma mesa de reunião ou uma fileira de baias.
+        // Margem (m) da busca de ponto de desvio em volta de uma aresta bloqueada.
         [SerializeField] private float _detourMargin = 4f;
 
         [Header("-----Raios-----")]
-        // Medidos no MAPA DO CHÃO (NavGraphPlacer.Coverage), o mesmo da cobertura: vazamento,
-        // posse e buraco não podem discordar entre si por serem medidos em grades diferentes.
-        //
-        // VAZAMENTO = fração do chão livre dentro da área de chegada que o corpo NÃO alcança sem
-        // sair da área (fica atrás de parede/móvel). Área vazada dá chegada do outro lado da
-        // parede: no primário é visita de graça numa sala em que ele não entrou.
-        // No auxiliar é tolerado mais: o pior efeito é uma âncora errada por alguns steps, e o
-        // nó mais central ganha no FindNodeAt de qualquer forma.
+        // Vazamento máximo: fração do chão livre da área de chegada que o corpo não alcança sem sair dela,
+        // medida no mapa do chão (Coverage). Mais tolerante no auxiliar.
         [SerializeField, Range(0f, 1f)] private float _maxLeakPrimary = 0.1f;
         [SerializeField, Range(0f, 1f)] private float _maxLeakAuxiliary = 0.25f;
 
-        // Pisos. Abaixo de ~1.2 o primário vira um alvo que o agente atravessa sem registrar; o
-        // auxiliar abaixo de 1.5 deixa de "pegar" o agente, que é o único trabalho dele.
+        // Raio mínimo (m) do alvo e do auxiliar.
         [SerializeField] private float _minPrimaryRadius = 1.2f;
         [SerializeField] private float _minAuxiliaryRadius = 1.5f;
 
-        // Teto do raio do AUXILIAR. Era 5 quando a área era um quadrado cego: raio grande
-        // atravessava parede e virava "nó errado", então a cobertura precisava de muitos nós
-        // pequenos. Com a área cortada pela parede (NavGraph.AreasStopAtWalls) ela toma a forma do
-        // lugar sozinha, e UM nó grande no meio de uma sala cobre o que antes pedia vários. 8 = um
-        // quadrado de até 16 m, da ordem das salas maiores do escritório.
-        //
-        // Por que não maior: (1) a área ainda "vê" por um vão de porta, e um cone grande entraria
-        // na sala vizinha — o nó da porta (mais perto) pega a boca do cone, mas cone de 10+ m já
-        // passa dele; (2) a observação de vizinhos é medida da âncora, e uma âncora de 20 m diz
-        // pouco sobre onde o agente está; (3) o custo da busca cresce com o quadrado do raio.
-        // PRIMÁRIO não usa isto: continua apertado, porque "visitado" tem que ser "estive lá".
+        // Teto do raio (m) do AUXILIAR (a área é cortada pela parede, então um nó grande cobre uma sala).
+        // O alvo não usa isto: continua apertado, para "visitado" significar "estive lá".
         [SerializeField] private float _maxAuxiliaryRadius = 8f;
 
-        // Passo com que o PRIMÁRIO encolhe enquanto vaza (o auxiliar usa _auxiliaryRadiusStep).
+        // Passo (m) com que o raio do alvo encolhe enquanto vaza.
         [SerializeField] private float _radiusStep = 0.1f;
 
-        // POSSE mínima de um primário: fração do chão livre da área dele em que ele ganha no
-        // FindNodeAt (o centro mais perto vence). 0.75 deixa um auxiliar vizinho encostar e
-        // até entrar um pouco — a cadeia precisa chegar perto —, mas não comer a borda inteira
-        // por onde o agente costuma passar.
+        // Posse mínima de um alvo: fração do chão livre da área dele em que ele vence no FindNodeAt.
         [SerializeField, Range(0f, 1f)] private float _minPrimaryOwnership = 0.75f;
 
         [Header("-----Gizmos-----")]
-        // Resultado da última execução (só nesta sessão do editor): linha de onde o nó saiu até
-        // onde está, e X vermelho no nó sem solução. Vermelho = mesmo significado da aresta
-        // bloqueada no gizmo do NavGraph: "problema de geometria".
+        // Desenha o relatório da última execução: linha de onde o nó saiu e X vermelho nos sem solução.
         [SerializeField] private bool _drawReport = true;
 
         private NavGraph _graph;
 
-        // Relatório da última execução. Não serializado: é da sessão, não do mapa.
+        // Relatório da última execução (da sessão; não serializado).
         private readonly List<Vector3> _movedFrom = new List<Vector3>();
         private readonly List<NavNode> _movedNodes = new List<NavNode>();
         private readonly List<NavNode> _unresolved = new List<NavNode>();
@@ -136,9 +90,7 @@ namespace Assets.Scripts.Graph
         }
 
 #if UNITY_EDITOR
-        // ================================================================================
-        // Menus
-        // ================================================================================
+        // ===== Menus =====
 
         [ContextMenu("1. Diagnosticar (não altera nada)")]
         private void Diagnose()
@@ -174,9 +126,7 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                // Não é erro: nó apertado (corredor estreito) continua sendo âncora e caminho, só
-                // não é sorteado como spawn (NavGraph.CanSpawnAt). Conta para você saber quantas
-                // origens de episódio sobram.
+                // Nó apertado não é erro: só não vira spawn (NavGraph.CanSpawnAt).
                 if (!Graph.IsBodyClear(node.Position, SpawnClearance))
                     tight++;
             }
@@ -191,8 +141,7 @@ namespace Assets.Scripts.Graph
                 Debug.LogWarning($"{a.name} <-> {b.name}: ligação bloqueada para o corpo.", a);
             }
 
-            // Sobreposição de PRIMÁRIOS, todos os pares (ligados ou não). Auxiliar x auxiliar
-            // não é problema; auxiliar x primário é a POSSE, medida abaixo no mapa do chão.
+            // Sobreposição entre alvos (todos os pares); auxiliar x alvo é a posse, medida no mapa do chão.
             int overlaps = 0;
             List<NavNode> nodes = ValidNodes();
             for (int i = 0; i < nodes.Count; i++)
@@ -217,8 +166,7 @@ namespace Assets.Scripts.Graph
 
             int isolated = ReportPieces(nodes) - 1;
 
-            // O resto é medido no MAPA DO CHÃO (alguns segundos de física): vazamento e posse de
-            // cada nó, cobertura do chão, "nó à vista" e spawn points.
+            // Medido no mapa do chão (alguns segundos): vazamento, posse, cobertura, nó à vista e spawns.
             int leaking = 0;
             int robbed = 0;
             int blind = 0;
@@ -278,12 +226,7 @@ namespace Assets.Scripts.Graph
         private void RepairLinks() => RunStep("Consertar ligações", RepairLinksStep);
 
         /// <summary>
-        /// Arrumar um grafo que já existe, na ordem em que cada passo prepara o seguinte:
-        /// tira os nós de dentro dos móveis (2), desvia as ligações bloqueadas (3), apaga os
-        /// inúteis sem tirar a cobertura da meta (6) e só então acerta os raios e cobre o chão que sobrou,
-        /// ligando os nós novos por região (4). O 4 fica por último porque o raio certo depende
-        /// de onde estão todos os outros nós — e porque é o único passo que fecha buraco.
-        /// Termina com o relatório de cobertura.
+        /// Arruma um grafo existente: 2, 3, 6 e 4 por último, porque o raio certo depende de onde estão os outros nós.
         /// </summary>
         [ContextMenu("Tudo (2 -> 3 -> 6 -> 4)")]
         private void RunAll()
@@ -313,9 +256,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Pedaços do grafo como está na cena. Todo nó tem que alcançar todos os outros: um
-        /// pedaço solto é uma ilha de onde o agente (e o hider, e a fronteira) não sai. Com mais
-        /// de um, lista os nós dos pedaços menores e marca com X vermelho. Devolve quantos há.
+        /// Conta os pedaços conexos do grafo; com mais de um, loga os nós dos menores e marca X vermelho.
         /// </summary>
         private int ReportPieces(List<NavNode> nodes)
         {
@@ -385,8 +326,7 @@ namespace Assets.Scripts.Graph
             }, radialOnly: false);
         }
 
-        // Um passo = um grupo de Undo + barra de progresso que sempre fecha. radialOnly: o passo
-        // trabalha com RAIO (menus 2 a 7) e não serve para um grafo ladrilhado (forma Retângulo).
+        // Um passo = um grupo de Undo + barra de progresso que sempre fecha. radialOnly: recusa grafo ladrilhado (usa raio).
         private void RunStep(string label, System.Action step, bool radialOnly = true)
         {
             if (!Prepare() || (radialOnly && !RequireRadialGraph()))
@@ -396,7 +336,6 @@ namespace Assets.Scripts.Graph
             int group = UnityEditor.Undo.GetCurrentGroup();
             UnityEditor.Undo.SetCurrentGroupName(label);
 
-            // O gizmo mostra só a execução atual.
             _movedFrom.Clear();
             _movedNodes.Clear();
             _unresolved.Clear();
@@ -413,9 +352,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // ================================================================================
-        // 2. Reposicionar
-        // ================================================================================
+        // ===== 2. Reposicionar =====
 
         private void RelocateNodesStep()
         {
@@ -457,7 +394,7 @@ namespace Assets.Scripts.Graph
                 node.transform.position = best;
                 MarkModified(node.transform);
 
-                // Os casts dos próximos nós precisam ver este já no lugar novo.
+                // Os próximos casts precisam ver este nó já no lugar novo.
                 Physics.SyncTransforms();
 
                 _movedFrom.Add(from);
@@ -484,18 +421,8 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Melhor ponto para o nó a até _maxDisplacement de onde ele está. Três etapas:
-        ///
-        /// 1. GRADE de "o corpo cabe?" em volta do nó.
-        /// 2. COMPONENTE CONEXO a partir das células livres mais próximas da posição original.
-        ///    É o que impede o nó de PULAR uma parede fina: o lado de lá pode ter mais folga e
-        ///    estar a 1 m, mas não é o mesmo lugar — o corpo não passa pela parede, então a
-        ///    grade também não (a faixa de 2 x folga em volta dela nunca é livre).
-        /// 3. PLACAR = folga (saturada em _desiredClearance) - custo do deslocamento, com as
-        ///    ligações bloqueadas pesando muito mais que tudo. Os melhores da grade grossa têm
-        ///    as ligações testadas; o vencedor é refinado numa grade fina em volta dele.
-        ///
-        /// Se nada couber com a folga de spawn, tenta de novo com a de passagem.
+        /// Melhor ponto a até _maxDisplacement: grade de "o corpo cabe?" restrita ao componente conexo da origem (não pula parede fina),
+        /// pontuada por folga - deslocamento - penalidades e refinada. Sem folga de spawn, usa a de passagem.
         /// </summary>
         private bool TryFindPlacement(NavNode node, List<NavNode> neighbors, out Vector3 best, out bool usedRelaxed)
         {
@@ -534,8 +461,7 @@ namespace Assets.Scripts.Graph
             if (nearest == float.MaxValue)
                 return false;
 
-            // Sementes: a faixa de células livres mais próxima do nó original (meio metro de
-            // tolerância, para um nó dentro de uma mesa poder sair por qualquer lado dela).
+            // Sementes: células livres mais próximas da origem (+0.5 m, para sair de dentro de uma mesa por qualquer lado).
             var seeds = new List<Vector2Int>();
             for (int x = 0; x < size; x++)
             {
@@ -549,8 +475,7 @@ namespace Assets.Scripts.Graph
             bool[,] reachable = FloodFill(free, seeds);
             bool isPrimary = node.IsTarget;
 
-            // Pré-placar sem ligações (barato) em toda célula alcançável; só os melhores pagam os
-            // casts das ligações, que são a parte cara.
+            // Pré-placar barato em toda célula; só os 32 melhores pagam os casts das ligações.
             var candidates = new List<(Vector3 position, float score)>();
             for (int x = 0; x < size; x++)
             {
@@ -578,7 +503,6 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // Refinamento: grade fina de +-1 célula em volta do vencedor.
             Vector3 coarse = best;
             int fine = Mathf.CeilToInt(_sampleStep / _refineStep);
             for (int x = -fine; x <= fine; x++)
@@ -606,11 +530,8 @@ namespace Assets.Scripts.Graph
             return Mathf.Min(Clearance(cell), _desiredClearance) - _displacementCost * PlanarDistance(origin, cell);
         }
 
-        // Ligações bloqueadas pesam 100 por aresta — mais que qualquer ganho de folga, então o
-        // nó só aceita perder uma ligação se não houver ponto nenhum que mantenha todas.
-        // Pesam 10 as duas regras de área que o bake do NavGraph acusa:
-        //   - primário invadindo a área de outro primário ("visitado" deixa de ser "estive lá");
-        //   - auxiliar a menos de meio raio de um primário (eclipsa o primário no FindNodeAt).
+        // Penalidades: ligação bloqueada -100 (só se perde uma se nenhum ponto mantiver todas); -10 por alvo invadindo
+        // a área de outro alvo, ou auxiliar a menos de meio raio de um alvo (as regras de área do bake do NavGraph).
         private float PlacementPenalty(NavNode node, bool isPrimary, Vector3 cell, List<NavNode> neighbors)
         {
             float penalty = 0f;
@@ -645,18 +566,11 @@ namespace Assets.Scripts.Graph
             return penalty;
         }
 
-        // ================================================================================
-        // 3. Consertar ligações
-        // ================================================================================
+        // ===== 3. Consertar ligações =====
 
         /// <summary>
-        /// Para cada aresta que o corpo não atravessa, na ordem de preferência:
-        ///   a) DESVIO: por um nó que já existe e enxerga os dois lados; senão um auxiliar novo
-        ///      num ponto livre que enxerga os dois lados, escolhido pelo menor caminho
-        ///      A -> P -> B (a mesa no meio da sala vira um contorno);
-        ///   b) REMOVER a aresta, se o grafo continua conexo sem ela;
-        ///   c) deixar como está e acusar erro — remover desconectaria o grafo, e aí a cobertura
-        ///      total fica impossível. Esse caso pede um nó posto à mão.
+        /// Para cada aresta bloqueada: desvia por um nó existente ou auxiliar novo; senão remove, se o grafo segue conexo;
+        /// senão acusa erro (pede um nó à mão).
         /// </summary>
         private void RepairLinksStep()
         {
@@ -729,9 +643,7 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Desvio por um nó que JÁ EXISTE: o que enxerga os dois lados com o menor caminho
-        /// A -> nó -> B, dentro da mesma margem do desvio novo. Vem antes de criar um auxiliar
-        /// (_minNodeSpacing): um nó novo ao lado de um que já faria o papel é um par colado.
+        /// Desvio por um nó que JÁ EXISTE (menor caminho A -> nó -> B); vem antes de criar auxiliar, para não gerar par colado.
         /// </summary>
         private bool TryFindExistingDetour(List<NavNode> nodes, NavNode a, NavNode b, out NavNode via)
         {
@@ -761,10 +673,8 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        // Primeiro com a folga de spawn (o desvio fica no meio do espaço livre); se o contorno só
-        // existe por um vão estreito, aceita a de passagem — um desvio apertado é melhor que
-        // remover a ligação ou deixá-la atravessando o móvel. Nas duas, o ponto fica a pelo menos
-        // _minNodeSpacing de outro nó; só se não houver ponto assim o espaçamento é dispensado.
+        // Folga de spawn, depois a de passagem, depois sem espaçamento (_minNodeSpacing): desvio apertado vale mais
+        // que remover a ligação ou deixá-la atravessando o móvel.
         private bool TryFindDetour(NavNode a, NavNode b, out Vector3 point) =>
             TryFindDetour(a, b, SpawnClearance, true, out point)
             || TryFindDetour(a, b, Graph.LinkClearance, true, out point)
@@ -791,8 +701,7 @@ namespace Assets.Scripts.Graph
                     if ((spaced && NearAnyNode(cell)) || !Graph.IsBodyClear(cell, clearance) || ShadowsPrimary(cell))
                         continue;
 
-                    // Caminho mais curto, com um empurrão para longe dos móveis: 1 m de folga a
-                    // menos custa meio metro de caminho a mais.
+                    // Menor caminho, empurrado para longe dos móveis (1 m a menos de folga = +0.5 m de caminho).
                     float cost = PlanarDistance(pa, cell) + PlanarDistance(cell, pb)
                                  + 0.5f * (_desiredClearance - Mathf.Min(Clearance(cell), _desiredClearance));
                     candidates.Add((cell, cost));
@@ -824,7 +733,7 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        // O desvio é um auxiliar: não pode nascer a menos de meio raio de um primário.
+        // Auxiliar a menos de meio raio de um alvo eclipsa o alvo no FindNodeAt.
         private bool ShadowsPrimary(Vector3 position)
         {
             foreach (NavNode other in Graph.Nodes)
@@ -888,14 +797,10 @@ namespace Assets.Scripts.Graph
             return seen.Count == enabled.Count;
         }
 
-        // ================================================================================
-        // Base
-        // ================================================================================
+        // ===== Base =====
 
         /// <summary>
-        /// Os menus 1 a 7 medem e ajustam RAIOS (círculo/quadrado com corte na parede). Num grafo
-        /// ladrilhado (forma Retângulo, menu 9) eles mediriam áreas que não existem e criariam
-        /// nós sem retângulo por cima dos ladrilhos — então recusam, em vez de estragar o mapa.
+        /// Os menus de raio (1-7) estragariam um grafo ladrilhado (Rectangle, menu 9), então recusam.
         /// </summary>
         private bool RequireRadialGraph()
         {
@@ -920,15 +825,13 @@ namespace Assets.Scripts.Graph
                 return false;
             }
 
-            // Edição de transform no editor não sincroniza a física sozinha; sem isto o placer
-            // mede contra a posição antiga dos móveis que você acabou de arrastar.
+            // Edição de transform no editor não sincroniza a física; sem isto o placer mede contra a posição antiga dos móveis.
             Physics.SyncTransforms();
             WarnAboutInactiveObstacles();
             return true;
         }
 
-        // Collider desligado não existe para a física: com os Map_Objects desativados o placer
-        // "aprova" nós que vão ficar dentro dos móveis quando eles forem ligados.
+        // Collider desligado não existe para a física: com Map_Objects desativados o placer aprova nós que cairão dentro dos móveis.
         private void WarnAboutInactiveObstacles()
         {
             Transform root = ArenaRoot;
@@ -966,8 +869,7 @@ namespace Assets.Scripts.Graph
             return nodes;
         }
 
-        // Adjacência NÃO dirigida, montada das listas de vizinhos: fora do Play o NavGraph não
-        // fez bake, e a autoria declara cada aresta de um lado só.
+        // Adjacência não dirigida: fora do Play não há bake, e a autoria declara cada aresta de um lado só.
         private static Dictionary<NavNode, List<NavNode>> BuildAdjacency(List<NavNode> nodes)
         {
             var adjacency = new Dictionary<NavNode, List<NavNode>>();
@@ -1010,17 +912,14 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Os dois sentidos: todo cast ignora o collider que envolve o ponto de partida, então um
-        // nó DENTRO de uma mesa passaria no teste se ele fosse só a origem.
+        // Os dois sentidos: o cast ignora o collider que envolve a origem, então um nó DENTRO de uma mesa passaria só de um lado.
         private bool IsEdgeClear(NavNode a, NavNode b) => IsSegmentClearBothWays(a.Position, b.Position);
 
         private bool IsSegmentClearBothWays(Vector3 a, Vector3 b) => Graph.IsSegmentClear(a, b) && Graph.IsSegmentClear(b, a);
 
         /// <summary>
-        /// Distância (Chebyshev, no plano) até o obstáculo mais próximo na coluna do corpo, até
-        /// _desiredClearance. Busca binária com uma CAIXA, e não com a cápsula: a cápsula vira
-        /// esfera quando o raio passa de meia coluna (1.7 m) e deixa de enxergar móvel baixo.
-        /// 0 = o ponto está dentro de algo.
+        /// Folga (Chebyshev, m) até o obstáculo mais próximo, saturada em _desiredClearance; 0 = dentro de algo.
+        /// Usa CAIXA, não cápsula: a cápsula vira esfera acima de 1.7 m e deixa de ver móvel baixo.
         /// </summary>
         private float Clearance(Vector3 position)
         {
@@ -1094,7 +993,7 @@ namespace Assets.Scripts.Graph
 
         private static float PlanarDistance(Vector3 a, Vector3 b) => new Vector2(a.x - b.x, a.z - b.z).magnitude;
 
-        // Em instância de prefab, mudança feita por script só vira override se for registrada.
+        // Em instância de prefab, mudança por script só vira override se for registrada.
         private static void MarkModified(Object target)
         {
             UnityEditor.EditorUtility.SetDirty(target);
@@ -1116,7 +1015,7 @@ namespace Assets.Scripts.Graph
                 if (node == null)
                     continue;
 
-                // Na matiz do papel do nó: "este nó veio dali". Não é cor nova no vocabulário.
+                // Cor do tipo do nó: linha de onde ele veio.
                 Gizmos.color = NavNode.ColorOf(node.Kind);
                 Gizmos.DrawLine(_movedFrom[i], node.Position);
                 Gizmos.DrawWireSphere(_movedFrom[i], 0.12f);

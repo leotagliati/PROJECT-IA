@@ -3,26 +3,19 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// A presa SCRIPTADA do seeker, andando pelo mesmo grafo de nós. Não aprende nada: é o
-    /// oponente fixo contra o qual o seeker treina — um hider que também aprendesse (self-play)
-    /// produziria dois comportamentos estranhos que só funcionam um contra o outro, e você
-    /// perderia a régua ("o seeker melhorou ou o hider piorou?").
+    /// A presa SCRIPTADA do seeker: anda de nó em nó pelo grafo (em linha reta; as ligações são
+    /// validadas contra parede) e não aprende nada, para o seeker treinar contra um oponente fixo.
+    /// Ao chegar num nó de ping (NavGraph.IsPingSource) deixa PendingArrival, que o GraphPingSystem
+    /// do seeker consome como ping: o seeker nunca recebe a posição do hider, só o rastro.
     ///
-    /// Anda de nó em nó em linha reta (as ligações do grafo são validadas contra parede, então
-    /// a reta entre dois nós ligados é percorrível). Ao CHEGAR num nó de ping (NavGraph.IsPingSource), avisa: é isso
-    /// que o <see cref="GraphPingSystem"/> do seeker lê para disparar o ping — "ouvi passos
-    /// naquela sala". O seeker nunca recebe a posição do hider; recebe o rastro.
+    /// Modos (currículo, hider_mode): 0 Nenhum (desligado), 1 Parado, 2 Anda (vagueia), 3 Foge
+    /// (com o seeker perto, escolhe a saída que mais aumenta a distância PELO GRAFO em metros).
+    /// Solto (hider_loose): vai a pontos aleatórios dentro do nó e, às vezes, a um esconderijo
+    /// (ponto pouco visível das portas da sala), onde fica parado mais tempo.
     ///
-    /// Modos (currículo, hider_mode):
-    ///   0 Nenhum   — o hider fica desligado; o episódio é só exploração.
-    ///   1 Parado   — nasce num nó e fica. O ping toca uma vez; o seeker aprende a ir até lá.
-    ///   2 Anda     — vagueia pelo grafo sem olhar para o seeker. O rastro se move.
-    ///   3 Foge     — quando o seeker chega perto, escolhe a saída que mais aumenta a distância
-    ///                PELO GRAFO até ele, em metros (contornar parede conta; linha reta não).
-    /// Um por arena. Substitui o HiderAgent antigo (que andava em cardinais e virava ao bater):
-    /// aquele não conhece nós, e sem nó não há ping.
+    /// Um por arena. Não use o HiderAgent.cs antigo com o grafo: ele não conhece nós, logo sem ping.
     /// </summary>
-    public class GraphHider : MonoBehaviour
+    public class GraphHider : MonoBehaviour, IGraphTarget
     {
         public enum Mode
         {
@@ -33,46 +26,47 @@ namespace Assets.Scripts.Graph
         }
 
         [Header("-----Movimento-----")]
-        // Velocidade PADRÃO (m/s), usada quando o currículo não manda outra (hider_speed). O
-        // currículo começa em 1.0 e sobe até 3.2 — sempre abaixo do seeker (6): um hider mais
-        // rápido é impegável e o seeker nunca recebe o sinal de captura; começar devagar deixa
-        // o seeker aprender a seguir o rastro antes de precisar correr.
+        // Velocidade PADRÃO (m/s), usada quando o currículo não manda outra (hider_speed).
         [SerializeField, Min(0f)] private float _speed = 1f;
 
         private float _currentSpeed;
 
-        // Chance de uma chegada num nó de ping fazer BARULHO (virar ping), por episódio — vem do
-        // currículo (hider_noise). 1 = toda chegada pinga, o comportamento antigo, que era quase um
-        // GPS; com 0.25 o seeker ouve um passo a cada quatro e entre um e outro quem guia é a
-        // dedução (GraphSuspicionMap). No jogo é o player andando com cuidado ou não.
+        // Chance de uma chegada num nó de ping virar ping, por episódio (currículo: hider_noise).
         private float _noiseChance = 1f;
 
-        // Considera "cheguei" a este tanto do centro do nó, em metros. Menor que o raio de
-        // chegada do seeker de propósito: o hider tem que pisar de fato no nó para o ping tocar.
+        // Considera "cheguei" a esta distância (m) do centro do nó; menor que a do seeker de propósito.
         [SerializeField] private float _arriveDistance = 0.4f;
 
-        // Pausa ao chegar num nó, em steps de física (sorteada entre 0 e isto). Dá ritmo de
-        // "parou para ouvir" e evita que o rastro seja um relógio.
+        // Pausa máxima ao chegar num nó, em steps de física (sorteada entre 0 e isto).
         [SerializeField, Min(0)] private int _maxPauseSteps = 100;
 
-        // Altura do corpo sobre o nó, como o spawn do seeker.
+        // Altura (m) do corpo sobre o nó.
         [SerializeField] private float _heightOffset = 0.15f;
 
         [Header("-----Fuga-----")]
         // Distância planar (m) a partir da qual o hider passa a fugir em vez de vaguear.
         [SerializeField] private float _fleeRadius = 12f;
 
+        [Header("-----Solto e escondido (hider_loose)-----")]
+        // Margem (m) entre o ponto sorteado e a borda do retângulo do nó.
+        [SerializeField, Min(0f)] private float _looseMargin = 0.6f;
+
+        // Chance de o próximo ponto ser um esconderijo (o menos visível das portas da sala).
+        [SerializeField, Range(0f, 1f)] private float _hideChance = 0.5f;
+
+        // Pontos sorteados para escolher o esconderijo.
+        [SerializeField, Min(1)] private int _hideCandidates = 6;
+
+        // Multiplicador da pausa quando escondido.
+        [SerializeField, Min(1f)] private float _hidePauseMultiplier = 3f;
+
         [Header("-----Spawn-----")]
-        // Distância mínima, em METROS pelo grafo, do nó de spawn do seeker. 40 m ~ as 6
-        // arestas de antes (mediana 7.4 m): fora da sala inicial sem mandar o hider para o
-        // outro lado do mundo. Em metros para não mudar quando o grafo for adensado.
-        // Nome novo de propósito: o antigo (_minSpawnDistance) era em arestas, e o 6 salvo no
-        // prefab viraria "6 metros" em silêncio.
+        // Distância mínima (m pelo grafo) do nó de spawn do hider ao nó do seeker.
         [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
 
         [Header("-----Referências-----")]
         [SerializeField] private NavGraph _graph;
-        // O seeker desta arena. Só o modo Foge usa; fallback por GetComponentInChildren no pai.
+        // O seeker desta arena (só o modo Foge usa); fallback por GetComponentInChildren no pai.
         [SerializeField] private Transform _seeker;
 
         private Rigidbody _rigidbody;
@@ -81,6 +75,13 @@ namespace Assets.Scripts.Graph
         private int _previousNode = -1;
         private int _targetNode = -1;
         private int _pauseLeft;
+        private bool _loose;
+
+        // Destino atual (centro do nó ou ponto solto); no solto, _finalGoal vale depois de passar pelo centro do nó atual.
+        private Vector3 _goal;
+        private Vector3 _finalGoal;
+        private bool _viaCenter;
+        private bool _goalIsHiding;
 
         /// <summary>Ligado neste episódio (modo != None).</summary>
         public bool IsActive => _mode != Mode.None;
@@ -88,10 +89,10 @@ namespace Assets.Scripts.Graph
         /// <summary>Último nó em que o hider PISOU (-1 antes do primeiro).</summary>
         public int CurrentNode => _currentNode;
 
+        public Vector3 Position => transform.position;
+
         /// <summary>
-        /// Nó de ping em que o hider acabou de chegar, ou -1. Fica de pé até alguém consumir
-        /// com <see cref="ConsumeArrival"/> — é o "barulho" que o GraphPingSystem transforma
-        /// em ping. Um por chegada: pisar no mesmo nó parado não toca de novo.
+        /// Nó de ping em que o hider acabou de chegar, ou -1; fica de pé até <see cref="ConsumeArrival"/>.
         /// </summary>
         public int PendingArrival { get; private set; } = -1;
 
@@ -123,14 +124,17 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Chamar DEPOIS do spawn do seeker: o hider nasce longe dele. Com modo None fica
-        /// desligado (GameObject inativo) e não emite nada.
+        /// Chamar DEPOIS do spawn do seeker (o hider nasce longe dele). Modo None desativa o GameObject.
         /// </summary>
         /// <param name="speed">m/s neste episódio; &lt;= 0 usa o padrão do Inspector.</param>
         /// <param name="noiseChance">Chance (0..1) de cada chegada virar ping.</param>
-        public void ResetEpisode(Mode mode, float speed, float noiseChance, Vector3 seekerPosition)
+        /// <param name="loose">Modo solto (S6): pontos aleatórios dentro do nó e esconderijos.</param>
+        public void ResetEpisode(Mode mode, float speed, float noiseChance, Vector3 seekerPosition, bool loose)
         {
             _mode = mode;
+            _loose = loose;
+            _viaCenter = false;
+            _goalIsHiding = false;
             _currentSpeed = speed > 0f ? speed : _speed;
             _noiseChance = Mathf.Clamp01(noiseChance);
             PendingArrival = -1;
@@ -154,16 +158,15 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            Place(_graph.NodePosition(_currentNode));
+            Place(_loose ? PointInNode(_currentNode, hide: true, from: _graph.NodePosition(_currentNode)) : _graph.NodePosition(_currentNode));
 
-            // Nascer num nó de ping pode ser um barulho: com hider_noise 1 o seeker ganha o primeiro
-            // ping de graça; com menos, às vezes começa sem pista nenhuma e tem que procurar.
             MakeNoiseAt(_currentNode);
 
             if (mode == Mode.Static)
                 return;
 
             ChooseNextNode();
+            SetGoalForTarget();
         }
 
         private void FixedUpdate()
@@ -180,16 +183,24 @@ namespace Assets.Scripts.Graph
             if (_targetNode < 0)
             {
                 ChooseNextNode();
+                SetGoalForTarget();
                 return;
             }
 
-            Vector3 goal = _graph.NodePosition(_targetNode) + Vector3.up * _heightOffset;
+            Vector3 goal = _goal + Vector3.up * _heightOffset;
             Vector3 delta = goal - transform.position;
             delta.y = 0f;
             float distance = delta.magnitude;
 
             if (distance <= _arriveDistance)
             {
+                if (_viaCenter)
+                {
+                    _viaCenter = false;
+                    _goal = _finalGoal;
+                    return;
+                }
+
                 Arrive();
                 return;
             }
@@ -210,6 +221,103 @@ namespace Assets.Scripts.Graph
             MakeNoiseAt(_currentNode);
 
             _pauseLeft = _maxPauseSteps > 0 ? Random.Range(0, _maxPauseSteps + 1) : 0;
+            if (_goalIsHiding)
+                _pauseLeft = Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
+        }
+
+        // Destino no próximo nó: o centro ou, solto, um ponto dentro dele. Se a reta até o ponto bate
+        // em parede, passa antes pelo centro do nó atual (as ligações só garantem a reta entre centros).
+        private void SetGoalForTarget()
+        {
+            _viaCenter = false;
+            _goalIsHiding = false;
+            if (_targetNode < 0)
+                return;
+
+            if (!_loose)
+            {
+                _goal = _graph.NodePosition(_targetNode);
+                return;
+            }
+
+            bool fleeing = _mode == Mode.Flee && SeekerIsNear();
+            bool hide = !fleeing && Random.value < _hideChance;
+            Vector3 here = transform.position - Vector3.up * _heightOffset;
+            Vector3 point = PointInNode(_targetNode, hide, _graph.NodePosition(_targetNode));
+            _goalIsHiding = hide;
+
+            if (_graph.IsSegmentClear(here, point))
+            {
+                _goal = point;
+                return;
+            }
+
+            _viaCenter = true;
+            _finalGoal = _graph.IsSegmentClear(_graph.NodePosition(_currentNode), point) ? point : _graph.NodePosition(_targetNode);
+            _goal = _graph.NodePosition(_currentNode);
+        }
+
+        // Ponto livre no retângulo do nó (porta: sempre o centro). Escondendo, o visto por menos portas
+        // da sala entre _hideCandidates sorteados. Sem ponto válido, o centro.
+        private Vector3 PointInNode(int node, bool hide, Vector3 from)
+        {
+            Vector3 center = _graph.NodePosition(node);
+            if (_graph.IsDoor(node))
+                return center;
+
+            NavNode navNode = _graph.GetNode(node);
+            Vector3 areaCenter = _graph.AreaCenterOf(navNode);
+            Vector2 half = _graph.HalfExtentsOf(navNode);
+            half = new Vector2(Mathf.Max(0f, half.x - _looseMargin), Mathf.Max(0f, half.y - _looseMargin));
+
+            int room = _graph.RoomOf(node);
+            int[] doors = room >= 0 ? _graph.DoorsOfRoom(room) : null;
+            int tries = hide ? _hideCandidates : 2;
+            Vector3 best = center;
+            int bestSeen = int.MaxValue;
+            float radius = _graph.LinkClearance;
+
+            for (int k = 0; k < tries; k++)
+            {
+                var point = new Vector3(
+                    areaCenter.x + Random.Range(-half.x, half.x),
+                    center.y,
+                    areaCenter.z + Random.Range(-half.y, half.y));
+
+                if (!_graph.IsBodyClear(point, radius) || !_graph.IsSegmentClear(from, point))
+                    continue;
+
+                if (!hide)
+                    return point;
+
+                int seen = 0;
+                if (doors != null)
+                {
+                    foreach (int door in doors)
+                    {
+                        if (_graph.CanSeeFromNode(_graph.NodePosition(door), point))
+                            seen++;
+                    }
+                }
+
+                if (seen < bestSeen)
+                {
+                    bestSeen = seen;
+                    best = point;
+                }
+            }
+
+            return best;
+        }
+
+        private bool SeekerIsNear()
+        {
+            if (_seeker == null)
+                return false;
+
+            Vector3 toSeeker = _seeker.position - transform.position;
+            toSeeker.y = 0f;
+            return toSeeker.magnitude <= _fleeRadius;
         }
 
         private void MakeNoiseAt(int node)
@@ -218,9 +326,8 @@ namespace Assets.Scripts.Graph
                 PendingArrival = node;
         }
 
-        // Anda: vizinho aleatório, evitando voltar por onde veio quando há alternativa. Foge:
-        // se o seeker está perto, o vizinho que mais AUMENTA a distância em arestas até o nó do
-        // seeker; senão anda normalmente.
+        // Anda: vizinho aleatório, evitando voltar por onde veio. Foge, com o seeker perto: o vizinho
+        // que mais aumenta a distância pelo grafo até o nó do seeker.
         private void ChooseNextNode()
         {
             int[] neighbors = _graph.GetNeighbors(_currentNode);
@@ -229,10 +336,7 @@ namespace Assets.Scripts.Graph
 
             if (_mode == Mode.Flee && _seeker != null)
             {
-                Vector3 toSeeker = _seeker.position - transform.position;
-                toSeeker.y = 0f;
-
-                if (toSeeker.magnitude <= _fleeRadius)
+                if (SeekerIsNear())
                 {
                     int seekerNode = _graph.FindNearestReachableNode(_seeker.position);
                     int best = -1;
@@ -259,7 +363,6 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // Vaguear: sorteio entre os ativos que não são o nó de onde veio (se houver outro).
             int chosen = -1;
             int options = 0;
             foreach (int neighbor in neighbors)
@@ -278,19 +381,21 @@ namespace Assets.Scripts.Graph
             _targetNode = chosen;
         }
 
-        // Nó de SPAWN válido (ativo e com folga, NavGraph.CanSpawnAt) a pelo menos
-        // _minSpawnDistanceMeters do nó mais próximo do seeker. Sorteio com rejeição; se o mapa
-        // for pequeno demais para a distância pedida, aceita qualquer um com folga.
+        // Nó de spawn: sala diferente da do seeker (GraphArenaController.RandomSpawnNodeByRoom) a
+        // >= _minSpawnDistanceMeters dele; mapa pequeno demais aceita o último sorteado.
         private int PickSpawnNode(Vector3 seekerPosition)
         {
             int seekerNode = _graph.FindNearestReachableNode(seekerPosition);
-            int count = _graph.NodeCount;
+            int seekerRoom = seekerNode >= 0 ? _graph.RoomOf(seekerNode) : -1;
             int fallback = -1;
 
-            for (int attempt = 0; attempt < count * 2; attempt++)
+            for (int attempt = 0; attempt < _graph.RoomCount * 2; attempt++)
             {
-                int candidate = Random.Range(0, count);
-                if (!_graph.CanSpawnAt(candidate) || candidate == seekerNode)
+                int candidate = GraphArenaController.RandomSpawnNodeByRoom(_graph, seekerRoom);
+                if (candidate < 0)
+                    break;
+
+                if (candidate == seekerNode)
                     continue;
 
                 fallback = candidate;
@@ -331,15 +436,14 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // Verde-azulado escuro: não é nenhuma das cores da memória, da fronteira (magenta), do
-        // ping (rosa) nem da estrutura. Linha até o nó para onde está indo.
+        // Gizmo verde-azulado escuro: linha até o destino atual.
         private void OnDrawGizmos()
         {
             if (!Application.isPlaying || _graph == null || _mode == Mode.None || _targetNode < 0)
                 return;
 
             Gizmos.color = new Color(0f, 0.55f, 0.5f, 0.9f);
-            Gizmos.DrawLine(transform.position, _graph.NodePosition(_targetNode) + Vector3.up * _heightOffset);
+            Gizmos.DrawLine(transform.position, _goal + Vector3.up * _heightOffset);
         }
     }
 }

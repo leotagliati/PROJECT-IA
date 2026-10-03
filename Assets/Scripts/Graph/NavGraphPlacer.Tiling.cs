@@ -7,72 +7,38 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// LADRILHAMENTO (menu 9): cobre o chão da arena inteiro com nós RETANGULARES que não se
-    /// sobrepõem, em vez de discos com raio. É a outra resposta ao mesmo problema da cobertura
-    /// (NavGraphPlacer.Coverage): lá os discos se cruzam e o FindNodeAt desempata pelo centro mais
-    /// perto; aqui cada ponto do chão está em EXATAMENTE um nó, por construção.
-    ///
-    /// O que sai:
-    ///   - um nó AUXILIAR por ladrilho de chão onde o corpo vai (a forma do NavGraph vira
-    ///     Retângulo). Quais viram exploração ou ping é autoria sua — o ladrilhamento só não
-    ///     esquece os que já eram (_tilingKeepKinds);
-    ///   - CORREDOR = uma FILA de ladrilhos, cada um de parede a parede: nunca dois lado a lado
-    ///     na largura (ver SectionsOf);
-    ///   - PORTA = um ladrilho que preenche exatamente o buraco da parede (pilar a pilar, na
-    ///     espessura da parede);
-    ///   - VERMELHO (NavBlockedArea, não é nó) = chão livre onde o corpo NÃO CABE (vão entre
-    ///     móveis, nicho estreito, sala de porta estreita demais).
-    ///
-    /// COMO, numa grade de _tileStep no plano dos nós (mesma física do resto do placer):
-    ///   CHÃO     célula com a coluna do corpo livre (caixa do tamanho da célula);
-    ///   ANDÁVEL  onde o CENTRO do corpo pode estar (NavGraph.IsBodyClear), conectado aos pontos
-    ///            de dentro do prédio;
-    ///   ACESSÍVEL o chão que o corpo ENCOSTA: andável dilatado por meia largura do corpo (um
-    ///            quadrado, como a caixa do corpo) — é ele que é ladrilhado, e é por isso que os
-    ///            ladrilhos vão até a parede;
-    ///   chão que não é acessível = vermelho (ou fora do prédio, quando encosta na borda do mapa).
-    /// Os ladrilhos: porta primeiro, depois seções transversais de corredor empilhadas, depois o
-    /// resto por "maior retângulo livre" (gulosa); junta o que se completa num retângulo, corta o
-    /// que passa de _maxTileSize e junta de novo os pedaços que ficaram sem chão andável.
-    /// O NÓ de cada ladrilho fica no ponto andável mais perto do centro dele (é dele que saem as
-    /// ligações e a direção na observação), e o retângulo guarda o chão (NavNode._areaSize).
-    /// Dois ladrilhos são vizinhos quando o centro do corpo passa de um para o outro.
+    /// LADRILHAMENTO (menu 9): cobre o chão da arena com nós RETANGULARES que não se sobrepõem (cada ponto
+    /// está em exatamente um nó), em vez dos discos da cobertura (NavGraphPlacer.Coverage). Resultado: um nó
+    /// Auxiliar por ladrilho (porta, fila de corredor ou sala), ligações entre vizinhos e áreas vermelhas
+    /// (NavBlockedArea) onde o corpo não cabe.
     /// </summary>
     public partial class NavGraphPlacer
     {
         [Header("-----Ladrilhos (menu 9)-----")]
-        // Resolução da grade do ladrilhamento. As bordas dos ladrilhos caem nas bordas das
-        // células, então é também o erro máximo de um ladrilho contra a parede. 0.25 numa arena
-        // de ~100 x 80 m são ~130 mil células — alguns segundos de física no editor.
+        // Resolução da grade (m) e erro máximo de um ladrilho contra a parede. 0.25 m numa arena de ~100 x 80 m
+        // dá ~130 mil células (alguns segundos de física no editor).
         [SerializeField, Min(0.1f)] private float _tileStep = 0.25f;
 
-        // Maior lado de um ladrilho. Ladrilho maior que isto é cortado em pedaços IGUAIS (uma
-        // sala de 12 m vira 3 de 4 m, não 5 + 5 + 2). É o espaçamento dos nós: a observação de
-        // vizinhos é medida a partir do nó, e um ladrilho de 20 m diria pouco sobre onde o agente
-        // está. 5 m ~ 1 s de caminhada a 5 m/s.
+        // Maior lado de um ladrilho (m); acima disso é cortado em pedaços iguais. É o espaçamento dos nós na
+        // observação de vizinhos.
         [SerializeField, Min(1f)] private float _maxTileSize = 5f;
 
-        // Um trecho mais estreito que isto e mais comprido do que largo é CORREDOR: vira uma fila
-        // de ladrilhos de parede a parede e nunca é cortado na largura (mesmo se for mais largo
-        // que _maxTileSize). 4 m cobre os corredores do escritório (~3 m) com folga.
+        // Largura máxima (m) de um trecho comprido tratado como corredor: vira uma fila de ladrilhos de parede a
+        // parede, nunca cortada na largura.
         [SerializeField, Min(1f)] private float _corridorMaxWidth = 4f;
 
-        // Quanto a largura de um corredor pode variar (em cada lado) e continuar no MESMO
-        // ladrilho. Um pilar ou rodapé de 20 cm não pode partir a fila em ladrilhos de 30 cm. O
-        // que sobra de fora (o pilar) fica dentro do retângulo — é obstáculo, o agente não pisa.
+        // Variação de largura (m, por lado) que ainda cabe no mesmo ladrilho de corredor; o excesso (pilar,
+        // rodapé) fica dentro do retângulo.
         [SerializeField, Min(0f)] private float _corridorTolerance = 0.3f;
 
-        // Área mínima de uma mancha VERMELHA. Menor que isto é arredondamento de grade (o canto
-        // de uma sala que a dilatação não alcança) e volta a ser chão comum.
+        // Área mínima (m²) de uma mancha vermelha; menor que isso é arredondamento de grade e volta a ser chão.
         [SerializeField, Min(0f)] private float _minBlockedArea = 0.5f;
 
-        // Ladrilho menor que isto é juntado ao vizinho quando a união é um retângulo. Não sendo
-        // possível, fica (ainda é chão onde o agente pisa) — o relatório conta quantos.
+        // Área (m²) abaixo da qual um ladrilho é juntado ao vizinho, quando a união é um retângulo.
         [SerializeField, Min(0f)] private float _minTileArea = 0.75f;
 
-        // Ligado: nó de exploração ou de ping que já existia passa o tipo e o peso para o
-        // ladrilho que contém a posição dele. Re-ladrilhar (mudou um móvel, mudou o tamanho) não
-        // apaga a sua marcação. Desligado: tudo volta a ser auxiliar.
+        // Ligado: o ladrilho herda tipo (Porta/Ping) e peso do nó marcado que estava na posição dele, para
+        // re-ladrilhar não apagar a marcação. Desligado: tudo vira Auxiliar.
         [SerializeField] private bool _tilingKeepKinds = true;
 
 #if UNITY_EDITOR
@@ -98,9 +64,8 @@ namespace Assets.Scripts.Graph
             public float MinX, MaxX, MinZ, MaxZ;
             public Vector3 Position;
 
-            // Tipo e peso herdados de um nó antigo (_tilingKeepKinds).
+            // Tipo herdado de um nó antigo (_tilingKeepKinds).
             public NodeKind NodeKind = NodeKind.Auxiliary;
-            public float Weight;
             public bool Inherited;
 
             public int Width => X1 - X0 + 1;
@@ -178,6 +143,7 @@ namespace Assets.Scripts.Graph
             RunStep("Ladrilhar o chão", TileFloorStep, radialOnly: false);
         }
 
+        // Menu 9: grade -> portas e vermelho -> corredores -> salas -> junta/corta -> nós e ligações -> cena.
         private void TileFloorStep()
         {
             float height = GridHeight();
@@ -191,7 +157,6 @@ namespace Assets.Scripts.Graph
             ReserveDoors(grid, tiles, blocked, height);
             MarkBlocked(grid);
 
-            // Chão ainda sem dono: acessível, fora de porta.
             var pool = new bool[grid.Count];
             for (int i = 0; i < grid.Count; i++)
                 pool[i] = grid.Access[i] && grid.Door[i] == -1;
@@ -203,8 +168,7 @@ namespace Assets.Scripts.Graph
             int[] owner = new int[grid.Count];
             PaintOwners(grid, tiles, owner);
 
-            // Junta o que forma retângulo, corta o que passou do tamanho, junta de novo os pedaços
-            // sem chão andável (faixa de parede que o corte isolou) e descarta o que sobrar assim.
+            // Ordem importa: junta, corta, junta de novo (afterSplit) e só então descarta o que ficou sem chão andável.
             MergeTiles(grid, tiles, owner, afterSplit: false);
             tiles = SplitTiles(grid, tiles);
             PaintOwners(grid, tiles, owner);
@@ -226,15 +190,13 @@ namespace Assets.Scripts.Graph
 
             BuildBlockedRects(grid, blocked);
 
-            List<(Vector3 position, NodeKind kind, float weight, string name)> marked = _tilingKeepKinds
+            List<(Vector3 position, NodeKind kind, string name)> marked = _tilingKeepKinds
                 ? MarkedNodes()
-                : new List<(Vector3, NodeKind, float, string)>();
+                : new List<(Vector3, NodeKind, string)>();
             int inherited = InheritKinds(tiles, marked);
 
             NavNode[] nodes = ApplyTiles(tiles, edges, blocked);
 
-            // Relatório no gizmo: chão andável sem ladrilho (marrom) e nós de ligação que o corpo
-            // não atravessa em linha reta (X vermelho).
             _reportCellSize = grid.Step;
             for (int i = 0; i < grid.Count; i++)
             {
@@ -256,6 +218,8 @@ namespace Assets.Scripts.Graph
         // Grade
         // ================================================================================
 
+        // Mede o chão na grade: Floor (coluna do corpo livre), Walkable (centro do corpo alcança, flood fill dos
+        // Seeds) e Access (Walkable dilatado por meia largura do corpo, é o que vira ladrilho).
         private TileGrid BuildTileGrid(float height)
         {
             if (!TryGetArenaBounds(out Bounds bounds))
@@ -281,8 +245,7 @@ namespace Assets.Scripts.Graph
             float top = Graph.BodyTop;
             Vector3 up = Vector3.up * ((bottom + top) * 0.5f);
 
-            // A caixa da célula (um fio menor, para a parede exatamente na borda não contar dos
-            // dois lados), na coluna inteira do corpo: CHÃO é onde nada ocupa essa coluna.
+            // Caixa um fio menor que a célula: parede exatamente na borda não conta nos dois lados.
             var extents = new Vector3(step * 0.49f, (top - bottom) * 0.5f, step * 0.49f);
 
             for (int z = 0; z < sizeZ; z++)
@@ -304,7 +267,6 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // ANDÁVEL: flood fill do centro do corpo a partir de pontos de dentro do prédio.
             var queue = new Queue<int>();
             foreach (Vector3 seed in Seeds(DraftFromScene()))
             {
@@ -345,9 +307,7 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // ACESSÍVEL: andável dilatado por um QUADRADO de meia largura do corpo + meia célula
-            // (a caixa do corpo encostada na parede cobre até ela; a meia célula é a folga da
-            // grade). Separável: primeiro em X, depois em Z, com soma de prefixos.
+            // Dilatação separável (X, depois Z, soma de prefixos): meia largura do corpo + meia célula de folga.
             int k = Mathf.CeilToInt((Graph.LinkClearance + step * 0.5f) / step);
             bool[] dilated = DilateAlong(grid, grid.Walkable, k, alongX: true);
             dilated = DilateAlong(grid, dilated, k, alongX: false);
@@ -415,13 +375,7 @@ namespace Assets.Scripts.Graph
         // Portas e vermelho
         // ================================================================================
 
-        /// <summary>
-        /// Um ladrilho por batente (FindDoors), do tamanho exato do buraco: de pilar a pilar ao
-        /// longo da parede, e a espessura da parede na normal. As células cujo centro cai nele
-        /// (pelo menos uma fileira, mesmo com parede mais fina que a célula) ficam reservadas.
-        /// Porta por onde o centro do corpo não passa vira vermelha. Só portas alinhadas aos
-        /// eixos: um ladrilho é um retângulo alinhado ao mundo.
-        /// </summary>
+        /// <summary>Um ladrilho por vão (FindDoors), do tamanho dele; vão que o corpo não atravessa vira vermelho.</summary>
         private void ReserveDoors(TileGrid grid, List<Tile> tiles, List<Tile> blocked, float height)
         {
             float step = grid.Step;
@@ -497,8 +451,6 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                // O nó da porta fica no meio do vão; se o corpo não couber exatamente ali, na
-                // célula andável do vão mais perto do meio.
                 if (!Graph.IsBodyClear(tile.Position, Graph.LinkClearance))
                     tile.Position = NearestWalkable(grid, tile, tile.Position);
 
@@ -506,11 +458,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Chão (coluna livre) que o corpo não encosta vira VERMELHO, por mancha 4-conexa. Mancha
-        /// que toca a borda da grade é o lado de fora do prédio (nada); mancha menor que
-        /// _minBlockedArea é arredondamento (volta a ser chão comum).
-        /// </summary>
+        /// <summary>Marca de vermelho o chão que o corpo não alcança (por mancha); ignora a borda e manchas pequenas.</summary>
         private void MarkBlocked(TileGrid grid)
         {
             var seen = new bool[grid.Count];
@@ -598,24 +546,16 @@ namespace Assets.Scripts.Graph
             public int End;
         }
 
-        /// <summary>
-        /// Corredores viram FILAS: cada seção transversal (de parede a parede) de um trecho
-        /// estreito e comprido é inteira de um ladrilho só, e seções seguidas com a mesma largura
-        /// (± _corridorTolerance) empilham no mesmo ladrilho. Assim um ladrilho nunca divide a
-        /// largura do corredor com outro — o que a gulosa de retângulos faria sempre que um
-        /// armário estreitasse um lado.
-        /// </summary>
+        /// <summary>Corredor vira fila de ladrilhos: seções de mesma largura (± _corridorTolerance) empilham num só.</summary>
         private void BuildCorridors(TileGrid grid, bool[] pool, bool[] swallowed, List<Tile> tiles)
         {
             int[] runX = RunLengths(grid, pool, alongX: true);
             int[] runZ = RunLengths(grid, pool, alongX: false);
 
-            // alongZ = corredor que corre ao longo de Z (seção = trecho em X numa linha z).
             List<Section> alongZ = SectionsOf(grid, pool, runX, runZ, corridorAlongZ: true);
             List<Section> alongX = SectionsOf(grid, pool, runX, runZ, corridorAlongZ: false);
 
-            // Célula nas duas orientações = cruzamento ou sala quase quadrada: nenhuma das duas
-            // leituras é confiável, e as duas seções voltam para a gulosa de salas.
+            // Célula nas duas orientações (cruzamento, sala quase quadrada) volta para a gulosa de salas.
             var inZ = new bool[grid.Count];
             var inX = new bool[grid.Count];
             MarkSections(grid, alongZ, true, inZ);
@@ -660,11 +600,7 @@ namespace Assets.Scripts.Graph
         private static int At(TileGrid grid, bool corridorAlongZ, int row, int col) =>
             corridorAlongZ ? grid.Index(col, row) : grid.Index(row, col);
 
-        /// <summary>
-        /// Seções de corredor numa orientação: trechos transversais com largura até
-        /// _corridorMaxWidth em que a maioria das células se estende MAIS ao longo do corredor
-        /// do que a própria largura (é comprido, não quadrado).
-        /// </summary>
+        /// <summary>Trechos transversais mais estreitos que _corridorMaxWidth e mais compridos que largos.</summary>
         private List<Section> SectionsOf(TileGrid grid, bool[] pool, int[] runX, int[] runZ, bool corridorAlongZ)
         {
             var sections = new List<Section>();
@@ -783,8 +719,7 @@ namespace Assets.Scripts.Graph
                     hi = newHi;
                 }
 
-                // Obstáculos engolidos pelo retângulo (pilar, recorte da parede) ficam marcados:
-                // outro corredor não pode engoli-los também, senão os retângulos se sobrepõem.
+                // Marca o que o retângulo engoliu: outro corredor não pode engolir o mesmo obstáculo (os retângulos sobreporiam).
                 foreach (Section s in stack)
                 {
                     for (int col = lo; col <= hi; col++)
@@ -805,9 +740,8 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        // O retângulo lo..hi x linhas da pilha só pode conter as seções dela e OBSTÁCULO (célula
-        // sem chão) ainda não engolido por outro corredor. Chão de outro dono, vermelho ou porta
-        // ali dentro = os retângulos se sobreporiam.
+        // O retângulo só pode conter as seções da pilha e obstáculo ainda não engolido; chão de outro dono,
+        // vermelho ou porta ali dentro = sobreposição.
         private static bool StackFits(TileGrid grid, bool[] swallowed, List<Section> stack, int lo, int hi, bool corridorAlongZ)
         {
             foreach (Section s in stack)
@@ -830,10 +764,7 @@ namespace Assets.Scripts.Graph
         // Salas
         // ================================================================================
 
-        /// <summary>
-        /// O que sobrou (salas, cruzamentos, recortes) vira retângulos pela gulosa do MAIOR
-        /// retângulo livre: pega o maior, tira do mapa, repete até não sobrar chão.
-        /// </summary>
+        /// <summary>O que sobrou (salas, cruzamentos, recortes) vira retângulos pela gulosa do maior retângulo livre.</summary>
         private void BuildRooms(TileGrid grid, bool[] pool, List<Tile> tiles)
         {
             var heights = new int[grid.SizeX];
@@ -850,10 +781,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Maior retângulo de células verdadeiras da máscara (histograma por linha + pilha),
-        /// O(células). Falso quando a máscara está vazia.
-        /// </summary>
+        /// <summary>Maior retângulo de células verdadeiras da máscara (histograma + pilha, O(células)); falso se vazia.</summary>
         private static bool LargestRectangle(int sizeX, int sizeZ, bool[] mask, int[] heights, int[] stack,
             out int bx0, out int bz0, out int bx1, out int bz1, out int best)
         {
@@ -943,12 +871,8 @@ namespace Assets.Scripts.Graph
         private bool IsWeak(TileGrid grid, Tile tile) =>
             tile.Walkable == 0 || tile.Area * grid.CellArea < _minTileArea;
 
-        /// <summary>
-        /// Junta dois vizinhos cuja união é exatamente um retângulo (mesma extensão no lado
-        /// comum). Antes do corte: mesmo tipo, ou um deles fraco (pequeno ou sem chão andável) —
-        /// duas metades de sala viram uma sala, que o corte reparte em pedaços iguais. Depois do
-        /// corte: só para salvar o fraco, e sem passar de 1.5 x o tamanho máximo. Porta nunca.
-        /// </summary>
+        // Junta vizinhos cuja união é um retângulo. Antes do corte: mesmo tipo ou um deles fraco; depois: só para
+        // salvar o fraco, até 1.5 x _maxTileSize. Porta nunca entra.
         private void MergeTiles(TileGrid grid, List<Tile> tiles, int[] owner, bool afterSplit)
         {
             foreach (Tile tile in tiles)
@@ -1004,7 +928,7 @@ namespace Assets.Scripts.Graph
                 }
             }
 
-            // Os índices do owner apontam para a lista com buracos; quem chama repinta.
+            // RemoveAll desloca os índices: repinta o owner.
             tiles.RemoveAll(t => t == null);
             PaintOwners(grid, tiles, owner);
         }
@@ -1028,10 +952,7 @@ namespace Assets.Scripts.Graph
             return false;
         }
 
-        /// <summary>
-        /// Ladrilho com lado maior que _maxTileSize vira pedaços IGUAIS. Corredor só é cortado ao
-        /// longo do comprimento — a largura é sempre de um ladrilho só (a fila). Porta nunca.
-        /// </summary>
+        /// <summary>Corta ladrilho maior que _maxTileSize em pedaços iguais; corredor só no comprimento, porta nunca.</summary>
         private List<Tile> SplitTiles(TileGrid grid, List<Tile> tiles)
         {
             int maxCells = Mathf.Max(1, Mathf.FloorToInt(_maxTileSize / grid.Step));
@@ -1064,8 +985,7 @@ namespace Assets.Scripts.Graph
             return result;
         }
 
-        // Ladrilho sem nenhuma célula andável (faixa de parede que o corte isolou num canto) não
-        // vira nó: o centro do corpo nunca estaria nele. Devolve a área de chão descartada.
+        // Descarta ladrilho sem célula andável (faixa de parede isolada pelo corte); devolve a área de chão perdida (m²).
         private static float DropUnwalkable(TileGrid grid, List<Tile> tiles)
         {
             float dropped = 0f;
@@ -1093,10 +1013,7 @@ namespace Assets.Scripts.Graph
         // Nós e ligações
         // ================================================================================
 
-        /// <summary>
-        /// O nó de cada ladrilho: a célula ANDÁVEL mais perto do centro do retângulo (o centro
-        /// pode cair na faixa da parede, onde o corpo não chega). O da porta já vem do vão.
-        /// </summary>
+        /// <summary>Põe o nó de cada ladrilho na célula andável mais perto do centro (o da porta já vem do vão).</summary>
         private static void PlaceTileNodes(TileGrid grid, List<Tile> tiles)
         {
             foreach (Tile tile in tiles)
@@ -1141,11 +1058,7 @@ namespace Assets.Scripts.Graph
             tile.MaxZ = grid.Min.z + (tile.Z1 + 0.5f) * grid.Step;
         }
 
-        /// <summary>
-        /// Retângulo no mundo: bordas das células; a porta tem o dela (exato). O lado de um
-        /// ladrilho que encosta numa porta vai até a FACE da porta — a face da porta é a face da
-        /// parede, então o lado inteiro fica certo, e o ladrilho não invade nem deixa fresta no vão.
-        /// </summary>
+        /// <summary>Retângulo no mundo; o lado que encosta numa porta vai até a face dela (sem fresta nem invasão).</summary>
         private static void ComputeWorldRects(TileGrid grid, List<Tile> tiles)
         {
             var doors = tiles.FindAll(t => t.Kind == TileKind.Door);
@@ -1176,10 +1089,7 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <summary>
-        /// Vizinhos = ladrilhos entre os quais o CENTRO do corpo passa: duas células andáveis
-        /// lado a lado (4-vizinhança), uma em cada ladrilho.
-        /// </summary>
+        /// <summary>Vizinhos = ladrilhos com células andáveis lado a lado (4-vizinhança), por onde o corpo passa.</summary>
         private static HashSet<long> TileEdges(TileGrid grid, List<Tile> tiles, int[] owner)
         {
             var edges = new HashSet<long>();
@@ -1209,14 +1119,9 @@ namespace Assets.Scripts.Graph
             edges.Add(Draft.Key(owner[a], owner[b]));
         }
 
-        /// <summary>
-        /// A ligação é a RETA entre os dois nós, e é ela que o corpo segue. Ladrilhos vizinhos
-        /// podem ter a reta raspando numa quina (o nó da sala fica no meio dela e a porta está
-        /// num canto). Três voltas: o nó de um ladrilho com ligação bloqueada procura, dentro do
-        /// próprio ladrilho, o ponto andável que libera mais ligações (empate: o mais central) —
-        /// na prática ele desliza para a frente da porta. A ligação que continua bloqueada sai se
-        /// o grafo não parte sem ela; senão fica, e é devolvida para o relatório (X vermelho).
-        /// </summary>
+        // Acerta as ligações (a reta entre os nós é o que o corpo segue): em até 3 voltas move o nó para o ponto andável
+        // do ladrilho que libera mais retas. A que segue bloqueada sai se o grafo continua conexo; senão fica e é devolvida
+        // (X vermelho no relatório).
         private List<long> SettleTileEdges(TileGrid grid, List<Tile> tiles, HashSet<long> edges)
         {
             var neighbors = new List<int>[tiles.Count];
@@ -1353,29 +1258,25 @@ namespace Assets.Scripts.Graph
         // Tipos herdados
         // ================================================================================
 
-        // Os nós de exploração e ping que existem AGORA (antes de o ladrilhamento apagá-los).
-        private List<(Vector3 position, NodeKind kind, float weight, string name)> MarkedNodes()
+        // Nós de tipo diferente de Auxiliar (Porta, Ping) que existem agora, antes de o ladrilhamento apagá-los.
+        private List<(Vector3 position, NodeKind kind, string name)> MarkedNodes()
         {
-            var marked = new List<(Vector3, NodeKind, float, string)>();
+            var marked = new List<(Vector3, NodeKind, string)>();
             foreach (NavNode node in NodesUnderGraph())
             {
                 if (node.Kind != NodeKind.Auxiliary)
-                    marked.Add((node.Position, node.Kind, node.ExplorationWeight, node.name));
+                    marked.Add((node.Position, node.Kind, node.name));
             }
 
             return marked;
         }
 
-        /// <summary>
-        /// Cada nó marcado passa tipo e peso para o ladrilho que CONTÉM a posição dele (ou, fora
-        /// de todos, para o nó de ladrilho mais perto a até 3 m). Dois marcados no mesmo
-        /// ladrilho: fica o primeiro, e o Console avisa — o ladrilho ficou maior que a distância
-        /// entre eles, e você decide qual vale.
-        /// </summary>
-        private int InheritKinds(List<Tile> tiles, List<(Vector3 position, NodeKind kind, float weight, string name)> marked)
+        // Passa o tipo de cada nó marcado ao ladrilho que contém a posição dele (ou ao mais perto, a até 3 m).
+        // Dois no mesmo ladrilho: vale o primeiro e o Console avisa.
+        private int InheritKinds(List<Tile> tiles, List<(Vector3 position, NodeKind kind, string name)> marked)
         {
             int inherited = 0;
-            foreach ((Vector3 position, NodeKind kind, float weight, string nodeName) in marked)
+            foreach ((Vector3 position, NodeKind kind, string nodeName) in marked)
             {
                 Tile target = null;
                 foreach (Tile tile in tiles)
@@ -1416,7 +1317,6 @@ namespace Assets.Scripts.Graph
                 }
 
                 target.NodeKind = kind;
-                target.Weight = weight;
                 target.Inherited = true;
                 inherited++;
             }
@@ -1428,8 +1328,7 @@ namespace Assets.Scripts.Graph
         // Cena
         // ================================================================================
 
-        // Os nós da lista E os filhos do Graph que ainda não foram coletados: um nó solto que
-        // sobrevivesse ao ladrilhamento seria coletado junto com os ladrilhos, por cima deles.
+        // Nós da lista e filhos do Graph ainda não coletados (um nó solto seria coletado por cima dos ladrilhos).
         private List<NavNode> NodesUnderGraph()
         {
             var nodes = new HashSet<NavNode>(ValidNodes());
@@ -1437,11 +1336,8 @@ namespace Assets.Scripts.Graph
             return new List<NavNode>(nodes);
         }
 
-        /// <summary>
-        /// Apaga os nós e as áreas vermelhas antigas, cria um nó por ladrilho (filho do Graph),
-        /// as ligações (declaradas de um lado só, como sempre) e as áreas vermelhas num objeto
-        /// separado, e passa o NavGraph para a forma Retângulo. Um grupo de Undo (RunStep).
-        /// </summary>
+        // Apaga nós e áreas vermelhas antigos e cria um nó por ladrilho (ligações de um lado só) e as áreas vermelhas
+        // num objeto separado; passa o NavGraph para Retângulo. Um grupo de Undo (RunStep).
         private NavNode[] ApplyTiles(List<Tile> tiles, HashSet<long> edges, List<Tile> blocked)
         {
             foreach (NavNode old in NodesUnderGraph())
@@ -1472,7 +1368,6 @@ namespace Assets.Scripts.Graph
 
                 NavNode node = go.AddComponent<NavNode>();
                 node.SetKind(tile.NodeKind);
-                node.SetExplorationWeight(tile.Inherited ? tile.Weight : 1f);
 
                 var center = new Vector2((tile.MinX + tile.MaxX) * 0.5f, (tile.MinZ + tile.MaxZ) * 0.5f);
                 node.SetArea(center - new Vector2(tile.Position.x, tile.Position.z), new Vector2(tile.MaxX - tile.MinX, tile.MaxZ - tile.MinZ));

@@ -3,68 +3,49 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// O PING: de tempos em tempos, um nó de PING aleatório do mapa "toca" e o agente tem que
-    /// ir até ele (NodeKind.Ping; num grafo sem nenhum, um de exploração — NavGraph.IsPingSource). É o embrião da fase de busca (um barulho numa sala = vá conferir), montado
-    /// sobre o mesmo grafo e a mesma memória da exploração — nada aqui sabe de Hider.
+    /// O PING: um nó de ping do mapa "toca" e o agente tem que ir até ele (NavGraph.IsPingSource).
+    /// Com hider ligado, o ping é o rastro dele: cada chegada do hider num nó de ping toca ali;
+    /// sem hider, o nó é sorteado a cada _defaultInterval/ping_interval steps. Nada aqui sabe de
+    /// posição do hider além do nó da chegada.
     ///
-    /// Uma instância POR AGENTE (é estado de episódio): quando o próximo ping toca, qual nó,
-    /// a que distância em arestas o agente está dele agora, se chegou ou se deixou expirar.
+    /// Observação [13..15]: ativo, distância em metros pelo grafo (normalizada por
+    /// NavGraph.PathDiameter) e quente/frio (-1/0/+1 na última troca de nó). Sem direção nem
+    /// caminho, de propósito: o agente descobre a saída em que a distância cai.
     ///
-    /// O QUE O AGENTE RECEBE (bloco [13..15] da observação, que estava reservado para isto):
-    ///   ativo (0/1), distância em METROS pelo grafo, normalizada pelo diâmetro do mapa
-    ///   (NavGraph.PathDiameter), quente/frio (-1, 0, +1: a última troca
-    ///   de nó afastou, nada, aproximou). NÃO recebe direção nem caminho — a regra do projeto:
-    ///   dado, não resposta. Ele tem que descobrir por qual saída a distância cai, e a
-    ///   observação de quente/frio é o que torna isso aprendível sem decorar o mapa.
+    /// Paga no GraphRewardSystem: chegada (+) e expiração (-). Aproximação não paga; o incentivo do
+    /// caminho é a sala do ping ficar QUENTE (GraphRoomMemory.HeatRoom).
     ///
-    /// O QUE PAGA (GraphRewardSystem): por METRO de aproximação pelo grafo, um bônus ao chegar,
-    /// e uma penalidade se o ping expirar sem visita. A distância é PELO GRAFO, e não em linha
-    /// reta — contornar uma parede para chegar a uma porta aumenta a euclidiana e diminui a de
-    /// grafo, e a segunda é a que descreve progresso. Em metros, e não em arestas: contar
-    /// arestas fazia o mesmo trajeto pagar 3x mais num corredor com 3x mais nós.
-    ///
-    /// Tick a cada step de FÍSICA (como a memória): chegada e expiração precisam ser vistas no
-    /// step em que acontecem, não na próxima decisão. As flags são ACUMULATIVAS até
+    /// Um por agente (estado de episódio); Tick a cada step de FÍSICA, e as flags acumulam até
     /// <see cref="ClearStepFlags"/>.
     /// </summary>
     public class GraphPingSystem : MonoBehaviour
     {
         [Header("-----Ping-----")]
-        // Fallback quando a cena roda sem trainer (inferência). No treino vem do currículo
-        // (ping_interval), em steps de FÍSICA entre o fim de um ping e o começo do próximo.
-        // 0 = sem ping. O intervalo real é sorteado em [0.5, 1.5] x este valor, para o ping
-        // não virar relógio que a política decora ("aos 3000 steps toca").
+        // Steps de física entre pings quando o currículo não manda (ping_interval); 0 = sem ping.
+        // O intervalo real é sorteado em [0.5, 1.5] x este valor, para não virar relógio.
         [SerializeField, Min(0)] private int _defaultInterval = 0;
 
-        // Quanto tempo o ping fica ativo antes de expirar, em steps de física. 3000 = 60 s:
-        // o bastante para atravessar metade do mapa (diâmetro ~42 arestas x 7 m a 5 m/s ≈ 60 s
-        // em linha), apertado o suficiente para "ir depois" custar.
+        // Tempo que o ping fica ativo antes de expirar, em steps de física (3000 = 60 s).
         [SerializeField, Min(1)] private int _duration = 3000;
 
-        // Distância mínima, em METROS pelo grafo, do agente ao nó sorteado. Evita o ping que
-        // "já chegou" (a sala ao lado: um passo e pronto, nada a aprender). 15 m ~ duas arestas
-        // do mapa antigo (mediana 7.4 m), que era o valor em arestas antes.
-        // Nome novo de propósito: o campo antigo (_minDistance) era em ARESTAS, e o valor salvo
-        // no prefab viraria "2 metros" em silêncio se o nome fosse mantido.
+        // Distância mínima (m pelo grafo) do agente ao nó sorteado; evita ping "já chegou".
         [SerializeField, Min(0f)] private float _minDistanceMeters = 15f;
 
-        // Primeiro ping não toca antes disto, em steps: dá tempo de o agente sair do spawn e
-        // pegar um rumo de exploração antes de ser interrompido.
+        // Steps de física antes do primeiro ping, para o agente sair do spawn.
         [SerializeField, Min(0)] private int _firstPingDelay = 1000;
 
         [Header("-----Fonte do ping-----")]
-        // O hider desta arena. Com ele LIGADO (hider_mode != 0), os pings vêm dos passos dele
-        // (toda chegada num primário toca) e o sorteio aleatório fica desligado — o ping vira
-        // o rastro de alguém, que é o que a fase de perseguição precisa. Sem hider (ou com ele
-        // desligado na lição), vale o sorteio por _interval. Fallback por GetComponentInChildren
-        // no GraphArenaController.
+        // O hider da arena. Ativo, ele dá os pings (cada chegada toca) e o sorteio aleatório fica
+        // desligado. Fallback por GetComponentInChildren no GraphArenaController.
         [SerializeField] private GraphHider _hider;
+
+        // O alvo de fato: o hider no treino, o jogador no modo de jogo (SetTarget).
+        private IGraphTarget _target;
 
         [Header("-----Gizmos (só em Play)-----")]
         [SerializeField] private bool _drawGizmos = true;
 
-        // Rosa: não é verde/laranja/amarelo (estado da memória), magenta (fronteira), branco
-        // (aresta) nem cinza (pendente). Farol vertical + esfera no nó que está tocando.
+        // Gizmo rosa: farol vertical + esfera no nó que está tocando.
         private static readonly Color PingColor = new Color(1f, 0.45f, 0.8f, 0.95f);
 
         private NavGraph _graph;
@@ -82,8 +63,7 @@ namespace Assets.Scripts.Graph
 
         /// <summary>
         /// Quente/frio: +1 se a última troca de nó aproximou do ping, -1 se afastou, 0 se não
-        /// houve troca ou não há ping. Recalculado a cada troca de nó, e é isso que a
-        /// observação entrega — a política aprende "esta saída esquentou" sem ver o caminho.
+        /// houve troca ou não há ping.
         /// </summary>
         public int HotCold { get; private set; }
 
@@ -91,13 +71,26 @@ namespace Assets.Scripts.Graph
         public bool Reached { get; private set; }
 
         /// <summary>
-        /// Valor do ping atendido (NavGraph.PingValue: pontuação do tipo x peso do nó), somado se
-        /// mais de um for atendido no mesmo intervalo. O reward system multiplica pelo prêmio.
+        /// Valor (NavGraph.PingValue) dos pings atendidos desde o último ClearStepFlags; o reward
+        /// system multiplica pelo prêmio.
         /// </summary>
         public float ReachedValue { get; private set; }
 
         /// <summary>Um ping expirou sem visita desde o último <see cref="ClearStepFlags"/>.</summary>
         public bool Missed { get; private set; }
+
+        private int _startedNode = -1;
+
+        /// <summary>
+        /// Nó em que um ping COMEÇOU desde a última consulta, ou -1. O manager consome a cada step
+        /// para esquentar a sala do barulho.
+        /// </summary>
+        public int ConsumeStarted()
+        {
+            int node = _startedNode;
+            _startedNode = -1;
+            return node;
+        }
 
         public void Configure(NavGraph graph)
         {
@@ -110,11 +103,16 @@ namespace Assets.Scripts.Graph
                 if (arena != null)
                     _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
             }
+
+            if (_target == null && _hider != null)
+                _target = _hider;
         }
 
-        private bool HiderDrivesPings => _hider != null && _hider.IsActive;
+        public void SetTarget(IGraphTarget target) => _target = target;
 
-        /// <param name="interval">Steps de física entre pings; 0 desliga. Vem do currículo.</param>
+        private bool HiderDrivesPings => GraphTarget.IsLive(_target);
+
+        /// <param name="interval">Steps de física entre pings; 0 usa o padrão. Vem do currículo.</param>
         public void ResetEpisode(int interval)
         {
             _interval = interval > 0 ? interval : _defaultInterval;
@@ -122,12 +120,12 @@ namespace Assets.Scripts.Graph
             TargetNode = -1;
             Distance = 0f;
             HotCold = 0;
+            _startedNode = -1;
             ClearStepFlags();
 
             _nextPingStep = _interval > 0 ? _firstPingDelay + Jittered(_interval) : int.MaxValue;
 
-            // O hider já pode ter nascido num primário (PendingArrival): o Tick do primeiro step
-            // de física do episódio transforma isso no primeiro ping.
+            // Hider que nasceu num nó de ping deixa PendingArrival: o primeiro Tick vira o 1º ping.
         }
 
         public void ClearStepFlags()
@@ -145,11 +143,10 @@ namespace Assets.Scripts.Graph
             if (_graph == null)
                 return;
 
-            // Passos do hider: cada chegada num nó de ping vira um ping ali — substitui o que
-            // estiver ativo (o rastro se moveu) sem contar como perdido.
+            // Chegada do hider substitui o ping ativo (o rastro se moveu) sem contar como perdido.
             if (HiderDrivesPings)
             {
-                int arrival = _hider.ConsumeArrival();
+                int arrival = _target.ConsumeArrival();
                 if (arrival >= 0 && arrival != TargetNode)
                     StartPingAt(arrival, currentNode, elapsedSteps);
             }
@@ -175,7 +172,6 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            // Sorteio aleatório só quando o ping não tem dono.
             if (!HiderDrivesPings && elapsedSteps >= _nextPingStep)
                 StartPing(currentNode, elapsedSteps);
         }
@@ -197,6 +193,7 @@ namespace Assets.Scripts.Graph
         {
             IsActive = true;
             TargetNode = target;
+            _startedNode = target;
             HotCold = 0;
             _expiresAtStep = elapsedSteps + _duration;
             _lastDistanceNode = -1;
@@ -212,8 +209,7 @@ namespace Assets.Scripts.Graph
             _nextPingStep = elapsedSteps + Jittered(_interval);
         }
 
-        // Nó do qual a distância atual foi medida: só recalcula (e só atualiza quente/frio)
-        // quando o agente TROCA de nó — a distância é medida a partir do nó âncora.
+        // Nó do qual a distância foi medida: só recalcula (e atualiza quente/frio) quando o agente troca de nó.
         private int _lastDistanceNode = -1;
 
         private void UpdateDistance(int currentNode)
@@ -228,8 +224,7 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            // 1 cm de tolerância: dois caminhos de mesmo comprimento não podem piscar quente/frio
-            // por arredondamento de float.
+            // Tolerância de 1 cm: caminhos de mesmo comprimento não podem piscar por float.
             if (_lastDistanceNode >= 0)
                 HotCold = distance < Distance - 0.01f ? 1 : distance > Distance + 0.01f ? -1 : 0;
 
@@ -237,9 +232,7 @@ namespace Assets.Scripts.Graph
             _lastDistanceNode = currentNode;
         }
 
-        // Nó de ping ativo (ou de exploração, num grafo sem ping), a pelo menos
-        // _minDistanceMeters do agente. Sorteio com rejeição:
-        // até NodeCount tentativas, que num grafo conexo de 100 nós acha em duas ou três.
+        // Sorteio com rejeição (até NodeCount tentativas) de um nó de ping a >= _minDistanceMeters do agente.
         private int PickTarget(int currentNode)
         {
             int count = _graph.NodeCount;

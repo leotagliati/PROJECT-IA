@@ -1,0 +1,1121 @@
+# ================================================================================================
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.2 (ABANDONADA): DO ZERO - CACA RAPIDA, CALOR DO PING, RAIOS DUPLOS
+#
+#   mlagents-learn config/graph_v4.2_noite.yaml --run-id=v4.2_noite_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
+# Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
+# Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+# V4.2 DO ZERO (03/10, ABANDONADA aos 3.72M - ver historico). O que mudou da v4.1 (v4.1_noite_01):
+#   - PERCEPCAO: 2 sensores de raios de parede (RaysHigh/RaysLow, 13 raios cada, alcance 15 m, alturas
+#     ajustaveis em WorldAlignedSensor._heightOffset) no lugar de 1 de 9 raios a 20 m. Sensor novo =
+#     rede nova (por isso do zero).
+#   - MOVIMENTO: seeker 20 m/s (era 40) com aceleracao 7 (era 15), freio 30 e atrito 1 (corpo nao e mais
+#     sem atrito): ele deslizava e se jogava na parede, e o steering assist cobria o erro.
+#   - STEERING MENOR: 0.6 -> 0.1 (era 1.0 -> 0.3); parede custa o dobro: contato 0.0015/step e batida 0.1.
+#   - CALOR DO PING NO MAPA INTEIRO (GraphRoomMemory): 1 na sala do barulho, x0.65 por porta, meia-vida
+#     25 s; observacao continua (sala atual, portas, planta). Explorar no frio vale 0.25x enquanto ha
+#     calor; a sala quente vale ~8x. Ping chegado paga 5 (era 2). Suspeita zerada volta a pagar (1.0).
+#   - CACA MUITO MAIS VALIOSA: captura 20 + ate 25 por pegar cedo, avistar 2, aproximar 0.4 por metro
+#     (so com visao livre = linha reta), manter em visao 0.004/step; exploracao 0.5x na caca.
+#   - HIDER: 10 m/s, sem pausa, foge do seeker a menos de 18 m, vagueia fora disso.
+#
+#   #  Licao        salas assist pre  libera ping  hider  vel  barulho desc ping$ visao solto  criterio
+#   1  Perto        0.2   0.6    0    0      0     -      -    -       1.0  1.0   1     0      reward 5.0  (80 ep.)
+#   2  Metade       0.5   0.5    0    0      0     -      -    -       1.0  1.0   1     0      reward 8.0  (80)
+#   3  Quase        0.8   0.3    0    0      0     -      -    -       1.0  1.0   1     0      reward 10.0 (150)
+#   4  MenosAssist  0.8   0.15   0.3  0      0     -      -    -       1.0  1.0   1     0      reward 7.5  (150)
+#   5  Patrulha     1.1   0.1    0    0.85   0     -      -    -       1.0  1.0   1     0      progresso 0.30 (300)
+#   6  Ping         1.1   0.1    0    0.85   2000  -      -    -       1.0  1.0   1     0      progresso 0.40 (300)
+#   7  HiderParado  1.1   0.1    0    0      0     parado -    1.0     0.5  1.0   1     0      progresso 0.52 (300)
+#   8  HiderAnda    1.1   0.1    0    0      0     anda   5.0  0.8     0.5  1.0   1     0      progresso 0.64 (300)
+#   9  HiderFoge    1.1   0.1    0    0      0     foge   8.0  0.7     0.5  1.0   1     0      progresso 0.78 (300)
+#  10  HiderSolto   1.1   0.1    0    0      0     foge  10.0  0.7     0.5  1.0   1     1      (final)
+#
+# THRESHOLDS: os da v4.1 menos ~1 (a parede custa o dobro; v4.1: Quase 10.9, MenosAssist 10.0 de media).
+# ATENCAO: ping$ 1.0 na caca e o que virou renda no night_04. Se Exploration/Coverage cair enquanto o
+# reward sobe, baixe ping_reward_scale para ~0.3. Compare tambem a captura x reward.
+# O que olhar: Hunt/Caught e Hunt/Seen, Exploration/Coverage, WallContactFraction, Movement/IdleFraction.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.006 (o dobro das etapas): mais exploracao, porque o run da noite muda de tarefa varias
+      # vezes. 0.015 ja se mostrou demais (a entropia nunca caia). Decai linear ate max_steps.
+      beta: 0.006
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 20
+    checkpoint_interval: 500000
+    max_steps: 10000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  room_complete_threshold: 0.8
+  ping_single_room_chance: 0.5
+
+  # ---- Curriculo ----
+  # Fracao das SALAS concluidas que encerra o episodio (+5). Acima de 1 = sem fim por cobertura.
+  coverage_target:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0.2
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.5
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0.8
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.8
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.1
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 1.1
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 1.1
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 1.1
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 1.1
+      - name: HiderSolto
+        value: 1.1
+
+  # Steering assistido (0..1). Menor que na v4.1: ele aprendia a se jogar na parede e deslizar.
+  steer_assist:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0.6
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.5
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0.3
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.15
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.1
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0.1
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0.1
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0.1
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0.1
+      - name: HiderSolto
+        value: 0.1
+
+  # Fracao das SALAS que ja nasce concluida (anti-decoreba).
+  previsited_fraction:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.3
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0.0
+      - name: HiderSolto
+        value: 0.0
+
+  # Patrulha: com esta fracao usada, a porta e a sala mais antigas voltam (valendo 0.5). 0 = off.
+  release_fraction:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.85
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0.85
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0.0
+      - name: HiderSolto
+        value: 0.0
+
+  # Steps de fisica entre pings aleatorios (x U[0.5,1.5]). Com hider, os pings vem dos passos dele.
+  ping_interval:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 2000
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0
+      - name: HiderSolto
+        value: 0
+
+  # 0 nenhum / 1 parado / 2 anda / 3 foge.
+  hider_mode:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 1
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 2
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 3
+      - name: HiderSolto
+        value: 3
+
+  # m/s do hider. 10 no fim (sem pausa, foge a menos de 18 m).
+  hider_speed:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0.0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 5.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 8.0
+      - name: HiderSolto
+        value: 10.0
+
+  # Chance de cada chegada do hider num no de ping virar ping.
+  hider_noise:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 1.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 1.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 1.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0.8
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0.7
+      - name: HiderSolto
+        value: 0.7
+
+  # Escala da exploracao. 0.5 na caca: o objetivo e pegar.
+  discovery_reward_scale:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 1.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 1.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0.5
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0.5
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0.5
+      - name: HiderSolto
+        value: 0.5
+
+  # Ping valendo tambem na caca (chegar +5). Cuidado: night_04.
+  ping_reward_scale:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 1.0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 1.0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 1.0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 1.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 1.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 1.0
+      - name: HiderSolto
+        value: 1.0
+
+  # 1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.
+  vision_explores:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 1
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 1
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 1
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 1
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 1
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 1
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 1
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 1
+      - name: HiderSolto
+        value: 1
+
+  # 1 = hider anda fora do centro dos nos e se esconde.
+  hider_loose:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 5.0
+          require_reset: true
+        value: 0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 8.0
+          require_reset: true
+        value: 0
+      - name: Quase
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 10.0
+          require_reset: true
+        value: 0
+      - name: MenosAssist
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 7.5
+          require_reset: true
+        value: 0
+      - name: Patrulha
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: Ping
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.4
+          require_reset: true
+        value: 0
+      - name: HiderParado
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.52
+          require_reset: true
+        value: 0
+      - name: HiderAnda
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.64
+          require_reset: true
+        value: 0
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.78
+          require_reset: true
+        value: 0
+      - name: HiderSolto
+        value: 1
