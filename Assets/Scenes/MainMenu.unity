@@ -56840,6 +56840,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
 --- !u!114 &375631128
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -56857,13 +56860,13 @@ MonoBehaviour:
     callback:
       m_PersistentCalls:
         m_Calls:
-        - m_Target: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
-          m_TargetAssemblyTypeName: UnityEditor.MonoScript, UnityEditor.CoreModule
-          m_MethodName: set_name
-          m_Mode: 5
+        - m_Target: {fileID: 375631127}
+          m_TargetAssemblyTypeName: HoverEffect, Assembly-CSharp
+          m_MethodName: OnHoverEnterEffect
+          m_Mode: 2
           m_Arguments:
-            m_ObjectArgument: {fileID: 0}
-            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_ObjectArgument: {fileID: 375631122}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.GameObject, UnityEngine
             m_IntArgument: 0
             m_FloatArgument: 0
             m_StringArgument: 
@@ -56873,13 +56876,13 @@ MonoBehaviour:
     callback:
       m_PersistentCalls:
         m_Calls:
-        - m_Target: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
-          m_TargetAssemblyTypeName: 
-          m_MethodName: 
-          m_Mode: 1
+        - m_Target: {fileID: 375631127}
+          m_TargetAssemblyTypeName: HoverEffect, Assembly-CSharp
+          m_MethodName: OnHoverExitEffect
+          m_Mode: 2
           m_Arguments:
-            m_ObjectArgument: {fileID: 0}
-            m_ObjectArgumentAssemblyTypeName: 
+            m_ObjectArgument: {fileID: 375631122}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.GameObject, UnityEngine
             m_IntArgument: 0
             m_FloatArgument: 0
             m_StringArgument: 
@@ -215805,6 +215808,8 @@ GameObject:
   - component: {fileID: 1482876396}
   - component: {fileID: 1482876395}
   - component: {fileID: 1482876394}
+  - component: {fileID: 1482876398}
+  - component: {fileID: 1482876397}
   m_Layer: 5
   m_Name: Quit
   m_TagString: Untagged
@@ -215926,6 +215931,66 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1482876392}
   m_CullTransparentMesh: 1
+--- !u!114 &1482876397
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1482876392}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0b148fe25e99eb48b9724523833bab1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Delegates:
+  - eventID: 0
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 1482876398}
+          m_TargetAssemblyTypeName: HoverEffect, Assembly-CSharp
+          m_MethodName: OnHoverEnterEffect
+          m_Mode: 2
+          m_Arguments:
+            m_ObjectArgument: {fileID: 1482876392}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.GameObject, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
+  - eventID: 1
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 1482876398}
+          m_TargetAssemblyTypeName: HoverEffect, Assembly-CSharp
+          m_MethodName: OnHoverExitEffect
+          m_Mode: 2
+          m_Arguments:
+            m_ObjectArgument: {fileID: 1482876392}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.GameObject, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
+--- !u!114 &1482876398
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1482876392}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
 --- !u!4 &1483140815 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 8300888472574270570, guid: 9f028dc2d1ae5e643bb94b4e679f1a48, type: 3}
