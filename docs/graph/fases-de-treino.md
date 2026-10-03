@@ -12,7 +12,9 @@ repetir o mesmo run.
 - **Agente / seeker**: o personagem que está aprendendo (procura e depois caça).
 - **Hider**: a presa. É scriptado, não aprende nada.
 - **Nós**: pontos de referência colocados à mão no mapa, ligados como um mapa de metrô.
-- **Cobertura**: fração do mapa que o agente visitou no episódio (0 a 1).
+- **Cobertura**: fração do mapa que o agente visitou no episódio (0 a 1). Desde a Fase 7, fração das
+  salas exploradas.
+- **Sala / porta**: desde a Fase 7, o mapa é lido como salas (e corredores) ligadas por portas (os vãos).
 - **Seta**: dica que aponta para o lugar não visitado mais próximo. É uma "muleta" que queremos tirar.
 - **Lição / etapa**: degrau de dificuldade do currículo. O agente só sobe quando atinge a meta.
 - **Loops**: voltar a um lugar recém-visitado em vez de ir para um novo.
@@ -34,7 +36,10 @@ repetir o mesmo run.
 | 3 | 28/09 | Node_4 | Exploração + patrulha | **Funcionou** (88%), mas 43% do tempo na parede |
 | 4 | 28/09 | Node_4 | Tudo num treino só | Adiado, nunca rodou |
 | 5 | 28/09 | Node_4 | Procura + ping, do zero | Não aprendeu: mudanças demais de uma vez |
-| 6 | 28/09 → | Node_4 | **Em etapas**, uma coisa por vez | E1 ✅, E2 parcial, E3 ✅ no limite |
+| 6 | 28/09–01/10 | Node_4 | **Em etapas**, uma coisa por vez | E1 ✅, E2 parcial, E3 ✅ no limite |
+| 7 | 01/10 → | Node_5 (v4) | **Salas e portas**: toda sala vale igual, porta perde valor ao repetir, sem seta | S1→S6 numa noite: explora ~70% das salas e pega o hider em ~2/3 |
+| 7b | 02/10 | Node_5 (v4) | **Planta de salas** (sensor com as 26 salas), ver = explorar, suspeita multiplica | `v4b_noite_01` (parou aos 7.1M): explora 76–83% das salas e pega o hider em 83% (HiderFoge) |
+| 7c | 03/10 | Node_5 (v4) | **Fuga a 6 m/s**: hider na velocidade do seeker, caça/suspeita/ping valendo mais, manter em visão | `v4c_fuga_01` preparado (parte do V4B); antes, a fuga scriptada do hider precisa melhorar |
 
 ---
 
@@ -111,7 +116,60 @@ abandonadas.
 - **Lição:** mudamos movimento, física, procura e punições **ao mesmo tempo** e do zero.
   Quando não aprendeu, não deu para saber o que quebrou.
 
-## Fase 6 — Em etapas, 28/09 em diante · **atual**
+## Fase 7 — Salas e portas (mapa v4), 01/10 em diante · **atual**
+
+Mapa novo (`NodeTraining5`, cena `Node_5`, 6 arenas) e um jeito novo de pontuar a exploração.
+Os nós de exploração viraram **portas** (os vãos entre salas), e o mapa passa a ser lido como
+**salas ligadas por portas**: 26 salas e 35 portas, calculadas sozinhas a partir das ligações.
+
+- **Toda sala vale o mesmo**, do armário ao corredor. Saiu a pontuação pelo tamanho do nó.
+- Paga **cobrir 80% de uma sala**. Depois disso, o resto da sala vale pouco.
+- Paga **atravessar uma porta**, e cada repetição vale metade da anterior. Por isso sair por uma
+  porta diferente da que entrou compensa mais que voltar por onde veio.
+- Paga **sair de uma sala já explorada**.
+- O agente vê **a sala em que está e as portas dela**: quanto cada porta ainda vale, por qual entrou
+  e se a sala do outro lado já foi explorada. O que tem atrás de uma porta não entra na conta. **Não
+  há seta.**
+
+Por etapas, como na Fase 6. A **S1** treina salas e portas do zero e sem seta. As seguintes são
+menos ajuda contra a parede, a patrulha (a porta e a sala mais antigas voltam a valer), o ping por
+sala, o hider pingando e, por último, o hider se escondendo.
+
+A S1 rodou ~200k steps sozinha (`v4_s1_01`) e serviu de base para um **run de uma noite com
+S1 a S6 seguidas** (`v4_noite_01`, 10M steps, 01→02/10), que chegou à última lição.
+
+| Etapa | Treina | Critério para passar | Resultado (`v4_noite_01`) |
+|---|---|---|---|
+| **S1** salas e portas | explorar por sala, sem seta | > 60% das salas | ✅ 67% das salas, 13% do tempo na parede |
+| **S2** menos assist | menos ajuda contra a parede | manter a cobertura | ✅ 70% das salas, mas parede subiu para ~17% |
+| **S3** patrulha | porta e sala mais antigas voltam a valer | — | ⚠️ quase não disparou: só libera com 85% usado, e ele chega a ~75% |
+| **S4** ping | ir até o barulho | — | ⚠️ reward +2, cobertura igual; falta métrica de ping para confirmar |
+| **S5** hider | achar e pegar o hider (parado → anda → foge) | — | ✅ pega em ~2/3 dos episódios |
+| **S6** hider solto | hider se escondendo dentro das salas | — | ✅ pega em ~2/3 (66%), cobertura ~52% |
+
+- **O que funcionou:** sem seta, ele aprendeu a explorar por salas (Fase 6 travava em ~40%) e a caçar.
+  O tremor das ações caiu de 0,42 para 0,15.
+- **V4B (`v4b_noite_01`, 02/10, do zero, parou aos 7.1M na lição HiderFoge):** sensor com a planta das 26
+  salas, "ver" a sala conta como explorar e a suspeita passa a multiplicar o valor de ver (em vez de pagar
+  sozinha). Resultado: cobertura de exploração **76–83%** (era ~70%), lições de exploração em 3M steps (eram
+  4.7M) e **pega o hider em 83%** (era ~65%). Rewards não são comparáveis com o v4 (a recompensa mudou).
+  Pontos fracos: portas repetidas 65% e ~11 loops na Patrulha/Ping, parede ~17% na caça, e não chegou ao
+  HiderSolto (entropia ainda 0.82).
+- **V4C (`v4c_fuga_01`, 03/10, preparado, ainda não rodou):** parte do cérebro do V4B e treina a fuga com o
+  hider a 6 m/s (escada 4.0 → 6.0 → solto). Pedidos: exploração menos valiosa (×0.5), caça bem mais valiosa
+  (captura 20 + até 25 por pegar cedo, avistar 1.0, aproximar 0.1/m), **manter o hider em visão** (0.003 por
+  decisão), sala suspeita até 4× o valor base e ping valendo na caça. **Risco:** o ping pago foi o que virou
+  renda no `night_04`; se a cobertura despencar com o reward subindo, baixar o ping para ~0.3.
+  Antes do run, a **fuga do hider scriptado precisa melhorar**: hoje ele só reage a 12 m, olha um passo à
+  frente (entra em beco) e pausa ~2 s em cada nó mesmo fugindo. Um hider treinado por IA fica para depois,
+  quando a caça estabilizar contra um scriptado bom.
+- **O que ainda falta (no v4_noite_01):**
+  - **teto de ~70% das salas:** o episódio de exploração nunca terminou por cobertura (sempre por
+    tempo), então o bônus de 80% quase não foi pago;
+  - metade das travessias de porta é repetida, com ~12 loops por episódio;
+  - ~38 batidas na parede por episódio na exploração.
+
+## Fase 6 — Em etapas, 28/09 a 01/10
 
 Cada etapa herda o cérebro da anterior e só avança quando bate um critério medido no TensorBoard.
 
@@ -311,6 +369,8 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
 
 ## Próximos passos
 
-- Confirmar a E3 (continuar o `node4_e3_01` mais ~300k) ou seguir direto para a E4.
-- E4 e E5: hider andando e fugindo, com a "rodinha" da parede diminuindo.
+- **S1** (salas e portas, do zero, sem seta): `v4_s1_01`. Se passar, S2 (menos ajuda contra a
+  parede), depois S3 (patrulha por liberação), S4 (ping por sala), S5 (hider pingando) e S6 (hider
+  se escondendo).
+- A linha E4/E5 do Node_4 fica parada: os cérebros dela não servem no vetor novo.
 - Ideia não planejada: esconderijos embaixo de móveis.
