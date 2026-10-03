@@ -56843,6 +56843,8 @@ MonoBehaviour:
   hoverScale: 1.2
   animationSpeed: 0.15
   brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!114 &375631128
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -215913,6 +215915,8 @@ MonoBehaviour:
   hoverScale: 1.2
   animationSpeed: 0.15
   brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!114 &1482876399
 MonoBehaviour:
   m_ObjectHideFlags: 0
