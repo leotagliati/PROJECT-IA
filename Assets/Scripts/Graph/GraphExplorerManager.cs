@@ -29,11 +29,11 @@ namespace Assets.Scripts.Graph
     ///   - A visão local é a mesma em qualquer mapa: "tenho uma saída à minha direita, ainda não
     ///     visitada". É isso que transfere. É também o mínimo necessário para decidir o próximo
     ///     passo — que é a única decisão que o agente toma.
-    /// O que a visão local NÃO resolve sozinho é sair de um beco: os vizinhos imediatos podem
-    /// estar todos visitados e a resposta certa estar a cinco nós dali. Esse buraco é tapado
-    /// pela DICA DE FRONTEIRA (BFS no grafo até o não-visitado mais próximo), que é um
-    /// escalar + direção e continua independente do tamanho do mapa. O currículo desliga a dica
-    /// nas lições finais, para o comportamento não virar "seguir a seta".
+    /// SALAS E PORTAS (docs/graph/salas-e-portas.md): além dos vizinhos, o agente vê a SALA em
+    /// que está (quanto já cobriu, se concluiu) e as PORTAS dela — direção, distância, novidade,
+    /// se entrou por ela e se a sala do outro lado já foi concluída (memória, não visão). O que
+    /// está atrás de uma porta não entra no "quanto resta". Não há seta: quem tira o agente de um
+    /// beco é a novidade das portas.
     ///
     /// Se um dia você quiser mesmo alimentar N nós de tamanho variável, o caminho é o
     /// BufferSensorComponent do ML-Agents (atenção sobre lista de entidades) — não um vetor
@@ -44,69 +44,68 @@ namespace Assets.Scripts.Graph
     /// </summary>
     public class GraphExplorerManager : Agent
     {
-        // Por vizinho: direção X, direção Z, distância normalizada, visitado (0 nunca / 0.5
-        // recuperado / 1 acabou de passar — GraphExplorationMemory.VisitedObservation), PESO (relativo ao
-        // nó que mais vale neste episódio), QUANTO RESTA por essa saída (relativo à melhor saída,
-        // GraphExplorationMemory.ExitRemainingScore), VIM DAQUI (é o nó anterior), QUANTAS VEZES
-        // já passei por ele (saturando em _revisitSaturation), TÉDIO da sala dele (0..1), slot válido.
+        // Por vizinho (10): direção X, direção Z, distância normalizada, visitado (0/1), QUANTO
+        // RESTA por essa saída DENTRO DA SALA (relativo à melhor saída, GraphRoomMemory), VIM
+        // DAQUI (é o nó anterior), QUANTAS VEZES já passei (saturando em _revisitSaturation), QUÃO
+        // PERTO está o que falta por essa saída (dentro da sala), SUSPEITA por essa saída, válido.
         //
-        // Era 6. O "quanto resta" entrou porque sem ele o agente só enxergava 1 aresta: com todos
-        // os vizinhos visitados, nada dizia para onde ir e ele rodava em círculo (node4_noarrow_01,
-        // cobertura parada em 13%). "Vim daqui" e "quantas vezes" entraram pelo mesmo motivo, do
-        // lado da memória: a rede não tem estado entre decisões, então "estou em B vindo de A" e
-        // "estou em B vindo de C" eram a mesma observação — e A-B-A-B não tinha como ser notado.
-        // A estagnação já PUNIA o loop; faltava a informação para a rede saber por quê.
-        // O tédio entrou com a patrulha: "esta saída leva a uma sala cansada, aquela a uma fresca"
-        // — sem ele a punição por ficar na sala chata não diz para ONDE ir.
-        // Invalidou os .onnx anteriores: VectorObservationSize 69 -> 93 -> 102 (-> 107 com o movimento livre).
-        // O 11º float, SUSPEITA por esta saída (GraphSuspicionMap.ExitScore), entrou com a procura
-        // (docs/graph/procura-e-ping.md): 107 -> 118. É o "quanto resta" da caça: onde o hider
-        // provavelmente está, por qual porta.
-        private const int FloatsPerNeighbor = 11;
+        // Era 11 com o PESO do vizinho; o peso por nó saiu com as salas. "Quanto resta" e "quão
+        // perto" agora param nas portas: o que está do outro lado de um vão não entra na conta.
+        private const int FloatsPerNeighbor = 10;
+
+        // Por PORTA da sala atual (9): direção X, direção Z, distância em linha reta, distância pelo
+        // grafo dentro da sala, NOVIDADE (1 = nunca atravessada, cai a cada travessia), ENTREI POR
+        // AQUI, SALA DO OUTRO LADO CONCLUÍDA, CALOR (a porta é da sala do último ping), válido.
+        // 8 portas: o máximo por sala no NodeTraining5 é 7. Ordem estável: ângulo em volta do centro
+        // da sala (GraphRoomMemory.DoorSlots), então o slot só muda quando a sala muda.
+        private const int FloatsPerDoor = 9;
+        private const int DoorSlots = 8;
 
         // LAYOUT DAS OBSERVAÇÕES GLOBAIS (30):
-        //   [0]      está dentro do raio de algum nó
+        //   [0]      está dentro da área de algum nó
         //   [1..3]   direção + distância ao nó âncora
         //   [4..6]   direção + distância ao nó mais próximo COM LINHA LIVRE
-        //   [7]      cobertura total
-        //   [8]      encostado em parede (0/1) — era a cobertura da região; virou isto quando o
-        //            vetor mudou de tamanho de qualquer jeito. Sem ele a rede não sabia que estava
-        //            empurrando uma parede (os raios dizem a distância, não o contato)
-        //   [9..11]  direção + distância ao próximo passo da fronteira
-        //   [12]     distância PELO GRAFO até a fronteira, em metros / diâmetro do mapa
+        //   [7]      COBERTURA: fração das salas concluídas (a mesma que encerra o episódio)
+        //   [8]      encostado em parede (0/1)
+        //   [9]      SALA ATUAL: progresso rumo à conclusão (1 = concluída)
+        //   [10]     sala atual concluída (0/1)
+        //   [11]     está num vão (a âncora é uma porta)
+        //   [12]     nº de portas da sala atual / 8
         //   [13..15] PING: ativo, distância pelo grafo até o nó que toca (metros / diâmetro),
         //            quente/frio (-1/0/+1)
-        //
-        // [12] e [14] eram em ARESTAS / _maxGraphDistance. Mudaram para METROS / diâmetro do
-        // mapa (NavGraph.PathDiameter, calculado sozinho): o tamanho do vetor é o mesmo, mas o
-        // SIGNIFICADO mudou — modelos .onnx treinados antes dessa mudança não servem mais.
-        // Motivo: com o grafo coberto pelo NavGraphPlacer a densidade de nós muda a cada
-        // regeneração, e contar arestas fazia a mesma distância valer outro número.
         //   [16..20] VISÃO: vendo, já viu, direção + distância à última posição em que viu o hider
-        //   [21]     TÉDIO da sala atual (0..1): já está na hora de sair daqui?
-        //   [22..23] para onde o CORPO está virado (X/Z no mundo). Com olhar e andar separados
-        //            (ações [2..3]) e giro com velocidade limitada, é o que diz onde o cone está
-        //   [24..25] VELOCIDADE do hider enquanto vê (X/Z, / _hiderVelocityScale): para
-        //            interceptar em vez de só seguir atrás. Zero quando não vê
-        //   [26]     força do STEERING ASSISTIDO nesta lição (0..1): a dinâmica muda com ela, e
-        //            sem isto a rede veria o mesmo estado reagindo diferente
-        //
-        // [22..26] entraram com o movimento livre (docs/graph/movimento-livre.md): 102 -> 107.
+        //   [21]     CALOR: a sala atual é a do último ping (1/0)
+        //   [22..23] para onde o CORPO está virado (X/Z no mundo)
+        //   [24..25] VELOCIDADE do hider enquanto vê (X/Z, / _hiderVelocityScale)
+        //   [26]     força do STEERING ASSISTIDO nesta lição (0..1)
         //   [27]     PROCURA ativa (tem hider neste episódio)
         //   [28]     CERTEZA: a maior suspeita de um nó (1 = sei onde ele está)
         //   [29]     tempo desde a última pista (ping ou visão), / 60 s; 1 = nenhuma pista
-        // [27..29] entraram com a procura (docs/graph/procura-e-ping.md), junto com o 11º float
-        // por vizinho: 107 -> 118.
+        // Depois: vizinhos (8 x 10) e portas (8 x 9). Total 30 + 80 + 72 = 182.
         //
-        // Os blocos reservados emitem ZERO até a branch de busca. Eles existem desde já porque
-        // toda mudança neste número invalida os .onnx treinados: reservar custa 9 entradas numa
-        // rede de 128 unidades e economiza uma retreinada inteira do zero. O [8] fica pelo
-        // mesmo motivo: encolher o vetor só para tirar um zero custaria todos os modelos.
+        // [9..12] eram a SETA de fronteira e [21] o tédio de sala, que saíram com as salas. O vetor
+        // mudou de 118 para 182: os .onnx anteriores (E1–E3) não servem mais.
         private const int GlobalObservations = 30;
+
+        // PLANTA DE SALAS (BufferSensor "Rooms", fora do VectorObservationSize): uma entrada por SALA do
+        // mapa inteiro, a lista que o agente lembra do prédio. Por sala (RoomFeatures):
+        //   direção X/Z até o centro dela, distância em linha reta / diâmetro do mapa, portas até ela
+        //   (/ RoomHopsScale), quanto dela já foi VISTO (0..1), concluída, quente (ping), suspeita
+        //   (0 = média, 1 = o teto), é a sala atual, nº de portas / 8.
+        // Não é o caminho (quem acha o caminho é a política com os vizinhos e as portas da sala atual);
+        // é O QUE existe e ONDE. Lista com atenção: a rede não fica amarrada a 26 salas nem a este mapa.
+        private const int RoomFeatures = 10;
+        private const int MaxRooms = 32;
+        private const float RoomHopsScale = 10f;
+        private const string RoomSensorName = "Rooms";
+        private BufferSensorComponent _roomSensor;
+        private readonly float[] _roomBuffer = new float[RoomFeatures];
 
 
         [Header("-----Systems-----")]
         [SerializeField] private GraphExplorationMemory _memory;
+        // Salas e portas. Sem ela no prefab, o Initialize cria uma com os valores padrão (e avisa).
+        [SerializeField] private GraphRoomMemory _rooms;
         [SerializeField] private GraphRewardSystem _rewardSystem;
         // Reaproveitado do seeker de propósito: é um driver de Rigidbody sem nenhuma regra de
         // seeker dentro (Move / ResetMovement). Duplicá-lo criaria dois lugares para ajustar a
@@ -120,29 +119,6 @@ namespace Assets.Scripts.Graph
         // Opcional: sem ele, o bloco de procura emite zero e nada de suspeita é pago (o
         // ValidateSetup avisa — sem a procura, as lições de caça treinam às cegas).
         [SerializeField] private GraphSuspicionMap _suspicion;
-
-        /// <summary>Como "explorei X% do mapa" é medido.</summary>
-        public enum CoverageMeasure
-        {
-            /// <summary>Fração dos nós ativos visitados. Cobertura geométrica do chão.</summary>
-            NodeFraction,
-
-            /// <summary>
-            /// Fração da soma dos pesos dos nós (NavNode.ExplorationWeight) coletada. Coerente
-            /// com a recompensa: um nó de peso 0.2 conta pouco, um de peso 2.0 conta muito.
-            /// </summary>
-            NodeWeight,
-        }
-
-        [Header("-----Cobertura-----")]
-        // Qual medida encerra o episódio (contra o coverage_target do currículo) E é observada
-        // pelo agente. Os dois de propósito na mesma chave: observar uma barra de progresso
-        // diferente da que julga o episódio é a receita de um agente que "acha" que está indo bem.
-        //
-        // NodeWeight é o default porque é a mesma conta da recompensa: o agente observa a
-        // barra que decide o que ele ganha. NodeFraction ignora os pesos e trata todo primário
-        // como igual — serve para medir cobertura GEOMÉTRICA num mapa de pesos desiguais.
-        [SerializeField] private CoverageMeasure _coverageMeasure = CoverageMeasure.NodeWeight;
 
         [Header("-----Observação-----")]
         // Quantos vizinhos cabem na observação. Nós com mais vizinhos que isto têm os excedentes
@@ -237,52 +213,38 @@ namespace Assets.Scripts.Graph
         private float _lookChangeSum;
         private int _decisionCount;
 
-        // Distância de fronteira na decisão anterior. O delta entre decisões é o que vira
-        // shaping — medir isso dentro da memória daria o delta de um step de física, que é
-        // uma fração do que o agente controla com uma ação.
-        private float _frontierDistanceAtLastDecision;
-
-        // Alvo da fronteira na decisão anterior. O delta de distância só é comparável se o alvo é
-        // o MESMO: com a seta seguindo as saídas (GraphExplorationMemory._frontierFollowsExits) o
-        // alvo muda a cada nó, e sem esta checagem a troca de alvo viraria progresso fantasma.
-        private int _frontierTargetAtLastDecision = -1;
-        private bool _hadFrontierAtLastDecision;
-
-        // Estado do shaping denso: qual nó era o próximo passo da fronteira no step anterior e a
-        // que distância em metros ele estava. Guardar o ÍNDICE, e não só a distância, é o que
-        // permite comparar por identidade — quando a BFS reaponta para outro nó a distância
-        // salta, e sem essa checagem o salto viraria recompensa (ou punição) fantasma.
-        private int _frontierNextStepAtLastDecision = -1;
-        private float _frontierApproachDistanceAtLastDecision;
-
         private readonly List<int> _neighborBuffer = new List<int>();
         private Comparison<int> _byDistanceFromNode;
         private Comparison<int> _byAngleFromNode;
         private Vector3 _sortOrigin;
 
-        public int ObservationSize => _neighborSlots * FloatsPerNeighbor + GlobalObservations;
+        public int ObservationSize => GlobalObservations + _neighborSlots * FloatsPerNeighbor + DoorSlots * FloatsPerDoor;
 
         /// <summary>Normalizador de distância a nó. O NavGraphPlacer usa como alcance do teste "tem nó à vista?".</summary>
         public float MaxNodeDistance => _maxNodeDistance;
 
-        private float CurrentCoverage => _coverageMeasure == CoverageMeasure.NodeWeight
-            ? _memory.VisitedWeightFraction
-            : _memory.VisitedFraction;
+        private float CurrentCoverage => _rooms.CompletedFraction;
 
-        // Peso EFETIVO da dica neste step: a força da lição enquanto a dica dura, zero depois.
-        // É o único ponto que combina força e duração — observação, shaping e gizmo leem daqui,
-        // porque os três são a mesma muleta e têm que sumir juntos. _elapsedSteps é em steps de
-        // física, a mesma unidade do limite.
-        private float CurrentFrontierHint
+        // Antes do Agent.OnEnable, que é quando o ML-Agents coleta os sensores: o BufferSensor da planta
+        // de salas é criado aqui se o prefab não tiver, já com o tamanho certo (ninguém precisa
+        // configurar à mão — e um tamanho errado no Inspector quebraria o treino em silêncio).
+        protected override void Awake()
         {
-            get
+            _roomSensor = null;
+            foreach (BufferSensorComponent sensor in GetComponents<BufferSensorComponent>())
             {
-                int limit = _arenaController.FrontierHintSteps;
-                if (limit > 0 && _elapsedSteps >= limit)
-                    return 0f;
-
-                return _arenaController.FrontierHintScale;
+                if (sensor.SensorName == RoomSensorName)
+                    _roomSensor = sensor;
             }
+
+            if (_roomSensor == null)
+                _roomSensor = gameObject.AddComponent<BufferSensorComponent>();
+
+            _roomSensor.SensorName = RoomSensorName;
+            _roomSensor.ObservableSize = RoomFeatures;
+            _roomSensor.MaxNumObservables = MaxRooms;
+
+            base.Awake();
         }
 
         public override void Initialize()
@@ -291,6 +253,18 @@ namespace Assets.Scripts.Graph
             // que o Unity devolve para referências não atribuídas.
             if (_memory == null)
                 _memory = GetComponentInChildren<GraphExplorationMemory>();
+
+            if (_rooms == null)
+                _rooms = GetComponentInChildren<GraphRoomMemory>();
+
+            if (_rooms == null && _memory != null)
+            {
+                // Prefab de antes das salas: cria com os padrões em vez de quebrar o treino.
+                _rooms = _memory.gameObject.AddComponent<GraphRoomMemory>();
+                Debug.LogWarning(
+                    $"{name}: sem GraphRoomMemory no prefab — criada em runtime com os valores padrão. " +
+                    "Add Component > Graph Room Memory no agente para ajustar no Inspector.", this);
+            }
 
             if (_rewardSystem == null)
                 _rewardSystem = GetComponentInChildren<GraphRewardSystem>();
@@ -324,6 +298,7 @@ namespace Assets.Scripts.Graph
             {
                 _graph.EnsureBaked();
                 _memory.Configure(_graph);
+                _rooms.Configure(_graph, _memory, _perception, _suspicion);
 
                 if (_ping != null)
                     _ping.Configure(_graph);
@@ -360,12 +335,14 @@ namespace Assets.Scripts.Graph
             // Depois do spawn: o hider nasce longe de onde o seeker nasceu.
             _arenaController.ResetHider(transform.position);
 
-            // A arena já leu o currículo em ResetEpisode() acima; a fração vale para este episódio.
-            _memory.ResetEpisode(
+            // A arena já leu o currículo em ResetEpisode() acima. Nós antes de salas: a sala que
+            // nasce concluída marca os nós dela na memória de nós.
+            _memory.ResetEpisode();
+            _rooms.ResetEpisode(
+                _arenaController.RoomCompleteThreshold,
                 _arenaController.PrevisitedFraction,
-                _arenaController.WeightJitter,
-                _arenaController.ValueRecoverySteps,
-                _arenaController.AreaBoredom);
+                _arenaController.ReleaseFraction,
+                _arenaController.VisionExplores);
             _wallContactSteps = 0;
             _idleSteps = 0;
             _wallHits.Reset();
@@ -395,19 +372,14 @@ namespace Assets.Scripts.Graph
             }
 
             // Registra de imediato o nó do spawn: sem isto o primeiro nó do episódio pagaria
-            // recompensa de descoberta por o agente simplesmente ter nascido em cima dele.
+            // recompensa de descoberta por o agente simplesmente ter nascido em cima dele. Ele
+            // continua contando para a cobertura da sala (foi pisado), só não paga.
             _memory.Tick(transform.position);
+            _rooms.Tick(transform);
             _memory.ClearStepFlags();
+            _rooms.ClearStepFlags();
 
-            _hadFrontierAtLastDecision = _memory.HasFrontier;
-            _frontierDistanceAtLastDecision = _memory.FrontierDistance;
-            _frontierTargetAtLastDecision = _memory.FrontierTarget;
-            RememberUnexplored();
-            RememberFrontierApproach();
-            RememberPing();
             RememberHider();
-
-            _memory.FrontierHintVisible = CurrentFrontierHint > 0f;
         }
 
         // A memória é amostrada a cada step de FÍSICA. Com Decision Period > 1 o agente percorre
@@ -420,9 +392,20 @@ namespace Assets.Scripts.Graph
 
             _memory.Tick(transform.position);
 
+            // No mesmo step: a chegada que a memória de nós acabou de registrar vira nó de sala ou
+            // travessia de porta.
+            _rooms.Tick(transform);
+
             // Depois da memória: a chegada ao ping é "o nó âncora virou o nó do ping".
             if (_ping != null)
+            {
                 _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps);
+
+                // Ping começou: a sala do barulho fica quente (explorá-la vale mais).
+                int started = _ping.ConsumeStarted();
+                if (started >= 0)
+                    _rooms.HeatRoom(_graph.RoomOf(started));
+            }
 
             if (_perception != null)
                 _perception.Tick(transform);
@@ -453,27 +436,18 @@ namespace Assets.Scripts.Graph
             AddDirectionAndDistance(sensor, position, nearest >= 0 ? _graph.NodePosition(nearest) : position, nearest >= 0);
 
             // ---- Cobertura (1) + encostado em parede (1) ----
-            // O quanto falta explorar no geral, e se o último step de física terminou em contato
+            // Quantas salas faltam no geral, e se o último step de física terminou em contato
             // com parede (OnCollisionStay roda depois da decisão anterior, antes desta).
             sensor.AddObservation(CurrentCoverage);
             sensor.AddObservation(_touchingWall || _touchingFreeWall ? 1f : 0f);
 
-            // ---- Fronteira (4) ----
-            float hint = CurrentFrontierHint;
-            bool showFrontier = _memory.HasFrontier && hint > 0f && _memory.FrontierNextStep >= 0;
-
-            // O gizmo acompanha o que a rede recebe: seta no desenho = seta na observação.
-            _memory.FrontierHintVisible = hint > 0f;
-
-            AddDirectionAndDistance(
-                sensor,
-                position,
-                showFrontier ? _graph.NodePosition(_memory.FrontierNextStep) : position,
-                showFrontier);
-
-            // Distância em ARESTAS até o alvo: diz se a fronteira é "logo ali" ou "do outro lado
-            // do mapa", informação que a direção sozinha não carrega.
-            sensor.AddObservation(showFrontier ? Mathf.Clamp01(_memory.FrontierDistance / _graph.PathDiameter) : 0f);
+            // ---- Sala atual (4) ----
+            // Uma vez por decisão: portas da sala e quanto resta por saída.
+            _rooms.Refresh();
+            sensor.AddObservation(_rooms.CurrentRoomProgress);
+            sensor.AddObservation(_rooms.CurrentRoomCompleted ? 1f : 0f);
+            sensor.AddObservation(current >= 0 && _graph.IsDoor(current) ? 1f : 0f);
+            sensor.AddObservation(Mathf.Clamp01(_rooms.CurrentRoomDoorCount / (float)DoorSlots));
 
             // ---- Ping (3) ----
             // Ativo, distância em arestas (mesmo normalizador da fronteira) e quente/frio. Sem
@@ -494,8 +468,8 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(hasSeen ? 1f : 0f);
             AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
 
-            // ---- Tédio da sala atual (1) ----
-            sensor.AddObservation(_memory.CurrentAreaBoredom);
+            // ---- Calor da sala atual (1): é a sala do último ping? ----
+            sensor.AddObservation(_rooms.CurrentRoomHot ? 1f : 0f);
 
             // ---- Corpo (5): para onde olha, velocidade do hider, força do assist ----
             Vector3 forward = transform.forward;
@@ -518,7 +492,6 @@ namespace Assets.Scripts.Graph
 
             // ---- Vizinhos (FloatsPerNeighbor x _neighborSlots) ----
             FillNeighborBuffer(current);
-            _memory.ScoreExits();
             if (_suspicion != null)
                 _suspicion.ScoreExits(current);
 
@@ -538,29 +511,79 @@ namespace Assets.Scripts.Graph
                 AddDirectionAndDistance(sensor, position, _graph.NodePosition(neighbor), true);
                 sensor.AddObservation(_memory.VisitedObservation(neighbor));
 
-                // Quanto vale esta saída, relativo ao nó mais valioso do episódio. Sem isto a
-                // variação de peso do currículo (weight_jitter) seria só ruído na recompensa —
-                // um sinal que a rede não pode usar não ensina nada.
-                sensor.AddObservation(_memory.NormalizedEpisodeWeight(neighbor));
-
-                // O que tem ATRÁS desta saída: o inexplorado alcançável por ela, descontado pela
-                // distância. É o que substitui a seta sem entregar um caminho.
-                sensor.AddObservation(_memory.ExitRemainingScore(neighbor));
+                // O que tem ATRÁS desta saída, DENTRO DA SALA: nós que faltam e portas (pela
+                // novidade), descontados pela distância. Para na porta — a sala vizinha não conta.
+                sensor.AddObservation(_rooms.ExitRemainingScore(neighbor));
 
                 // Memória mínima contra loop: de onde vim e o quanto já rodei por ali.
                 sensor.AddObservation(neighbor == _memory.PreviousNodeIndex ? 1f : 0f);
                 sensor.AddObservation(Mathf.Clamp01((float)_memory.VisitCountOf(neighbor) / _revisitSaturation));
 
-                // QUÃO PERTO está o que falta por esta saída (1 = a mais perto). Era o TÉDIO da sala
-                // do vizinho, que valia sempre 0 nas etapas (tédio desligado): mesmo slot, então o
-                // vetor fica em 118 e os cérebros E1/E2 continuam servindo. Contra o loop e o beco:
-                // é um campo de distância (seguir o 1 só diminui), e o "quanto resta" acima, uma
-                // soma com desconto, não é (ver GraphExplorationMemory.ExitProximityScore).
-                sensor.AddObservation(_memory.ExitProximityScore(neighbor));
+                // QUÃO PERTO está o que falta por esta saída (1 = a mais perto). Contra o loop e o
+                // beco: é um campo de distância (seguir o 1 só diminui), e o "quanto resta" acima,
+                // uma soma com desconto, não é.
+                sensor.AddObservation(_rooms.ExitProximityScore(neighbor));
 
                 // Onde o hider provavelmente está, por esta saída (0 sem procura).
                 sensor.AddObservation(_suspicion != null ? _suspicion.ExitScore(neighbor) : 0f);
                 sensor.AddObservation(1f);
+            }
+
+            // ---- Planta de salas (BufferSensor, uma entrada por sala) ----
+            AddRoomPlan(position);
+
+            // ---- Portas da sala atual (FloatsPerDoor x DoorSlots) ----
+            IReadOnlyList<int> doors = _rooms.DoorSlots;
+            for (int slot = 0; slot < DoorSlots; slot++)
+            {
+                if (slot >= doors.Count)
+                {
+                    for (int k = 0; k < FloatsPerDoor; k++)
+                        sensor.AddObservation(0f);
+                    continue;
+                }
+
+                int door = doors[slot];
+                AddDirectionAndDistance(sensor, position, _graph.NodePosition(door), true);
+
+                // Pelo grafo, dentro da sala: em linha reta a porta pode estar atrás de um móvel.
+                float path = _rooms.DoorPathDistance(door);
+                sensor.AddObservation(path >= 0f ? Mathf.Clamp01(path / _maxNodeDistance) : 1f);
+
+                sensor.AddObservation(_rooms.DoorNovelty(door));
+                sensor.AddObservation(door == _rooms.EntryDoor ? 1f : 0f);
+                sensor.AddObservation(_rooms.OtherSideCompleted(door) ? 1f : 0f);
+                sensor.AddObservation(_rooms.DoorIsHot(door) ? 1f : 0f);
+                sensor.AddObservation(1f);
+            }
+        }
+
+        private void AddRoomPlan(Vector3 position)
+        {
+            if (_roomSensor == null)
+                return;
+
+            float diameter = _graph.PathDiameter;
+            int current = _rooms.CurrentRoom;
+            for (int room = 0; room < _graph.RoomCount && room < MaxRooms; room++)
+            {
+                Vector3 delta = _graph.RoomCentroid(room) - position;
+                var planar = new Vector2(delta.x, delta.z);
+                float distance = planar.magnitude;
+                Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+                int hops = _rooms.RoomHopsFromCurrent(room);
+
+                _roomBuffer[0] = unit.x;
+                _roomBuffer[1] = unit.y;
+                _roomBuffer[2] = Mathf.Clamp01(distance / diameter);
+                _roomBuffer[3] = hops >= 0 ? Mathf.Clamp01(hops / RoomHopsScale) : 1f;
+                _roomBuffer[4] = _rooms.RoomProgress(room);
+                _roomBuffer[5] = _rooms.IsRoomCompleted(room) ? 1f : 0f;
+                _roomBuffer[6] = _rooms.IsRoomHot(room) ? 1f : 0f;
+                _roomBuffer[7] = _rooms.RoomSuspicion(room);
+                _roomBuffer[8] = room == current ? 1f : 0f;
+                _roomBuffer[9] = Mathf.Clamp01(_graph.DoorsOfRoom(room).Length / (float)DoorSlots);
+                _roomSensor.AppendObservation(_roomBuffer);
             }
         }
 
@@ -667,14 +690,9 @@ namespace Assets.Scripts.Graph
 
             // Consumidas depois de cobradas. A memória volta a acumular a partir do próximo
             // step de física.
-            _hadFrontierAtLastDecision = _memory.HasFrontier;
-            _frontierDistanceAtLastDecision = _memory.FrontierDistance;
-            _frontierTargetAtLastDecision = _memory.FrontierTarget;
-            RememberUnexplored();
-            RememberFrontierApproach();
-            RememberPing();
             RememberHider();
             _memory.ClearStepFlags();
+            _rooms.ClearStepFlags();
             if (_ping != null)
                 _ping.ClearStepFlags();
             if (_perception != null)
@@ -733,94 +751,35 @@ namespace Assets.Scripts.Graph
 
         private GraphStepContext BuildStepContext()
         {
-            // O delta só é comparável quando os dois lados mediram a distância até o mesmo
-            // alvo. Ao visitar um nó novo a fronteira salta para outro lugar do mapa, e sem
-            // este cuidado o shaping cobraria como retrocesso exatamente o step em que o agente
-            // acertou. A descoberta já é paga pelo _newNodeReward; aqui o termo se cala.
-            bool frontierComparable =
-                _hadFrontierAtLastDecision && _memory.HasFrontier && !_memory.EnteredNewNode
-                && _memory.FrontierTarget == _frontierTargetAtLastDecision;
-
-            float delta = frontierComparable
-                ? _frontierDistanceAtLastDecision - _memory.FrontierDistance
-                : 0f;
-
-            // Aproximação em metros do próximo passo da fronteira. Aqui a porteira é OUTRA: não
-            // interessa se o agente entrou num nó novo, e sim se os dois steps mediram a
-            // distância até o MESMO nó. Enquanto o alvo não muda, cada centímetro andado na
-            // direção dele conta — é isso que dá gradiente no meio de uma aresta longa, onde o
-            // delta em arestas acima vale zero do começo ao fim da travessia.
-            int frontierNextStep = FrontierNextStepOrNone();
-
-            bool approachComparable =
-                frontierNextStep >= 0 && frontierNextStep == _frontierNextStepAtLastDecision;
-
-            float approachDelta = approachComparable
-                ? _frontierApproachDistanceAtLastDecision - PlanarDistanceToNode(frontierNextStep)
-                : 0f;
-
             bool hiderComparable =
                 _perception != null && _perception.IsSeeing && _wasSeeingAtLastDecision;
 
             float hiderDelta = hiderComparable ? _hiderDistanceAtLastDecision - _perception.CurrentDistance : 0f;
 
-            bool pingComparable =
-                _ping != null && _ping.IsActive && _ping.TargetNode == _pingTargetAtLastDecision;
-
-            float pingDelta = pingComparable ? _pingDistanceAtLastDecision - _ping.Distance : 0f;
-
-            // NAVEGAÇÃO: quanto a distância pelo grafo até o inexplorado mais próximo caiu desde a
-            // decisão anterior. Só comparável com o MESMO alvo nas duas: quando ele é descoberto, o
-            // alvo pula para outro lugar e o salto não é o agente andando (a descoberta já pagou).
-            int unexploredTarget = _memory.NearestUnexploredTarget;
-            float unexploredProgress = unexploredTarget >= 0 && unexploredTarget == _unexploredTargetAtLastDecision
-                ? _unexploredDistanceAtLastDecision - _memory.NearestUnexploredDistance
-                : 0f;
-
             return new GraphStepContext(
                 _maxEpisodeSteps,
-                _memory.EnteredNewNode,
-                _memory.EnteredNewNodeValue,
-                _memory.TraversedNewEdge,
-                _memory.ChangedNode,
-                _memory.CurrentNodeVisitCount,
-                delta,
-                frontierComparable,
-                approachDelta,
-                approachComparable,
-                _memory.StepsSinceNewNode,
+                _rooms.RoomNodeValue,
+                _rooms.RoomTailValue,
+                _rooms.RoomCompletedValue,
+                _rooms.DoorCrossValue,
+                _rooms.RoomExitValue,
+                _rooms.StepsSinceProgress,
                 _touchingWall,
-                CurrentFrontierHint,
-                pingDelta,
-                pingComparable,
                 _ping != null && _ping.Reached,
                 _ping != null ? _ping.ReachedValue : 0f,
                 _ping != null && _ping.Missed,
                 _perception != null && _perception.Spotted,
                 hiderDelta,
                 hiderComparable,
-                _memory.RevisitValue,
                 _memory.EarlyRevisitArrivals,
                 _memory.EarlyRevisitStreak,
-                _memory.CurrentAreaBoredom,
                 _wallHits.HitsThisStep,
                 _wallHits.RecentHits,
                 _actionChangeSq,
                 _lookChangeSq,
-                _suspicion != null ? _suspicion.ClearedMass : 0f,
                 _arenaController.PingRewardScale,
                 _arenaController.DiscoveryRewardScale,
-                unexploredProgress);
-        }
-
-        // Alvo e distância do potencial de navegação na decisão anterior (ver BuildStepContext).
-        private int _unexploredTargetAtLastDecision = -1;
-        private float _unexploredDistanceAtLastDecision;
-
-        private void RememberUnexplored()
-        {
-            _unexploredTargetAtLastDecision = _memory.NearestUnexploredTarget;
-            _unexploredDistanceAtLastDecision = _memory.NearestUnexploredDistance;
+                _perception != null && _perception.IsSeeing);
         }
 
         // Visão na decisão anterior: via, e a que distância. O delta de aproximação só é
@@ -833,42 +792,6 @@ namespace Assets.Scripts.Graph
         {
             _wasSeeingAtLastDecision = _perception != null && _perception.IsSeeing;
             _hiderDistanceAtLastDecision = _wasSeeingAtLastDecision ? _perception.CurrentDistance : 0f;
-        }
-
-        // Ping na decisão anterior: qual nó tocava e a que distância em metros pelo grafo. O
-        // delta só é comparável quando é o MESMO ping nas duas decisões — ao chegar (ou expirar)
-        // o alvo some, e um ping novo em outro lugar do mapa faria a distância saltar.
-        private int _pingTargetAtLastDecision = -1;
-        private float _pingDistanceAtLastDecision;
-
-        private void RememberPing()
-        {
-            _pingTargetAtLastDecision = _ping != null && _ping.IsActive ? _ping.TargetNode : -1;
-            _pingDistanceAtLastDecision = _ping != null ? _ping.Distance : 0f;
-        }
-
-        /// <summary>
-        /// Próximo passo do caminho até o não-visitado mais próximo, ou -1 quando não há
-        /// fronteira. O peso da lição NÃO entra aqui: quem zera o shaping é a multiplicação por
-        /// FrontierRewardScale na recompensa, num lugar só.
-        /// </summary>
-        private int FrontierNextStepOrNone() => _memory.HasFrontier ? _memory.FrontierNextStep : -1;
-
-        // Planar (X/Z), pela mesma razão que FindNodeAt é planar: o mapa tem um andar só, e a
-        // diferença de altura entre o agente e o nó entraria no cálculo como distância que
-        // nenhuma ação consegue reduzir — um piso constante que só faria diluir o sinal.
-        private float PlanarDistanceToNode(int node)
-        {
-            Vector3 delta = _graph.NodePosition(node) - transform.position;
-            return new Vector2(delta.x, delta.z).magnitude;
-        }
-
-        private void RememberFrontierApproach()
-        {
-            _frontierNextStepAtLastDecision = FrontierNextStepOrNone();
-            _frontierApproachDistanceAtLastDecision = _frontierNextStepAtLastDecision >= 0
-                ? PlanarDistanceToNode(_frontierNextStepAtLastDecision)
-                : 0f;
         }
 
         // Encostar em parede é condição contínua: OnCollisionStay dispara uma vez por step POR
@@ -916,7 +839,11 @@ namespace Assets.Scripts.Graph
         /// <summary>
         /// Métricas do episódio no TensorBoard, SEPARADAS da recompensa: o Cumulative Reward muda
         /// a cada ajuste de peso, estas não. Compare runs por elas.
-        ///   Exploration/Coverage         cobertura ao fim do episódio (a medida que decide o alvo)
+        ///   Exploration/Coverage         fração das salas concluídas ao fim do episódio (decide o alvo)
+        ///   Rooms/Completed              salas concluídas no episódio (inclui as liberadas e refeitas)
+        ///   Doors/Crossings              travessias de porta no episódio
+        ///   Doors/RepeatFraction         fração das travessias por porta já usada (novidade &lt; 1)
+        ///   Doors/UsedFraction           fração das portas do mapa atravessadas ao menos uma vez
         ///   Exploration/OffNodeFraction  fração dos steps FORA de qualquer área de nó. Perto de 0
         ///                                = o grafo cobre o chão; alto = rode o NavGraphPlacer.
         ///   Exploration/WallContactFraction  fração dos steps encostado em parede (batendo muito = alto)
@@ -935,6 +862,12 @@ namespace Assets.Scripts.Graph
         {
             StatsRecorder stats = Academy.Instance.StatsRecorder;
             stats.Add("Exploration/Coverage", CurrentCoverage);
+            stats.Add("Rooms/Completed", _rooms.RoomsCompletedTotal);
+            stats.Add("Doors/Crossings", _rooms.Crossings);
+            if (_rooms.Crossings > 0)
+                stats.Add("Doors/RepeatFraction", (float)_rooms.RepeatCrossings / _rooms.Crossings);
+            if (_rooms.DoorCount > 0)
+                stats.Add("Doors/UsedFraction", (float)_rooms.DoorsUsed / _rooms.DoorCount);
 
             if (_memory.TickedSteps > 0)
                 stats.Add("Exploration/OffNodeFraction", (float)_memory.OffNodeSteps / _memory.TickedSteps);
@@ -1001,7 +934,7 @@ namespace Assets.Scripts.Graph
         // Erro de wiring em ML-Agents é silencioso e só aparece como treino que não converge.
         private void ValidateSetup()
         {
-            if (_memory == null || _rewardSystem == null || _movementSystem == null)
+            if (_memory == null || _rooms == null || _rewardSystem == null || _movementSystem == null)
             {
                 Debug.LogError($"{name}: sistema do explorador faltando — confira os componentes filhos.", this);
                 return;
@@ -1041,13 +974,23 @@ namespace Assets.Scripts.Graph
                     worstNode);
             }
 
-            // Sem salas numeradas o tédio de área (area_boredom) não tem o que medir: liga no
-            // currículo e não faz nada, em silêncio.
-            if (_graph.MaxAreaId == 0)
+            if (_graph.RoomCount > MaxRooms)
             {
                 Debug.LogWarning(
-                    $"{name}: nenhum nó tem sala (_areaId). O tédio de área fica sem efeito — rode " +
-                    "NavGraphPlacer > \"11. Numerar salas\" antes das lições de patrulha.", this);
+                    $"{name}: o mapa tem {_graph.RoomCount} salas e a planta (BufferSensor) só guarda {MaxRooms} — " +
+                    "as excedentes ficam fora. Suba MaxRooms (e o treino recomeça do zero).", this);
+            }
+
+            // Sala com mais portas que slots: as excedentes não aparecem para o agente.
+            for (int room = 0; room < _graph.RoomCount; room++)
+            {
+                int doorCount = _graph.DoorsOfRoom(room).Length;
+                if (doorCount > DoorSlots)
+                {
+                    Debug.LogWarning(
+                        $"{name}: a sala S{room} tem {doorCount} portas e só há {DoorSlots} slots de porta na " +
+                        "observação — as que sobram ficam invisíveis.", this);
+                }
             }
 
             // Layer "sem punição" fora da máscara de parede do NavGraph: ela nem conta como parede
@@ -1076,7 +1019,7 @@ namespace Assets.Scripts.Graph
             {
                 Debug.LogError(
                     $"{name}: VectorObservationSize = {declared} mas o agente emite {ObservationSize} observações " +
-                    $"({_neighborSlots} slots x {FloatsPerNeighbor} + {GlobalObservations}). " +
+                    $"({GlobalObservations} + {_neighborSlots} vizinhos x {FloatsPerNeighbor} + {DoorSlots} portas x {FloatsPerDoor}). " +
                     "Ajuste no Behavior Parameters, senão o treino roda com o vetor truncado.", this);
             }
 

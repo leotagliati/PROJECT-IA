@@ -17,11 +17,13 @@ namespace Assets.Scripts.Graph
     ///   dado, não resposta. Ele tem que descobrir por qual saída a distância cai, e a
     ///   observação de quente/frio é o que torna isso aprendível sem decorar o mapa.
     ///
-    /// O QUE PAGA (GraphRewardSystem): por METRO de aproximação pelo grafo, um bônus ao chegar,
-    /// e uma penalidade se o ping expirar sem visita. A distância é PELO GRAFO, e não em linha
-    /// reta — contornar uma parede para chegar a uma porta aumenta a euclidiana e diminui a de
-    /// grafo, e a segunda é a que descreve progresso. Em metros, e não em arestas: contar
-    /// arestas fazia o mesmo trajeto pagar 3x mais num corredor com 3x mais nós.
+    /// O QUE PAGA (GraphRewardSystem): um bônus ao chegar e uma penalidade se o ping expirar sem
+    /// visita. Não paga por metro de aproximação (saiu em 01/10: seria seguir um alvo pelo
+    /// caminho que o algoritmo calcula). Quem dá o incentivo do caminho é a SALA do ping: ela
+    /// fica QUENTE (GraphRoomMemory.HeatRoom) e explorá-la vale mais.
+    ///
+    /// ONDE TOCA: num dos nós de ping do EPISÓDIO (NavGraph.DrawEpisodePingNodes, um por sala),
+    /// a pelo menos _minDistanceMeters do agente.
     ///
     /// Tick a cada step de FÍSICA (como a memória): chegada e expiração precisam ser vistas no
     /// step em que acontecem, não na próxima decisão. As flags são ACUMULATIVAS até
@@ -99,6 +101,19 @@ namespace Assets.Scripts.Graph
         /// <summary>Um ping expirou sem visita desde o último <see cref="ClearStepFlags"/>.</summary>
         public bool Missed { get; private set; }
 
+        private int _startedNode = -1;
+
+        /// <summary>
+        /// Nó em que um ping COMEÇOU desde a última consulta, ou -1. Consumido pelo manager a cada
+        /// step de física para esquentar a sala do barulho (GraphRoomMemory.HeatRoom).
+        /// </summary>
+        public int ConsumeStarted()
+        {
+            int node = _startedNode;
+            _startedNode = -1;
+            return node;
+        }
+
         public void Configure(NavGraph graph)
         {
             _graph = graph;
@@ -122,6 +137,7 @@ namespace Assets.Scripts.Graph
             TargetNode = -1;
             Distance = 0f;
             HotCold = 0;
+            _startedNode = -1;
             ClearStepFlags();
 
             _nextPingStep = _interval > 0 ? _firstPingDelay + Jittered(_interval) : int.MaxValue;
@@ -197,6 +213,7 @@ namespace Assets.Scripts.Graph
         {
             IsActive = true;
             TargetNode = target;
+            _startedNode = target;
             HotCold = 0;
             _expiresAtStep = elapsedSteps + _duration;
             _lastDistanceNode = -1;

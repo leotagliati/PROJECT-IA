@@ -178,6 +178,28 @@ namespace Assets.Scripts.Graph
         public void ClearStepFlags() => ClearedMass = 0f;
 
         /// <summary>
+        /// Quão mais suspeita a sala está que a média: (crença média dos nós da sala) / (crença média
+        /// de um nó qualquer). 1 = como qualquer lugar; 3 = três vezes mais provável que o hider esteja
+        /// ali. 0 sem procura. É o que a GraphRoomMemory usa para multiplicar o valor de VER a sala e
+        /// para reabrir sala concluída (a suspeita voltou a crescer ali).
+        /// </summary>
+        public float RoomRatio(int room)
+        {
+            if (!IsActive || _belief == null || room < 0)
+                return 0f;
+
+            int[] nodes = _graph.NodesOfRoom(room);
+            if (nodes.Length == 0)
+                return 0f;
+
+            float mass = 0f;
+            foreach (int node in nodes)
+                mass += _belief[node];
+
+            return mass * _belief.Length / nodes.Length;
+        }
+
+        /// <summary>
         /// Chamar a cada step de física, DEPOIS da memória, do ping e da percepção (usa o que eles
         /// acabaram de medir).
         /// </summary>

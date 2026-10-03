@@ -17,49 +17,29 @@ namespace Assets.Scripts.Graph
         [SerializeField] private GraphHider _hider;
 
         [Header("-----Currículo-----")]
-        // Fração do grafo que conta como episódio resolvido. Vem do currículo; o valor aqui é
-        // o fallback quando você roda a cena sem trainer (Play no editor, inferência).
-        // ACIMA DE 1 (ex.: 1.1) = sem fim por cobertura: o episódio vai até o timeout. É o modo
-        // das lições de PATRULHA, onde o objetivo é manter o mapa vigiado, não terminá-lo.
+        // Fração das SALAS concluídas que encerra o episódio (GraphRoomMemory.CompletedFraction).
+        // Vem do currículo; o valor aqui é o fallback quando você roda a cena sem trainer (Play no
+        // editor, inferência). ACIMA DE 1 (ex.: 1.1) = sem fim por cobertura: o episódio vai até o
+        // timeout. É o modo da patrulha (liberação ligada), onde nada fica concluído para sempre.
         [SerializeField] private string _coverageParameterName = "coverage_target";
         [SerializeField, Range(0.05f, 1.1f)] private float _defaultCoverageTarget = 0.35f;
 
-        // Peso da dica de fronteira. 1 = o agente vê para onde ir; 0 = ele tem que descobrir
-        // sozinho a partir dos vizinhos e do que já visitou. Escala tanto a OBSERVAÇÃO quanto o
-        // shaping de recompensa, de propósito: as duas são a mesma muleta, e desligar só uma
-        // deixa metade da dependência de pé.
-        [SerializeField] private string _frontierParameterName = "frontier_hint";
-        [SerializeField, Range(0f, 1f)] private float _defaultFrontierHint = 1f;
+        // Fração dos nós de uma sala que precisa ser pisada para ela contar como CONCLUÍDA (0.8:
+        // "explorar 80% da sala"). Ver GraphRoomMemory. Sala de 1 nó conclui ao entrar.
+        [SerializeField] private string _roomCompleteParameterName = "room_complete_threshold";
+        [SerializeField, Range(0.05f, 1f)] private float _defaultRoomCompleteThreshold = 0.8f;
 
-        // DURAÇÃO da dica dentro de cada episódio, em steps de FÍSICA (8000 = episódio inteiro
-        // com _maxEpisodeSteps = 8000; 1500 = os primeiros 30 s). 0 = sem limite, a dica dura o
-        // episódio todo. Depois do limite a escala vai a ZERO — observação, shaping e gizmo.
-        //
-        // É o segundo eixo da muleta, independente da força acima: a força diz "quanto confiar
-        // na seta", a duração diz "por quanto tempo ela existe". Dar a dica só no início do
-        // episódio ensina o agente a se orientar com ela e a TERMINAR sem ela — que é a
-        // situação do jogo final, onde não há seta nenhuma. Cortar a força direto para 0.0
-        // numa lição (run 05) derrubou a recompensa de +15 para -3; cortar a duração deixa a
-        // política ver os dois regimes no MESMO episódio, e a transição fica dentro do que ela
-        // já sabe fazer.
-        [SerializeField] private string _frontierStepsParameterName = "frontier_hint_steps";
-        [SerializeField, Min(0)] private int _defaultFrontierHintSteps = 0;
-
-        // Fração dos primários que já NASCE marcada como visitada, sorteada a cada episódio
-        // (lida pela GraphExplorationMemory). É a variação de estado inicial: com 0, todo
-        // episódio começa com o mapa inteiro por fazer e a sequência ótima a partir de cada
-        // spawn é sempre a mesma — a política decora. Com 0.5, o agente nasce no meio de uma
-        // exploração diferente a cada vez e a única coisa que serve em todas é a REGRA
-        // ("vá para a saída não visitada"), que é o que queremos que ele aprenda.
+        // Fração das SALAS que já nasce concluída, sorteada a cada episódio (anti-decoreba: o
+        // agente nasce no meio de uma exploração diferente, e o que serve em todas é a REGRA).
+        // Sempre sobra uma sala por concluir.
         [SerializeField] private string _previsitedParameterName = "previsited_fraction";
         [SerializeField, Range(0f, 0.9f)] private float _defaultPrevisitedFraction = 0f;
 
-        // Variação do PESO dos nós por episódio (lida pela GraphExplorationMemory): cada nó
-        // vale autorado x U[1 - j, 1 + j]. Com 0, o mapa vale sempre o mesmo e a política pode
-        // decorar "aquela sala paga mais"; com 0.5, o peso de um nó vai de metade ao dobro entre
-        // episódios, e a única forma de ganhar é ler o peso do vizinho na observação.
-        [SerializeField] private string _weightJitterParameterName = "weight_jitter";
-        [SerializeField, Range(0f, 1f)] private float _defaultWeightJitter = 0f;
+        // LIBERAÇÃO (patrulha): com esta fração das portas usadas, a porta usada há mais tempo volta
+        // a valer; com esta fração das salas concluídas, a sala concluída há mais tempo volta a ser
+        // explorável. 0 = desligada (exploração pura). Use junto com coverage_target > 1.
+        [SerializeField] private string _releaseParameterName = "release_fraction";
+        [SerializeField, Range(0f, 1f)] private float _defaultReleaseFraction = 0f;
 
         // Intervalo entre PINGS, em steps de física (ver GraphPingSystem). 0 = sem ping. O
         // currículo liga o ping só depois de o agente saber explorar: antes disso ele seria
@@ -92,16 +72,21 @@ namespace Assets.Scripts.Graph
         [SerializeField] private string _discoveryRewardScaleParameterName = "discovery_reward_scale";
         [SerializeField, Min(0f)] private float _defaultDiscoveryRewardScale = 1f;
 
-        // PATRULHA: segundos para um nó visitado recuperar o valor inteiro (ver
-        // GraphExplorationMemory). 0 = desligado: nó visitado nunca mais paga no episódio (o
-        // comportamento da fase de exploração).
-        [SerializeField] private string _valueRecoveryParameterName = "value_recovery_seconds";
-        [SerializeField, Min(0f)] private float _defaultValueRecoverySeconds = 0f;
+        // PING POR SALA (S4): a cada episódio, um nó de cada sala vira nó de ping (onde o ping toca e
+        // onde o hider faz barulho). Sala de UM nó só entra com esta chance — num armário de um
+        // ladrilho o barulho seria sempre no mesmo ponto.
+        [SerializeField] private string _pingSingleRoomChanceParameterName = "ping_single_room_chance";
+        [SerializeField, Range(0f, 1f)] private float _defaultPingSingleRoomChance = 0.5f;
 
-        // TÉDIO DE SALA (NavNode._areaId): 1 liga, 0 desliga. Liga junto com a patrulha — na
-        // exploração pura não faz sentido cansar de uma sala que ainda tem o que ver.
-        [SerializeField] private string _areaBoredomParameterName = "area_boredom";
-        [SerializeField, Range(0, 1)] private int _defaultAreaBoredom = 0;
+        // VER CONTA COMO EXPLORAR (S5): 1 = nós da sala atual que entram no cone de visão contam
+        // como pisados (GraphRoomMemory). Olhar a sala da porta passa a valer.
+        [SerializeField] private string _visionExploresParameterName = "vision_explores";
+        [SerializeField, Range(0, 1)] private int _defaultVisionExplores = 0;
+
+        // HIDER SOLTO (S6): 1 = o hider anda para pontos aleatórios dentro dos nós e se esconde
+        // (GraphHider). 0 = de centro em centro, o hider "de trilho".
+        [SerializeField] private string _hiderLooseParameterName = "hider_loose";
+        [SerializeField, Range(0, 1)] private int _defaultHiderLoose = 0;
 
         // STEERING ASSISTIDO (SeekerMovementSystem.Steer): 0..1, fração da velocidade contra a
         // parede que é removida perto dela (1 = desliza, 0 = bate). A "rodinha de bicicleta":
@@ -155,24 +140,26 @@ namespace Assets.Scripts.Graph
         // Atualizados a cada ResetEpisode e lidos pelo manager ao montar o step context.
         public float CoverageTarget { get; private set; }
 
-        public float FrontierHintScale { get; private set; }
+        /// <summary>Fração dos nós de uma sala que a conclui (0..1).</summary>
+        public float RoomCompleteThreshold { get; private set; }
 
-        /// <summary>Steps de física com a dica ligada por episódio; 0 = o episódio inteiro.</summary>
-        public int FrontierHintSteps { get; private set; }
-
-        /// <summary>Fração dos primários que nasce visitada neste episódio (0..0.9).</summary>
+        /// <summary>Fração das salas que nasce concluída neste episódio (0..0.9).</summary>
         public float PrevisitedFraction { get; private set; }
 
-        /// <summary>Amplitude do sorteio de peso por nó neste episódio (0..1).</summary>
-        public float WeightJitter { get; private set; }
+        /// <summary>Fração de portas/salas usadas que dispara a liberação; 0 = desligada.</summary>
+        public float ReleaseFraction { get; private set; }
 
         /// <summary>Cobertura-alvo acima de 1: o episódio não termina por cobertura (patrulha).</summary>
         public bool EndsOnCoverage => CoverageTarget <= 1f;
 
-        /// <summary>Steps de física para um nó recuperar o valor; 0 = patrulha desligada.</summary>
-        public int ValueRecoverySteps { get; private set; }
+        /// <summary>Chance (0..1) de uma sala de um nó só ter nó de ping no episódio.</summary>
+        public float PingSingleRoomChance { get; private set; }
 
-        public bool AreaBoredom { get; private set; }
+        /// <summary>O que o agente vê na sala atual conta como pisado.</summary>
+        public bool VisionExplores { get; private set; }
+
+        /// <summary>Hider solto (pontos dentro dos nós, esconderijos).</summary>
+        public bool HiderLoose { get; private set; }
 
         /// <summary>Força do steering assistido neste episódio (0..1).</summary>
         public float SteerAssist { get; private set; }
@@ -204,7 +191,7 @@ namespace Assets.Scripts.Graph
                 _hider = GetComponentInChildren<GraphHider>(includeInactive: true);
 
             if (_hider != null)
-                _hider.ResetEpisode(HiderMode, HiderSpeed, HiderNoise, seekerPosition);
+                _hider.ResetEpisode(HiderMode, HiderSpeed, HiderNoise, seekerPosition, HiderLoose);
         }
 
         private void Awake() => EnsureInitialized();
@@ -226,6 +213,10 @@ namespace Assets.Scripts.Graph
         {
             EnsureInitialized();
             ApplyCurriculum();
+
+            // Antes do hider e do ping do agente: os dois perguntam ao grafo onde o barulho pode ser.
+            if (Graph != null)
+                Graph.DrawEpisodePingNodes(PingSingleRoomChance);
 
             if (_floorRenderer != null)
                 _floorRenderer.material.color = _initialFloorColor;
@@ -290,20 +281,48 @@ namespace Assets.Scripts.Graph
 
             graph.EnsureBaked();
 
-            // Até NodeCount tentativas: com nós desligados por uma lição, sortear e rejeitar é
-            // mais simples que manter uma lista de ativos em dia.
-            for (int attempt = 0; attempt < graph.NodeCount; attempt++)
+            // SALA primeiro, por igual, e depois um nó dela: sorteando direto entre os nós, a sala
+            // grande ganhava quase sempre (o corredor de 20 nós nascia 20x mais que um armário de 1)
+            // e o começo do episódio ficava parecido. Com a sala sorteada, todo canto do mapa vira
+            // ponto de partida com a mesma frequência — mais difícil de decorar.
+            int node = RandomSpawnNodeByRoom(graph, -1);
+            if (node < 0)
+                return false;
+
+            position = graph.NodePosition(node) + Vector3.up * _nodeSpawnHeightOffset;
+            rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            return true;
+        }
+
+        /// <summary>
+        /// Sorteia uma sala por igual (diferente de <paramref name="avoidRoom"/>, se houver outra) e um
+        /// nó de spawn válido dela (NavGraph.CanSpawnAt: ativo e com o corpo cabendo). Porta nunca
+        /// (é vão, não sala). -1 se nenhuma sala tem nó de spawn. Usado pelo spawn do agente e do hider.
+        /// </summary>
+        public static int RandomSpawnNodeByRoom(NavGraph graph, int avoidRoom)
+        {
+            int rooms = graph.RoomCount;
+            if (rooms == 0)
+                return -1;
+
+            // Sorteio com rejeição: até 4 voltas no número de salas (sala sem nó com folga, ou a evitada).
+            for (int attempt = 0; attempt < rooms * 4; attempt++)
             {
-                int index = Random.Range(0, graph.NodeCount);
-                if (!graph.CanSpawnAt(index))
+                int room = Random.Range(0, rooms);
+                if (room == avoidRoom && rooms > 1)
                     continue;
 
-                position = graph.NodePosition(index) + Vector3.up * _nodeSpawnHeightOffset;
-                rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-                return true;
+                int[] members = graph.NodesOfRoom(room);
+                int start = Random.Range(0, members.Length);
+                for (int k = 0; k < members.Length; k++)
+                {
+                    int node = members[(start + k) % members.Length];
+                    if (graph.CanSpawnAt(node))
+                        return node;
+                }
             }
 
-            return false;
+            return -1;
         }
 
         private void ApplyCurriculum()
@@ -312,20 +331,16 @@ namespace Assets.Scripts.Graph
 
             // Sem Clamp01: acima de 1 é o "sem fim por cobertura" da patrulha (ver EndsOnCoverage).
             CoverageTarget = Mathf.Max(0.05f, parameters.GetWithDefault(_coverageParameterName, _defaultCoverageTarget));
-            FrontierHintScale = Mathf.Clamp01(parameters.GetWithDefault(_frontierParameterName, _defaultFrontierHint));
+            RoomCompleteThreshold = Mathf.Clamp(
+                parameters.GetWithDefault(_roomCompleteParameterName, _defaultRoomCompleteThreshold), 0.05f, 1f);
 
-            // O currículo entrega float; a contagem é inteira.
-            FrontierHintSteps = Mathf.Max(0, Mathf.RoundToInt(
-                parameters.GetWithDefault(_frontierStepsParameterName, _defaultFrontierHintSteps)));
-
-            // Teto em 0.9 e não 1.0: a memória sempre deixa ao menos um nó por descobrir, mas
-            // com quase tudo pré-visitado o episódio vira "ache o único nó que falta" — que é
+            // Teto em 0.9 e não 1.0: a memória sempre deixa ao menos uma sala por concluir, mas
+            // com quase tudo pré-concluído o episódio vira "ache a única sala que falta" — que é
             // outra tarefa, não exploração.
             PrevisitedFraction = Mathf.Clamp(
                 parameters.GetWithDefault(_previsitedParameterName, _defaultPrevisitedFraction), 0f, 0.9f);
 
-            WeightJitter = Mathf.Clamp01(
-                parameters.GetWithDefault(_weightJitterParameterName, _defaultWeightJitter));
+            ReleaseFraction = Mathf.Clamp01(parameters.GetWithDefault(_releaseParameterName, _defaultReleaseFraction));
 
             PingInterval = Mathf.Max(0, Mathf.RoundToInt(
                 parameters.GetWithDefault(_pingIntervalParameterName, _defaultPingInterval)));
@@ -340,13 +355,12 @@ namespace Assets.Scripts.Graph
             DiscoveryRewardScale = Mathf.Max(0f,
                 parameters.GetWithDefault(_discoveryRewardScaleParameterName, _defaultDiscoveryRewardScale));
 
-            // Segundos no YAML (é como se pensa), steps de física na memória (é como ela conta).
-            float recoverySeconds = Mathf.Max(0f, parameters.GetWithDefault(_valueRecoveryParameterName, _defaultValueRecoverySeconds));
-            ValueRecoverySteps = Mathf.RoundToInt(recoverySeconds / Time.fixedDeltaTime);
-
-            AreaBoredom = parameters.GetWithDefault(_areaBoredomParameterName, _defaultAreaBoredom) >= 0.5f;
-
             SteerAssist = Mathf.Clamp01(parameters.GetWithDefault(_steerAssistParameterName, _defaultSteerAssist));
+
+            PingSingleRoomChance = Mathf.Clamp01(
+                parameters.GetWithDefault(_pingSingleRoomChanceParameterName, _defaultPingSingleRoomChance));
+            VisionExplores = parameters.GetWithDefault(_visionExploresParameterName, _defaultVisionExplores) >= 0.5f;
+            HiderLoose = parameters.GetWithDefault(_hiderLooseParameterName, _defaultHiderLoose) >= 0.5f;
         }
     }
 }

@@ -62,6 +62,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Vendo o hider agora (dentro do cone, com linha de visão livre).</summary>
         public bool IsSeeing { get; private set; }
 
+        /// <summary>Alcance do cone (m). A GraphRoomMemory filtra por ele antes de gastar raycast.</summary>
+        public float ViewDistance => _viewDistance;
+
         /// <summary>Já viu o hider neste episódio.</summary>
         public bool HasSeen { get; private set; }
 

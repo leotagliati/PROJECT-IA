@@ -463,7 +463,7 @@ Transform:
   m_GameObject: {fileID: 233662387229765889}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -22.04691, y: 0, z: 39.51657}
+  m_LocalPosition: {x: -22.04691, y: 0, z: 39.76657}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -481,7 +481,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 7836435339140958764}
   - {fileID: 2732858539794784902}
@@ -489,7 +489,7 @@ MonoBehaviour:
   _explorationWeight: 1.069
   _areaId: 14
   _radiusOverride: 0
-  _areaSize: {x: 10, y: 5}
+  _areaSize: {x: 9, y: 4}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &284115013871327999
 GameObject:
@@ -535,7 +535,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors:
   - {fileID: 3947371440737353280}
   _isEnabled: 1
@@ -1759,7 +1759,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Policies.BehaviorParameters
   m_BrainParameters:
-    VectorObservationSize: 118
+    VectorObservationSize: 182
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 4
@@ -1845,13 +1845,13 @@ MonoBehaviour:
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
   _memory: {fileID: 7392856721570207913}
+  _rooms: {fileID: 0}
   _rewardSystem: {fileID: 277864442889337136}
   _movementSystem: {fileID: 3835614860141840698}
   _arenaController: {fileID: 7885477933281133506}
   _ping: {fileID: 817079277137766353}
   _perception: {fileID: 6262948416247436269}
   _suspicion: {fileID: 1513707663399678362}
-  _coverageMeasure: 1
   _neighborSlots: 8
   _maxNodeDistance: 35
   _revisitSaturation: 4
@@ -1876,21 +1876,10 @@ MonoBehaviour:
   _drawGizmos: 1
   _drawVisitedNodes: 1
   _drawPendingNodes: 1
-  _drawAuxiliaryNodes: 1
-  _drawTraversedEdges: 1
-  _drawFrontier: 1
   _heatSaturationVisits: 5
-  _frontierFollowsExits: 1
-  _frontierCandidates: 3
-  _exitHalfLifeMeters: 20
-  _revisitValueFraction: 0.3
-  _recoveryDelaySteps: 1500
   _earlyRevisitWindowSteps: 750
   _flickerWindowSteps: 100
   _flickerDistance: 1
-  _boredomRiseSteps: 1500
-  _boredomDecaySteps: 6000
-  _boredomDecayDelaySteps: 1000
 --- !u!114 &277864442889337136
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1911,24 +1900,21 @@ MonoBehaviour:
   _lookChangePenalty: 0.00025
   _stagnationPenalty: 0.0005
   _stagnationSteps: 1250
-  _revisitPenalty: 0
   _earlyRevisitPenalty: 0.05
   _earlyRevisitGrace: 3
-  _boredomPenalty: 0.00025
-  _boredomThreshold: 0.7
-  _nodeCoverageReward: 0.75
-  _newEdgeReward: 0.05
+  _roomExploreReward: 0.25
+  _completedRoomNodeFraction: 0.2
+  _roomCompletedReward: 0.25
+  _doorCrossReward: 0.1
+  _roomExitReward: 0.15
   _fullCoverageReward: 5
-  _frontierProgressPerMeter: 0.007
-  _frontierApproachReward: 0.02
-  _unexploredProgressPerMeter: 0.01
-  _pingApproachPerMeter: 0.015
   _pingReachedReward: 2
   _pingMissedPenalty: 0.5
-  _hiderSpottedReward: 0.5
-  _hiderApproachReward: 0.05
-  _hiderCaughtReward: 10
-  _hiderCaughtEarlyBonus: 15
+  _hiderSpottedReward: 1
+  _hiderApproachReward: 0.1
+  _hiderCaughtReward: 20
+  _hiderInViewReward: 0.003
+  _hiderCaughtEarlyBonus: 25
   _suspicionClearedReward: 0.5
 --- !u!114 &3835614860141840698
 MonoBehaviour:
@@ -2171,7 +2157,7 @@ GameObject:
   - component: {fileID: 4636907866514501038}
   - component: {fileID: 6673180376779451623}
   - component: {fileID: 6091088011251388837}
-  m_Layer: 0
+  m_Layer: 2
   m_Name: Hider
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2313,6 +2299,10 @@ MonoBehaviour:
   _maxPauseSteps: 100
   _heightOffset: 0.15
   _fleeRadius: 12
+  _looseMargin: 0.6
+  _hideChance: 0.5
+  _hideCandidates: 6
+  _hidePauseMultiplier: 3
   _minSpawnDistanceMeters: 40
   _graph: {fileID: 9031132398222543802}
   _seeker: {fileID: 3650382637963131999}
@@ -2446,7 +2436,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 3330790493795175770}
   - {fileID: 1635000426757149004}
@@ -2736,7 +2726,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 7963320815770700765}
   - {fileID: 4989226686148064087}
@@ -2900,7 +2890,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kind: 1
   _neighbors:
-  - {fileID: 9004460076366354077}
   - {fileID: 2981211001165748174}
   - {fileID: 5161825432252444428}
   _isEnabled: 1
@@ -3471,7 +3460,7 @@ MonoBehaviour:
   _explorationWeight: 1
   _areaId: 10
   _radiusOverride: 0
-  _areaSize: {x: 7, y: 7}
+  _areaSize: {x: 6, y: 6}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &1462514467459216296
 GameObject:
@@ -3570,7 +3559,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 1696614471576021596}
   - {fileID: 8696541171800868413}
@@ -3831,6 +3820,7 @@ MonoBehaviour:
   - {fileID: 8400321967789619236}
   - {fileID: 8104193661529251356}
   - {fileID: 8473043518437825658}
+  - {fileID: 9161224642205800765}
   - {fileID: 5293106775744284120}
   - {fileID: 8880509032424451636}
   - {fileID: 7963320815770700765}
@@ -3845,7 +3835,6 @@ MonoBehaviour:
   - {fileID: 6070420814948198478}
   - {fileID: 2717749901410242552}
   - {fileID: 512267085949129916}
-  - {fileID: 1519447640129870143}
   - {fileID: 6129871774030781678}
   - {fileID: 174701390153898134}
   - {fileID: 7351442272307350220}
@@ -3969,14 +3958,12 @@ MonoBehaviour:
   _makeLinksBidirectional: 1
   _autoCollectNodes: 1
   _nodeShape: 2
-  _explorationNodeScore: 1
-  _auxiliaryNodeScore: 0
   _pingNodeScore: 1
   _defaultPrimaryRadius: 1.8
   _defaultAuxiliaryRadius: 3
   _wallLayer:
     serializedVersion: 2
-    m_Bits: 8
+    m_Bits: 136
   _linkProbeHeight: 0.5
   _linkClearance: 0.85
   _bodyBottom: -1.6
@@ -3990,6 +3977,7 @@ MonoBehaviour:
   _autoLinkMaxDistance: 8
   _drawGizmos: 1
   _drawNodeRadii: 1
+  _drawRoomLabels: 1
   _primaryRadiusColor: {r: 0, g: 0.9245283, b: 0.051111866, a: 0.55}
   _auxiliaryRadiusColor: {r: 0.5882068, g: 0.54901963, b: 0.72156864, a: 0.22}
   _pingRadiusColor: {r: 1, g: 0.45, b: 0.8, a: 0.5}
@@ -4015,8 +4003,6 @@ MonoBehaviour:
   _minNodeGain: 4
   _overlapPenalty: 0.15
   _primaryWeightBudget: 23
-  _areaWeightExponent: 0.5
-  _doorTileMaxArea: 4
   _generationStep: 0.3
   _generationHeight: 0
   _primarySpacing: 10
@@ -4601,7 +4587,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 7615299251802356975}
   _isEnabled: 1
@@ -4742,7 +4728,7 @@ Transform:
   m_GameObject: {fileID: 2181526836775509089}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 67.953094, y: 0, z: -10.233429}
+  m_LocalPosition: {x: 68.203094, y: 0, z: -10.233429}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4816,7 +4802,6 @@ MonoBehaviour:
   _neighbors:
   - {fileID: 8593498757445331296}
   - {fileID: 3343464388270193895}
-  - {fileID: 2981211001165748174}
   - {fileID: 6387331458751485202}
   _isEnabled: 1
   _explorationWeight: 1
@@ -4875,58 +4860,6 @@ MonoBehaviour:
   _areaId: 0
   _radiusOverride: 0
   _areaSize: {x: 0.5, y: 2}
-  _areaOffset: {x: 0, y: 0}
---- !u!1 &2287261501601401371
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 5125707347481210176}
-  - component: {fileID: 1519447640129870143}
-  m_Layer: 0
-  m_Name: Node (79)
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &5125707347481210176
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2287261501601401371}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 47.940594, y: 0, z: -41.73343}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 980939743398776141}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1519447640129870143
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2287261501601401371}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _kind: 1
-  _neighbors: []
-  _isEnabled: 1
-  _explorationWeight: 1
-  _areaId: 6
-  _radiusOverride: 0
-  _areaSize: {x: 7, y: 7}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &2288469391714577621
 GameObject:
@@ -5410,7 +5343,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 198649619171929155}
   - {fileID: 4965584442969329997}
@@ -5766,7 +5699,7 @@ Transform:
   m_GameObject: {fileID: 2778166857137687546}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -20.54691, y: 0, z: 47.51657}
+  m_LocalPosition: {x: -21.54691, y: 0, z: 47.51657}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -5784,14 +5717,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 494000548430784485}
   _isEnabled: 1
   _explorationWeight: 1.242
   _areaId: 13
   _radiusOverride: 0
-  _areaSize: {x: 9, y: 7.5}
+  _areaSize: {x: 8, y: 7}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &2824315381058985514
 GameObject:
@@ -6756,14 +6689,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors:
   - {fileID: 4139279622439640848}
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 1, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &2864911780154654030
 GameObject:
@@ -6917,7 +6850,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 4010836413876120881}
   - {fileID: 3343464388270193895}
@@ -9789,7 +9722,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors:
   - {fileID: 9007133928811323301}
   _isEnabled: 1
@@ -9896,7 +9829,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kind: 1
   _neighbors:
-  - {fileID: 1519447640129870143}
   - {fileID: 2697551379471475970}
   _isEnabled: 1
   _explorationWeight: 0.98
@@ -10327,12 +10259,11 @@ MonoBehaviour:
   _kind: 1
   _neighbors:
   - {fileID: 8696541171800868413}
-  - {fileID: 8104193661529251356}
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 6
   _radiusOverride: 0
-  _areaSize: {x: 7, y: 5}
+  _areaSize: {x: 8, y: 5}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &3681309603570924357
 GameObject:
@@ -10520,7 +10451,7 @@ Transform:
   m_GameObject: {fileID: 3786385673588480299}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -12.296909, y: 0, z: -0.23342896}
+  m_LocalPosition: {x: -12.046909, y: 0, z: -0.23342896}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -10544,7 +10475,7 @@ MonoBehaviour:
   _explorationWeight: 0.262
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 1, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &3828923393069595345
 GameObject:
@@ -10696,6 +10627,7 @@ Transform:
   - {fileID: 5668992708855257137}
   - {fileID: 7878195563226443529}
   - {fileID: 852439791884061345}
+  - {fileID: 9058336869625152094}
   - {fileID: 6681847378970344811}
   - {fileID: 6685834067399657901}
   - {fileID: 5198833558882471853}
@@ -10710,7 +10642,6 @@ Transform:
   - {fileID: 6786121594761521484}
   - {fileID: 3115060302694066790}
   - {fileID: 8851744042633715747}
-  - {fileID: 5125707347481210176}
   - {fileID: 5371814363068766780}
   - {fileID: 1295949307259401978}
   - {fileID: 3576734364207633726}
@@ -11550,8 +11481,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _kind: 1
-  _neighbors:
-  - {fileID: 7033946561710910098}
+  _neighbors: []
   _isEnabled: 1
   _explorationWeight: 0.579
   _areaId: 12
@@ -11728,7 +11658,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kind: 1
   _neighbors:
-  - {fileID: 0}
   - {fileID: 1538494310027371178}
   - {fileID: 3189877256884015052}
   _isEnabled: 1
@@ -12545,7 +12474,7 @@ MonoBehaviour:
   _explorationWeight: 1
   _areaId: 6
   _radiusOverride: 0
-  _areaSize: {x: 7, y: 5}
+  _areaSize: {x: 5, y: 5}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &5214851961317460473
 GameObject:
@@ -12593,7 +12522,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kind: 1
   _neighbors:
-  - {fileID: 6000892107223148689}
   - {fileID: 5161825432252444428}
   - {fileID: 5781394942663246241}
   _isEnabled: 1
@@ -13091,7 +13019,7 @@ MonoBehaviour:
   _explorationWeight: 0.262
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 1, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &5381523339265392400
 GameObject:
@@ -15016,14 +14944,12 @@ MonoBehaviour:
   _hider: {fileID: 0}
   _coverageParameterName: coverage_target
   _defaultCoverageTarget: 0.35
-  _frontierParameterName: frontier_hint
-  _defaultFrontierHint: 1
-  _frontierStepsParameterName: frontier_hint_steps
-  _defaultFrontierHintSteps: 0
+  _roomCompleteParameterName: room_complete_threshold
+  _defaultRoomCompleteThreshold: 0.8
   _previsitedParameterName: previsited_fraction
   _defaultPrevisitedFraction: 0
-  _weightJitterParameterName: weight_jitter
-  _defaultWeightJitter: 0
+  _releaseParameterName: release_fraction
+  _defaultReleaseFraction: 0
   _pingIntervalParameterName: ping_interval
   _defaultPingInterval: 0
   _hiderModeParameterName: hider_mode
@@ -15036,10 +14962,12 @@ MonoBehaviour:
   _defaultPingRewardScale: 1
   _discoveryRewardScaleParameterName: discovery_reward_scale
   _defaultDiscoveryRewardScale: 1
-  _valueRecoveryParameterName: value_recovery_seconds
-  _defaultValueRecoverySeconds: 0
-  _areaBoredomParameterName: area_boredom
-  _defaultAreaBoredom: 0
+  _pingSingleRoomChanceParameterName: ping_single_room_chance
+  _defaultPingSingleRoomChance: 0.5
+  _visionExploresParameterName: vision_explores
+  _defaultVisionExplores: 0
+  _hiderLooseParameterName: hider_loose
+  _defaultHiderLoose: 0
   _steerAssistParameterName: steer_assist
   _defaultSteerAssist: 0
   _spawnAtRandomNode: 1
@@ -16442,7 +16370,7 @@ Transform:
   m_GameObject: {fileID: 7849677705457419324}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -12.046909, y: 0, z: -8.233429}
+  m_LocalPosition: {x: -12.296909, y: 0, z: -8.233429}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -16466,7 +16394,7 @@ MonoBehaviour:
   _explorationWeight: 0.262
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 1, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &7861014638953517333
 GameObject:
@@ -17093,7 +17021,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _kind: 0
-  _neighbors: []
+  _neighbors:
+  - {fileID: 3330790493795175770}
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 0
@@ -17144,7 +17073,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 0
+  _kind: 1
   _neighbors:
   - {fileID: 9025271581998614584}
   _isEnabled: 1
@@ -17283,13 +17212,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors: []
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 0.5, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &8188224080382391379
 GameObject:
@@ -17689,7 +17618,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors:
   - {fileID: 3560195132384974544}
   _isEnabled: 1
@@ -17832,7 +17761,7 @@ Transform:
   m_GameObject: {fileID: 8501802810822305600}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -27.79691, y: 0, z: 39.76657}
+  m_LocalPosition: {x: -27.79691, y: 0.25, z: 39.76657}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -17850,14 +17779,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _kind: 1
+  _kind: 0
   _neighbors:
   - {fileID: 5948995944930403890}
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 0
   _radiusOverride: 0
-  _areaSize: {x: 0.5, y: 3}
+  _areaSize: {x: 0.5, y: 2}
   _areaOffset: {x: 0, y: 0}
 --- !u!1 &8571961596684037007
 GameObject:
@@ -18337,6 +18266,60 @@ MonoBehaviour:
   _radiusOverride: 0
   _areaSize: {x: 7, y: 7.5}
   _areaOffset: {x: 0, y: 0}
+--- !u!1 &9005307053443188241
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9058336869625152094}
+  - component: {fileID: 9161224642205800765}
+  m_Layer: 0
+  m_Name: Node (143)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9058336869625152094
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9005307053443188241}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 61.190594, y: 0, z: -14.233429}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 980939743398776141}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &9161224642205800765
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9005307053443188241}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7f657dca24c0e4947ac23a4aa73d45f2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _kind: 1
+  _neighbors:
+  - {fileID: 5293106775744284120}
+  - {fileID: 8473043518437825658}
+  _isEnabled: 1
+  _explorationWeight: 1
+  _areaId: 6
+  _radiusOverride: 0
+  _areaSize: {x: 5, y: 5}
+  _areaOffset: {x: 0, y: 0}
 --- !u!1 &9020881195423980733
 GameObject:
   m_ObjectHideFlags: 0
@@ -18468,7 +18451,6 @@ MonoBehaviour:
   _neighbors:
   - {fileID: 3343464388270193895}
   - {fileID: 43673432194033556}
-  - {fileID: 6387331458751485202}
   _isEnabled: 1
   _explorationWeight: 1
   _areaId: 5
