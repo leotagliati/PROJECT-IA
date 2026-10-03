@@ -37,8 +37,13 @@ namespace Assets.Scripts.Graph
 
     /// <summary>
     /// Consolida os <see cref="NavNode"/> de UMA arena num grafo consultável: índices,
-    /// adjacência, pesos, áreas e busca em largura. É estrutura do mapa, não estado de agente — o que
-    /// o agente já visitou mora na <see cref="GraphExplorationMemory"/>, uma por agente.
+    /// adjacência, SALAS, áreas e caminho mais curto. É estrutura do mapa, não estado de agente — o
+    /// que o agente já visitou mora na <see cref="GraphExplorationMemory"/> e na
+    /// <see cref="GraphRoomMemory"/>, uma de cada por agente.
+    ///
+    /// SALAS (docs/graph/salas-e-portas.md): no bake, as PORTAS (NodeKind.Door) são tiradas e cada
+    /// pedaço conexo que sobra vira uma sala (ou corredor). Ninguém numera sala à mão: mexeu nos
+    /// nós ou nas ligações, o próximo Play recalcula.
     ///
     /// Existe um NavGraph por cópia da arena; os índices são locais a ele, então nove arenas na
     /// cena não compartilham nada (mesmo motivo pelo qual a grade do seeker é relativa à arena).
@@ -71,31 +76,11 @@ namespace Assets.Scripts.Graph
         // sem retângulo.
         [SerializeField] private NodeShape _nodeShape = NodeShape.Circle;
 
-        [Header("-----Pontuação por tipo de nó-----")]
-        // QUANTO CADA TIPO DE NÓ VALE, num lugar só. O valor final de um nó é
-        //   pontuação do tipo x peso do nó (NavNode._explorationWeight; o auxiliar ignora o peso)
-        // e o GraphRewardSystem converte em recompensa com UM fator por evento:
-        //   descoberta (exploração e auxiliar) -> x _nodeCoverageReward (0.75)
-        //   ping atendido                      -> x _pingReachedReward (2)
-        // Três escopos, três alavancas: aqui você diz quanto um TIPO vale em relação a outro; o
-        // peso diz quanto um NÓ vale dentro do tipo; o reward system diz quanto isso vale contra
-        // as penalidades.
-        //
-        // EXPLORAÇÃO: 1 = o comportamento de antes deste campo. A cobertura (a barra que encerra
-        // o episódio) é medida só nestes nós, e numa FRAÇÃO — mudar este número muda o quanto
-        // cada descoberta paga, não quanto falta cobrir.
-        [SerializeField, Min(0f)] private float _explorationNodeScore = 1f;
-
-        // AUXILIAR: pago uma vez por episódio ao PISAR pela primeira vez em cada auxiliar. 0 =
-        // a malha é grátis (o de sempre). Cuidado com a conta: o ladrilhamento cria centenas de
-        // auxiliares, então o teto é pontuação x quantidade x 0.75 — com 300 ladrilhos, 0.01 já
-        // soma +2.25 por episódio, a mesma ordem da pressão existencial (-2). A densidade da
-        // malha vira recompensa: re-ladrilhar com _maxTileSize menor aumenta o teto.
-        [SerializeField, Min(0f)] private float _auxiliaryNodeScore = 0f;
-
-        // PING: multiplica o prêmio de ATENDER o ping (chegar no nó enquanto ele toca). Não paga
-        // descoberta. 1 = o comportamento de antes (2.0 por ping com peso 1). Sem nó de ping no
-        // grafo, o ping sorteia entre os de exploração e vale esta pontuação sem o peso deles.
+        [Header("-----Ping-----")]
+        // Multiplica o prêmio de ATENDER o ping (chegar no nó enquanto ele toca). 1 = 2.0 por
+        // ping (GraphRewardSystem._pingReachedReward). A pontuação por TIPO de nó e o peso por
+        // nó (descoberta = pontuação x peso, com o peso gravado pela área do ladrilho) saíram com
+        // as salas: quem paga exploração agora é a GraphRoomMemory, e toda sala vale o mesmo.
         [SerializeField, Min(0f)] private float _pingNodeScore = 1f;
 
         [Header("-----Raio padrão (Círculo/Quadrado)-----")]
@@ -103,7 +88,7 @@ namespace Assets.Scripts.Graph
         // dois no mesmo campo obrigaria a corrigir um deles nó a nó, no override — e replicar um
         // valor por nó é a forma mais rápida de dois nós discordarem sobre ele.
         //
-        // PRIMÁRIO — certifica presença, então quer ficar APERTADO:
+        // PRIMÁRIO (porta e ping) — certifica presença, então quer ficar APERTADO:
         //   - grande demais: o raio do vizinho encosta no dele, a chegada acontece no meio do
         //     caminho e "visitado" deixa de significar "estive lá";
         //   - pequeno demais: ele passa reto e a visita nunca é registrada.
@@ -210,6 +195,12 @@ namespace Assets.Scripts.Graph
         // dois discos de PRIMÁRIO encostando significa que a chegada acontece no meio do caminho.
         [SerializeField] private bool _drawNodeRadii = true;
 
+        // Rótulo "S#" no centro de cada sala calculada (o número que o Console e a memória usam).
+        // Só lido no editor (Handles), daí o pragma no build.
+#pragma warning disable CS0414
+        [SerializeField] private bool _drawRoomLabels = true;
+#pragma warning restore CS0414
+
         // Cor do disco por PAPEL. São dois canais visuais diferentes de propósito:
         //   o PONTO do nó continua na cor da REGIÃO (quem desenha é o NavNode),
         //   o DISCO diz o papel — e o disco é o que se lê olhando o mapa de cima, porque é
@@ -219,6 +210,7 @@ namespace Assets.Scripts.Graph
         // Evite verde, laranja, amarelo, magenta e branco: essas cinco já significam outra coisa
         // nos gizmos de Play (visitado, revisitado, âncora, fronteira, aresta percorrida). Uma
         // cor com dois significados é pior que nenhuma cor, porque você calibra olhando pra ela.
+        // Azul-claro = PORTA (o nome do campo é o antigo, para não perder o valor salvo).
         [SerializeField] private Color _primaryRadiusColor = new Color(0.25f, 0.75f, 0.95f, 0.55f);
 
         // Bem apagado: a malha é cenário. Se ela competir visualmente com os primários, você
@@ -252,7 +244,6 @@ namespace Assets.Scripts.Graph
         private float[] _pathCost;
         private int[] _pathStampOf;    // carimbo: o nó já foi alcançado nesta busca
         private bool[] _pathClosed;
-        private int[] _pathCandidates;
         private int[] _heapNode;
         private float[] _heapCost;
         private int _heapCount;
@@ -415,12 +406,6 @@ namespace Assets.Scripts.Graph
 
         public int NodeCount => _nodes.Count;
 
-        /// <summary>Maior ID de sala do grafo (0 = nenhum nó tem sala). Fotografado no bake.</summary>
-        public int MaxAreaId { get; private set; }
-
-        /// <summary>ID da sala do nó (0 = nenhuma: corredor, vão). Ver NavNode._areaId.</summary>
-        public int AreaOf(int index) => _nodes[index].AreaId;
-
         public IReadOnlyList<NavNode> Nodes => _nodes;
 
         // Conjunto da lista, para o gizmo de cada NavNode perguntar "estou no grafo?" sem varrer
@@ -474,7 +459,6 @@ namespace Assets.Scripts.Graph
             _pathCost = new float[_nodes.Count];
             _pathStampOf = new int[_nodes.Count];
             _pathClosed = new bool[_nodes.Count];
-            _pathCandidates = new int[_nodes.Count];
 
             // Heap "preguiçoso": uma entrada por relaxamento, as velhas são puladas ao sair. O
             // teto é uma entrada por aresta dirigida + a origem.
@@ -484,10 +468,8 @@ namespace Assets.Scripts.Graph
             _pathDiameter = -1f;
             _spawnable = null;
 
-            MaxAreaId = 0;
-            foreach (NavNode node in _nodes)
-                MaxAreaId = Mathf.Max(MaxAreaId, node.AreaId);
             _hasPingNodes = HasPingNodes;
+            BuildRooms();
             _isBaked = true;
 
             ValidateBakedGraph();
@@ -541,6 +523,258 @@ namespace Assets.Scripts.Graph
                     _adjacencyLength[i][k] = new Vector2(delta.x, delta.z).magnitude;
                 }
             }
+        }
+
+        // ================================================================================
+        // Salas e portas
+        // ================================================================================
+
+        // Sala de cada nó (-1 = porta). Calculada sobre TODOS os nós, ativos ou não: é estrutura do
+        // mapa, e uma lição que desliga um nó não pode renumerar as salas no meio do treino.
+        private int[] _roomOf;
+        private int[][] _roomNodes;     // nós (não-porta) de cada sala
+        private int[][] _roomDoors;     // portas que encostam em cada sala
+        private int[][] _doorRooms;     // por nó: as salas que a porta liga (vazio para não-porta)
+        private Vector3[] _roomCentroid;
+        private int[][] _roomNeighbors; // salas ligadas por uma porta
+        private static readonly int[] NoRooms = new int[0];
+
+        /// <summary>Quantas salas (corredores incluídos) o grafo tem.</summary>
+        public int RoomCount => _roomNodes != null ? _roomNodes.Length : 0;
+
+        /// <summary>Sala do nó; -1 para porta.</summary>
+        public int RoomOf(int index) => _roomOf[index];
+
+        /// <summary>Nós (não-porta) da sala.</summary>
+        public int[] NodesOfRoom(int room) => _roomNodes[room];
+
+        /// <summary>Portas que encostam na sala (as entradas/saídas dela).</summary>
+        public int[] DoorsOfRoom(int room) => _roomDoors[room];
+
+        /// <summary>Salas que a porta liga (normalmente duas). Vazio para nó que não é porta.</summary>
+        public int[] RoomsOfDoor(int door) => _doorRooms[door];
+
+        /// <summary>Centro (média das posições dos nós) da sala — origem estável para ordenar as portas dela.</summary>
+        public Vector3 RoomCentroid(int room) => _roomCentroid[room];
+
+        /// <summary>
+        /// A outra sala que a porta liga, vista de <paramref name="room"/>; -1 se a porta não liga
+        /// essa sala a outra.
+        /// </summary>
+        public int OtherRoom(int door, int room)
+        {
+            int[] rooms = _doorRooms[door];
+            if (rooms.Length != 2)
+                return -1;
+
+            if (rooms[0] == room)
+                return rooms[1];
+
+            return rooms[1] == room ? rooms[0] : -1;
+        }
+
+        // O nó pertence à sala ou é uma porta dela? É o filtro da busca dentro de uma sala.
+        private bool TouchesRoom(int node, int room)
+        {
+            if (_roomOf[node] == room)
+                return true;
+
+            int[] rooms = _doorRooms[node];
+            for (int i = 0; i < rooms.Length; i++)
+            {
+                if (rooms[i] == room)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Tira as portas e numera os pedaços conexos que sobram (BFS). A mesma ideia do antigo
+        /// menu "11. Numerar salas" do NavGraphPlacer, agora em runtime e pela marcação de
+        /// PORTA, não pelo nome do batente nem pelo tamanho do ladrilho.
+        /// </summary>
+        private void BuildRooms()
+        {
+            int count = _nodes.Count;
+            _roomOf = new int[count];
+            for (int i = 0; i < count; i++)
+                _roomOf[i] = -1;
+
+            var rooms = new List<List<int>>();
+            var queue = new Queue<int>();
+            for (int start = 0; start < count; start++)
+            {
+                if (_nodes[start].IsDoor || _roomOf[start] >= 0)
+                    continue;
+
+                var members = new List<int>();
+                int room = rooms.Count;
+                _roomOf[start] = room;
+                queue.Enqueue(start);
+                while (queue.Count > 0)
+                {
+                    int current = queue.Dequeue();
+                    members.Add(current);
+                    foreach (int next in _adjacency[current])
+                    {
+                        if (_nodes[next].IsDoor || _roomOf[next] >= 0)
+                            continue;
+
+                        _roomOf[next] = room;
+                        queue.Enqueue(next);
+                    }
+                }
+
+                rooms.Add(members);
+            }
+
+            _roomNodes = new int[rooms.Count][];
+            _roomCentroid = new Vector3[rooms.Count];
+            var doorsOfRoom = new List<int>[rooms.Count];
+            for (int r = 0; r < rooms.Count; r++)
+            {
+                _roomNodes[r] = rooms[r].ToArray();
+                doorsOfRoom[r] = new List<int>();
+
+                Vector3 sum = Vector3.zero;
+                foreach (int node in _roomNodes[r])
+                    sum += _nodes[node].Position;
+                _roomCentroid[r] = sum / Mathf.Max(1, _roomNodes[r].Length);
+            }
+
+            _doorRooms = new int[count][];
+            for (int i = 0; i < count; i++)
+            {
+                if (!_nodes[i].IsDoor)
+                {
+                    _doorRooms[i] = NoRooms;
+                    continue;
+                }
+
+                var touching = new List<int>();
+                foreach (int next in _adjacency[i])
+                {
+                    int room = _roomOf[next];
+                    if (room >= 0 && !touching.Contains(room))
+                        touching.Add(room);
+                }
+
+                _doorRooms[i] = touching.ToArray();
+                foreach (int room in touching)
+                    doorsOfRoom[room].Add(i);
+            }
+
+            _roomDoors = new int[rooms.Count][];
+            var neighbors = new List<int>[rooms.Count];
+            for (int r = 0; r < rooms.Count; r++)
+            {
+                _roomDoors[r] = doorsOfRoom[r].ToArray();
+                neighbors[r] = new List<int>();
+            }
+
+            for (int r = 0; r < rooms.Count; r++)
+            {
+                foreach (int door in _roomDoors[r])
+                {
+                    int other = OtherRoom(door, r);
+                    if (other >= 0 && !neighbors[r].Contains(other))
+                        neighbors[r].Add(other);
+                }
+            }
+
+            _roomNeighbors = new int[rooms.Count][];
+            for (int r = 0; r < rooms.Count; r++)
+                _roomNeighbors[r] = neighbors[r].ToArray();
+        }
+
+        /// <summary>
+        /// Quantas PORTAS separam cada sala de <paramref name="fromRoom"/> (BFS no grafo de salas; -1 =
+        /// inalcançável). É a "planta do prédio" que o agente conhece: a que distância, em salas, fica
+        /// cada uma. Preenche <paramref name="hops"/> (tamanho RoomCount).
+        /// </summary>
+        public void RoomHops(int fromRoom, int[] hops)
+        {
+            for (int r = 0; r < hops.Length; r++)
+                hops[r] = -1;
+
+            if (fromRoom < 0 || fromRoom >= RoomCount)
+                return;
+
+            var queue = new Queue<int>();
+            hops[fromRoom] = 0;
+            queue.Enqueue(fromRoom);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                foreach (int next in _roomNeighbors[current])
+                {
+                    if (hops[next] >= 0)
+                        continue;
+
+                    hops[next] = hops[current] + 1;
+                    queue.Enqueue(next);
+                }
+            }
+        }
+
+        // Erro de autoria em salas é silencioso do mesmo jeito: uma porta que não separa duas
+        // salas não paga travessia nunca, e uma sala sem porta nunca é "saída". Grita no Play.
+        private void ValidateRooms()
+        {
+            if (RoomCount == 0)
+            {
+                Debug.LogError($"{name}: nenhuma sala — todo nó é porta? Marque o chão como Auxiliar.", this);
+                return;
+            }
+
+            int doors = 0;
+            int maxDoors = 0;
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                if (!_nodes[i].IsDoor)
+                    continue;
+
+                doors++;
+                int[] rooms = _doorRooms[i];
+                if (rooms.Length != 2)
+                {
+                    string why = rooms.Length == 0 ? "não encosta em sala nenhuma"
+                        : rooms.Length == 1 ? "tem os DOIS lados na mesma sala (uma ligação contorna o vão?) ou só um lado ligado"
+                        : $"liga {rooms.Length} salas";
+                    Debug.LogWarning($"{name}: a porta '{_nodes[i].name}' {why}. Ela não paga travessia como deveria.", _nodes[i]);
+                }
+
+                foreach (int next in _adjacency[i])
+                {
+                    if (_nodes[next].IsDoor && next > i)
+                    {
+                        Debug.LogWarning(
+                            $"{name}: as portas '{_nodes[i].name}' e '{_nodes[next].name}' estão ligadas direto — " +
+                            "entre duas portas tem que haver chão de sala.", _nodes[i]);
+                    }
+                }
+            }
+
+            for (int r = 0; r < RoomCount; r++)
+            {
+                maxDoors = Mathf.Max(maxDoors, _roomDoors[r].Length);
+                if (_roomDoors[r].Length == 0 && RoomCount > 1)
+                {
+                    Debug.LogWarning(
+                        $"{name}: a sala de '{_nodes[_roomNodes[r][0]].name}' não tem porta — está isolada do resto.",
+                        _nodes[_roomNodes[r][0]]);
+                }
+            }
+
+            if (doors == 0)
+            {
+                Debug.LogError(
+                    $"{name}: nenhuma PORTA no grafo — o mapa inteiro vira uma sala só. Marque os nós dos vãos " +
+                    "como \"Porta\".", this);
+            }
+
+            Debug.Log($"{name}: {RoomCount} sala(s), {doors} porta(s), no máximo {maxDoors} porta(s) por sala.", this);
         }
 
         /// <summary>
@@ -621,41 +855,16 @@ namespace Assets.Scripts.Graph
 
         public bool IsNodeEnabled(int index) => _nodes[index].IsEnabled;
 
-        /// <summary>
-        /// Nó primário (ponto de vantagem) ou auxiliar (guia)? Cobertura, peso, alvo de
-        /// fronteira e recompensa de aresta são todos privilégio do primário.
-        /// </summary>
-        public bool IsNodePrimary(int index) => _nodes[index].IsPrimary;
+        /// <summary>O nó é PORTA (corta o grafo em salas; paga ao ser atravessado)?</summary>
+        public bool IsDoor(int index) => _nodes[index].IsDoor;
 
         public int[] GetNeighbors(int index) => _adjacency[index];
 
         /// <summary>
-        /// Quanto vale DESCOBRIR o nó (primeira visita no episódio), já com a pontuação do tipo:
-        /// exploração = pontuação x peso; auxiliar = pontuação do tipo (0 por padrão); ping = 0
-        /// (ele paga ao ser ATENDIDO, ver <see cref="PingValue"/>). É esta função, e não cada
-        /// consumidor, que aplica a regra — a memória só multiplica pelo sorteio do episódio.
+        /// Quanto vale ATENDER o ping neste nó. Igual para todo nó: o peso por nó saiu junto com
+        /// a pontuação por área (ver o cabeçalho de _pingNodeScore).
         /// </summary>
-        public float DiscoveryValue(int index)
-        {
-            NavNode node = _nodes[index];
-            switch (node.Kind)
-            {
-                case NodeKind.Primary: return _explorationNodeScore * node.ExplorationWeight;
-                case NodeKind.Auxiliary: return _auxiliaryNodeScore;
-                default: return 0f;
-            }
-        }
-
-        /// <summary>
-        /// Quanto vale ATENDER o ping neste nó: pontuação do ping x peso do nó. Quando o grafo
-        /// não tem nó de ping e o ping cai num de exploração, vale a pontuação sem o peso — o
-        /// peso dele é de descoberta, e usá-lo aqui mudaria o prêmio dos mapas antigos.
-        /// </summary>
-        public float PingValue(int index)
-        {
-            NavNode node = _nodes[index];
-            return node.IsPing ? _pingNodeScore * node.ExplorationWeight : _pingNodeScore;
-        }
+        public float PingValue(int index) => _pingNodeScore;
 
         /// <summary>O grafo tem algum nó de PING (senão o ping usa os de exploração).</summary>
         public bool HasPingNodes
@@ -673,34 +882,68 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// O nó pode tocar (GraphPingSystem) e a chegada do hider nele vira rastro? Os de ping;
-        /// num grafo sem nenhum, os de exploração (a regra de antes do tipo Ping existir).
+        /// O nó pode tocar (GraphPingSystem) e a chegada do hider nele vira rastro? Os nós de ping
+        /// DO EPISÓDIO (<see cref="DrawEpisodePingNodes"/>); antes do primeiro sorteio, os marcados
+        /// como Ping ou, sem nenhum, qualquer nó de sala (porta nunca: barulho é dentro de uma sala).
         /// </summary>
-        public bool IsPingSource(int index) => _hasPingNodes ? _nodes[index].IsPing : _nodes[index].IsPrimary;
+        public bool IsPingSource(int index) =>
+            _episodePing != null ? _episodePing[index]
+            : _hasPingNodes ? _nodes[index].IsPing
+            : !_nodes[index].IsDoor;
+
+        // Nós de ping deste episódio. Estado de EPISÓDIO num componente de estrutura, de propósito:
+        // é do AMBIENTE da arena (o hider e o ping do agente têm que concordar sobre onde o barulho
+        // pode acontecer), e o grafo é o único objeto que os dois já compartilham.
+        private bool[] _episodePing;
+
+        /// <summary>
+        /// Sorteia os nós de ping do episódio: UM nó qualquer (não-porta, ativo) por sala. Sala de um
+        /// nó só entra com <paramref name="singleNodeRoomChance"/> — numa sala de um ladrilho o ping
+        /// seria sempre no mesmo lugar, então às vezes ela simplesmente não tem barulho. Variar por
+        /// episódio é o que impede a política de decorar "o barulho é sempre ali". Chamado pela arena.
+        /// </summary>
+        public void DrawEpisodePingNodes(float singleNodeRoomChance)
+        {
+            EnsureBaked();
+            if (_episodePing == null || _episodePing.Length != _nodes.Count)
+                _episodePing = new bool[_nodes.Count];
+            else
+                System.Array.Clear(_episodePing, 0, _episodePing.Length);
+
+            for (int r = 0; r < RoomCount; r++)
+            {
+                int[] members = _roomNodes[r];
+                int enabled = 0;
+                foreach (int node in members)
+                {
+                    if (_nodes[node].IsEnabled)
+                        enabled++;
+                }
+
+                if (enabled == 0 || (enabled == 1 && Random.value >= singleNodeRoomChance))
+                    continue;
+
+                int pick = Random.Range(0, enabled);
+                foreach (int node in members)
+                {
+                    if (!_nodes[node].IsEnabled)
+                        continue;
+
+                    if (pick-- == 0)
+                    {
+                        _episodePing[node] = true;
+                        break;
+                    }
+                }
+            }
+        }
 
         // Medido no bake (o ping e o hider perguntam a cada chegada). Nó ligado/desligado por
         // lição não muda o TIPO, então a foto do bake continua certa.
         private bool _hasPingNodes;
 
         /// <summary>
-        /// Só os primários ativos. É o denominador da cobertura geométrica: a malha auxiliar não
-        /// pode diluir "quanto do mapa eu já vi" — adensar a guia faria a barra de progresso
-        /// andar mais devagar sem o mapa ter ficado maior.
-        /// </summary>
-        public int EnabledPrimaryCount()
-        {
-            int count = 0;
-            for (int i = 0; i < _nodes.Count; i++)
-            {
-                if (_nodes[i].IsEnabled && _nodes[i].IsPrimary)
-                    count++;
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// Todos os nós ativos, primários e auxiliares. Usado pela checagem de conectividade do
+        /// Todos os nós ativos, portas e salas. Usado pela checagem de conectividade do
         /// bake, onde o que importa é alcançabilidade — e um auxiliar isolado também é um bug.
         /// </summary>
         public int EnabledNodeCount()
@@ -885,58 +1128,6 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Caminho mais curto a partir de <paramref name="from"/> até um nó primário ativo ainda
-        /// não visitado, SORTEADO entre os <paramref name="candidates"/> mais próximos. Devolve o
-        /// alvo, o PRIMEIRO PASSO do caminho (que é o que interessa para observação e shaping) e
-        /// a distância em METROS pelo grafo.
-        ///
-        /// Distância PELO GRAFO, e não euclidiana: é justamente a diferença que faz o sinal
-        /// funcionar num mapa com paredes. Contornar uma sala para chegar a uma porta aumenta a
-        /// distância em linha reta e diminui a de grafo — a segunda é a que descreve progresso.
-        /// Em metros, e não em arestas, para não depender da densidade de nós (ver _pathOrder).
-        ///
-        /// POR QUE SORTEAR e não pegar sempre o mais próximo: "o não-visitado mais próximo" é
-        /// determinístico, então de um mesmo spawn a seta desenha SEMPRE a mesma rota — e a
-        /// política aprende a rota, não a regra. Com candidates = 1 o comportamento antigo volta.
-        /// </summary>
-        public bool TryFindNearestUnvisited(int from, bool[] visited, int candidates, out int target, out int nextStep, out float pathDistance)
-        {
-            target = -1;
-            nextStep = -1;
-            pathDistance = 0f;
-
-            if (from < 0 || from >= _nodes.Count || !_nodes[from].IsEnabled)
-                return false;
-
-            RunDijkstra(from, -1);
-
-            // Os nós fechados já estão em ordem de distância, então os k primeiros alvos
-            // válidos SÃO os k mais próximos — basta varrê-los e sortear entre eles.
-            //
-            // O ALVO tem que ser primário — um nó de malha não vale nada, e apontar a fronteira
-            // para ele mandaria o agente "explorar" um pedaço de corredor que não paga e não
-            // conta para cobertura. O CAMINHO continua atravessando auxiliares normalmente.
-            int found = 0;
-            int limit = Mathf.Max(1, candidates);
-            for (int i = 0; i < _pathCount && found < limit; i++)
-            {
-                int node = _pathOrder[i];
-                if (node == from || visited[node] || !_nodes[node].IsPrimary)
-                    continue;
-
-                _pathCandidates[found++] = node;
-            }
-
-            if (found == 0)
-                return false;
-
-            target = _pathCandidates[Random.Range(0, found)];
-            pathDistance = _pathCost[target];
-            nextStep = FirstStepTowards(from, target);
-            return true;
-        }
-
-        /// <summary>
         /// Caminho mais curto até um alvo JÁ ESCOLHIDO. É o que mantém a seta fixa num alvo
         /// entre dois sorteios: sem isto, cada troca de nó re-sortearia e a seta ficaria
         /// piscando entre candidatos. Falha se o alvo ficou inalcançável.
@@ -965,10 +1156,13 @@ namespace Assets.Scripts.Graph
         /// <summary>
         /// O QUE RESTA POR ESTA SAÍDA: entrando por <paramref name="via"/> a partir de
         /// <paramref name="from"/>, soma o <paramref name="value"/> dos nós alcançáveis (quem chama
-        /// já zera o que não vale nada: visitado sem recuperação, sala entediada), cada um
-        /// descontado pela distância em METROS pelo grafo: fator = 0.5^(metros / meia-vida).
-        /// A busca NÃO passa por from — o que está do outro lado do nó atual pertence a outra
-        /// saída.
+        /// já zera o que não vale nada), cada um descontado pela distância em METROS pelo grafo:
+        /// fator = 0.5^(metros / meia-vida). A busca NÃO passa por from — o que está do outro lado
+        /// do nó atual pertence a outra saída.
+        ///
+        /// Com <paramref name="room"/> &gt;= 0 a busca fica DENTRO da sala: entra nas portas dela
+        /// (elas contam o valor que tiverem) mas não as atravessa. É a visão "sala + portas" do
+        /// agente: o que tem do outro lado de uma porta não entra na conta.
         ///
         /// É o "o que tem atrás desta porta?" que substitui a seta sem entregar um caminho: num
         /// beco com tudo visitado por perto, a saída que leva ao inexplorado ainda pontua mais
@@ -980,7 +1174,7 @@ namespace Assets.Scripts.Graph
         /// Ciclos podem contar o mesmo nó para duas saídas. Aceitável: a observação é
         /// comparativa entre saídas, e o empate é a resposta certa.
         /// </summary>
-        public float ScoreBeyond(int from, int via, float halfLifeMeters, float[] value)
+        public float ScoreBeyond(int from, int via, float halfLifeMeters, float[] value, int room = -1)
         {
             if (from < 0 || from >= _nodes.Count || via < 0 || via >= _nodes.Count || from == via)
                 return 0f;
@@ -996,7 +1190,7 @@ namespace Assets.Scripts.Graph
                     entryCost = _adjacencyLength[from][k];
             }
 
-            RunDijkstra(via, -1, blocked: from, startCost: entryCost);
+            RunDijkstra(via, -1, blocked: from, startCost: entryCost, room: room, expandDoorOrigin: false);
 
             float decayPerMeter = Mathf.Log(0.5f) / Mathf.Max(0.1f, halfLifeMeters);
             float total = 0f;
@@ -1025,7 +1219,7 @@ namespace Assets.Scripts.Graph
         /// campo de verdade: seguir sempre a menor só diminui, então não há loop, e num beco
         /// cercado de visitados ela continua dizendo "por aqui faltam 45 m, por ali 60 m".
         /// </summary>
-        public float DistanceToNearestBeyond(int from, int via, float[] value)
+        public float DistanceToNearestBeyond(int from, int via, float[] value, int room = -1)
         {
             if (from < 0 || from >= _nodes.Count || via < 0 || via >= _nodes.Count || from == via)
                 return -1f;
@@ -1041,7 +1235,7 @@ namespace Assets.Scripts.Graph
                     entryCost = _adjacencyLength[from][k];
             }
 
-            RunDijkstra(via, -1, blocked: from, startCost: entryCost);
+            RunDijkstra(via, -1, blocked: from, startCost: entryCost, room: room, expandDoorOrigin: false);
 
             // _pathOrder sai em ordem de distância: o primeiro com valor é o mais próximo.
             for (int i = 0; i < _pathCount; i++)
@@ -1055,28 +1249,31 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Nó com <paramref name="value"/> &gt; 0 mais próximo de <paramref name="from"/> pelo grafo
-        /// (o próprio from conta, com distância 0). -1 se não há nenhum alcançável.
+        /// Caminho mais curto a partir de <paramref name="from"/> DENTRO da sala
+        /// <paramref name="room"/>: os nós dela e as portas dela (que entram, mas não são
+        /// atravessadas). Se from for uma porta da sala, a busca sai dela só para dentro da sala.
+        ///
+        /// Devolve quantos nós foram alcançados; leia-os, EM ORDEM DE DISTÂNCIA, com
+        /// <see cref="SearchedNode"/>, <see cref="SearchedCost"/> e <see cref="SearchedFirstStep"/>
+        /// ANTES de qualquer outra busca no grafo (os buffers são compartilhados).
         /// </summary>
-        public int NearestWithValue(int from, float[] value, out float distance)
+        public int SearchRoom(int from, int room)
         {
-            distance = 0f;
-            if (from < 0 || from >= _nodes.Count)
-                return -1;
+            if (from < 0 || from >= _nodes.Count || room < 0 || room >= RoomCount)
+                return 0;
 
-            RunDijkstra(from, -1);
-            for (int i = 0; i < _pathCount; i++)
-            {
-                int node = _pathOrder[i];
-                if (value[node] > 0f)
-                {
-                    distance = _pathCost[node];
-                    return node;
-                }
-            }
-
-            return -1;
+            RunDijkstra(from, -1, room: room, expandDoorOrigin: true);
+            return _pathCount;
         }
+
+        /// <summary>O i-ésimo nó da última <see cref="SearchRoom"/>, do mais perto para o mais longe.</summary>
+        public int SearchedNode(int i) => _pathOrder[i];
+
+        /// <summary>Distância (m pelo grafo) até o nó na última <see cref="SearchRoom"/>.</summary>
+        public float SearchedCost(int node) => _pathCost[node];
+
+        /// <summary>Primeiro passo de from até o nó na última <see cref="SearchRoom"/> (from = a origem dela).</summary>
+        public int SearchedFirstStep(int from, int node) => node == from ? from : FirstStepTowards(from, node);
 
         /// <summary>
         /// Caminho mais curto em METROS a partir de <paramref name="from"/>, só por nós ativos
@@ -1086,7 +1283,11 @@ namespace Assets.Scripts.Graph
         /// </summary>
         // blocked: nó que a busca não atravessa (-1 = nenhum). startCost: custo já pago até from.
         // Os dois só são usados pelo ScoreBeyond, que isola uma saída do nó atual.
-        private void RunDijkstra(int from, int stopAt, int blocked = -1, float startCost = 0f)
+        // room >= 0: só entra em nós dessa sala e nas portas dela, e PORTA NÃO É EXPANDIDA (a busca
+        // para no vão). A exceção é a própria origem quando expandDoorOrigin: o agente parado num
+        // vão ainda precisa achar o caminho para dentro da sala.
+        private void RunDijkstra(int from, int stopAt, int blocked = -1, float startCost = 0f,
+            int room = -1, bool expandDoorOrigin = true)
         {
             _pathStamp++;
             _pathCount = 0;
@@ -1120,12 +1321,18 @@ namespace Assets.Scripts.Graph
                 if (current == stopAt)
                     return;
 
+                if (room >= 0 && _nodes[current].IsDoor && (current != from || !expandDoorOrigin))
+                    continue;
+
                 int[] neighbors = _adjacency[current];
                 float[] lengths = _adjacencyLength[current];
                 for (int k = 0; k < neighbors.Length; k++)
                 {
                     int next = neighbors[k];
                     if (!_nodes[next].IsEnabled)
+                        continue;
+
+                    if (room >= 0 && !TouchesRoom(next, room))
                         continue;
 
                     float nextCost = cost + lengths[k];
@@ -1276,36 +1483,13 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            int weightless = 0;
             for (int i = 0; i < _nodes.Count; i++)
             {
                 if (_adjacency[i].Length == 0)
                     Debug.LogWarning($"{name}: nó {i} ({_nodes[i].name}) não tem vizinhos — inalcançável.", _nodes[i]);
-
-                if (_nodes[i].IsPrimary && _nodes[i].ExplorationWeight <= 0f)
-                    weightless++;
             }
 
-            // Primário de peso zero continua contando para a cobertura em NodeFraction e sendo
-            // alvo da fronteira, mas não paga nada ao ser descoberto — a seta manda o agente
-            // até um lugar que não rende. Quase sempre é um campo esquecido, não intenção; se
-            // for intenção, o nó provavelmente queria ser auxiliar.
-            if (weightless > 0)
-            {
-                Debug.LogWarning(
-                    $"{name}: {weightless} nó(s) primário(s) com Exploration Weight 0. Eles não pagam " +
-                    "cobertura — se era para não valer nada, marque-os como Auxiliary.", this);
-            }
-
-            // Sem nó de exploração a cobertura nasce em 100% (nada a cobrir): todo episódio
-            // termina no primeiro step como "sucesso". É o estado logo depois do ladrilhamento,
-            // que cria só auxiliares — marcar quais ladrilhos são exploração/ping é autoria.
-            if (EnabledPrimaryCount() == 0)
-            {
-                Debug.LogError(
-                    $"{name}: nenhum nó de EXPLORAÇÃO ativo — a cobertura começa em 100% e todo episódio " +
-                    "termina no primeiro step. Marque alguns nós como \"Exploração\" (e os de ping como \"Ping\").", this);
-            }
+            ValidateRooms();
 
             if (_nodeShape == NodeShape.Rectangle)
             {
@@ -1336,7 +1520,7 @@ namespace Assets.Scripts.Graph
                     // auxiliar os discos se tocando é o desenho pretendido — é assim que ela
                     // pega o agente sem buracos — e avisar aqui encheria o Console de ruído a
                     // cada elo da cadeia, escondendo os avisos que importam.
-                    if (!_nodes[i].IsPrimary || !_nodes[j].IsPrimary || !_nodes[i].IsEnabled || !_nodes[j].IsEnabled)
+                    if (!_nodes[i].IsDoor || !_nodes[j].IsDoor || !_nodes[i].IsEnabled || !_nodes[j].IsEnabled)
                         continue;
 
                     // Na métrica da forma: dois quadrados se tocam quando a distância de
@@ -1361,7 +1545,7 @@ namespace Assets.Scripts.Graph
             if (overlapping > 0)
             {
                 Debug.LogWarning(
-                    $"{name}: {overlapping} par(es) de primários com áreas sobrepostas. " +
+                    $"{name}: {overlapping} par(es) de portas com áreas sobrepostas. " +
                     $"Pior caso: '{worstA.name}' <-> '{worstB.name}'. Reduza o Default Primary Radius, afaste " +
                     "os nós ou rode NavGraphPlacer > \"Ajustar raios\" — a chegada está sendo registrada antes " +
                     "da travessia.", this);
@@ -1391,7 +1575,7 @@ namespace Assets.Scripts.Graph
         {
             for (int p = 0; p < _nodes.Count; p++)
             {
-                if (!_nodes[p].IsEnabled || !_nodes[p].IsPrimary)
+                if (!_nodes[p].IsEnabled || !_nodes[p].IsDoor)
                     continue;
 
                 // Metade do raio: deixa a região de vitória do primário com pelo menos um quarto
@@ -1400,7 +1584,7 @@ namespace Assets.Scripts.Graph
 
                 for (int a = 0; a < _nodes.Count; a++)
                 {
-                    if (a == p || !_nodes[a].IsEnabled || _nodes[a].IsPrimary)
+                    if (a == p || !_nodes[a].IsEnabled || _nodes[a].IsDoor)
                         continue;
 
                     float separation = AreaDistance(_nodes[p].Position, _nodes[a].Position);
@@ -1408,10 +1592,10 @@ namespace Assets.Scripts.Graph
                         continue;
 
                     Debug.LogError(
-                        $"{name}: o auxiliar '{_nodes[a].name}' está a {separation:0.00} do primário " +
-                        $"'{_nodes[p].name}' (mínimo {minSeparation:0.00}). Ele eclipsa o primário: a chegada " +
-                        "vai ser registrada no auxiliar, que não paga nem conta para a cobertura. " +
-                        "Afaste o auxiliar ou apague-o — o primário já serve de âncora ali.",
+                        $"{name}: o auxiliar '{_nodes[a].name}' está a {separation:0.00} da porta " +
+                        $"'{_nodes[p].name}' (mínimo {minSeparation:0.00}). Ele eclipsa a porta: a chegada " +
+                        "vai ser registrada no auxiliar, e a travessia da porta some. " +
+                        "Afaste o auxiliar ou apague-o — a porta já serve de âncora ali.",
                         _nodes[p]);
                 }
             }
@@ -1525,6 +1709,35 @@ namespace Assets.Scripts.Graph
         }
 
 #if UNITY_EDITOR
+        /// <summary>
+        /// Refaz o bake e escreve no Console cada sala (nós, portas) e cada porta problemática.
+        /// Depois disso o gizmo mostra o rótulo "S#" de cada sala (fora do Play também, até o
+        /// próximo recarregamento de scripts).
+        /// </summary>
+        [ContextMenu("Relatório de salas e portas")]
+        internal void LogRoomReport()
+        {
+            _isBaked = false;
+            EnsureBaked();
+
+            var builder = new System.Text.StringBuilder();
+            builder.Append($"{name}: {RoomCount} sala(s)\n");
+            for (int r = 0; r < RoomCount; r++)
+            {
+                builder.Append($"  S{r}: {_roomNodes[r].Length} nó(s), {_roomDoors[r].Length} porta(s) [");
+                for (int k = 0; k < _roomDoors[r].Length; k++)
+                {
+                    if (k > 0)
+                        builder.Append(", ");
+                    builder.Append(_nodes[_roomDoors[r][k]].name);
+                }
+
+                builder.Append("]\n");
+            }
+
+            Debug.Log(builder.ToString(), this);
+        }
+
         [ContextMenu("Coletar nós filhos")]
         internal void CollectChildNodes()
         {
@@ -1685,6 +1898,15 @@ namespace Assets.Scripts.Graph
             if (_drawNodeRadii)
                 DrawNodeRadii();
 
+#if UNITY_EDITOR
+            // As salas só existem depois do bake (Play, ou o menu "Relatório de salas e portas").
+            if (_drawRoomLabels && _isBaked)
+            {
+                for (int r = 0; r < RoomCount; r++)
+                    UnityEditor.Handles.Label(_roomCentroid[r] + Vector3.up * 2f, $"S{r}");
+            }
+#endif
+
             foreach (NavNode node in _nodes)
             {
                 if (node == null)
@@ -1735,7 +1957,7 @@ namespace Assets.Scripts.Graph
                     // a leitura do mapa de cima (que é o motivo de o disco ter cor por papel).
                     // A decisão de autoria continua visível pela OPACIDADE: disco cheio é
                     // override, disco apagado é o padrão do grafo.
-                    Color color = node.IsPrimary ? _primaryRadiusColor : node.IsPing ? _pingRadiusColor : _auxiliaryRadiusColor;
+                    Color color = node.IsDoor ? _primaryRadiusColor : node.IsPing ? _pingRadiusColor : _auxiliaryRadiusColor;
                     if (hasOverride)
                         color.a = Mathf.Min(1f, color.a * 1.6f);
 

@@ -95,31 +95,12 @@ namespace Assets.Scripts.Graph
         // começa, em vez de engolir o vizinho inteiro.
         [SerializeField, Range(0f, 1f)] private float _overlapPenalty = 0.15f;
 
-        [Header("-----Pesos-----")]
-        // SOMA dos pesos dos primários que o mapa deve ter. É o teto de recompensa de cobertura
-        // (soma x _nodeCoverageReward) e é nele que os thresholds do currículo foram calculados:
-        // 23 = os 23 primários de peso 1 do NodeTraining quando a conta foi feita
-        // (config/graph_explorer_v2.yaml). A geração reparte este valor entre os primários que
-        // criar, e o menu "8. Normalizar pesos" reescala os que já existem — assim regenerar o
-        // grafo nunca muda o orçamento, e o YAML continua valendo.
+        [Header("-----Pesos (legado)-----")]
+        // LEGADO: soma dos pesos que a geração (menu 7) reparte entre os nós de porta que cria. O
+        // peso por nó não pontua mais nada (as salas valem igual, ver GraphRoomMemory) — fica só
+        // porque o gerador ainda grava o campo. Os menus "8. Normalizar pesos" e "10. Pesos por
+        // área" saíram junto com a pontuação por área.
         [SerializeField, Min(0.1f)] private float _primaryWeightBudget = 23f;
-
-        // Expoente do menu "10. Pesos por área": peso ∝ área^expoente, depois normalizado para o
-        // orçamento. Explorar um nó de área maior é explorar uma sala maior, então ele paga mais.
-        //
-        // 0.5 (raiz), e não 1: no NodeTraining4 as áreas dos primários vão de 1 a 552 m². Com 1,
-        // os três maiores levavam 14.8 dos 23 (64% da recompensa do mapa) e visitar só o maior
-        // já dava 28% de cobertura — quase a lição Perto inteira num passo. Com 0.5 eles somam
-        // 7.8 e o maior vale ~23x o menor: a sala grande continua valendo mais, sem engolir o
-        // mapa. 1 = proporcional à área; 0 = todos iguais.
-        [SerializeField, Range(0f, 1f)] private float _areaWeightExponent = 0.5f;
-
-        [Header("-----Salas (tédio de área)-----")]
-        // O menu "11. Numerar salas" corta o grafo nos VÃOS e numera cada pedaço que sobra. Vão =
-        // nó a menos de 1 m de um batente (_doorNameContains) OU nó com retângulo de até esta
-        // área: no NodeTraining4 os ladrilhos de vão têm 1–3 m², e as salas, 14 m² ou mais.
-        // 0 = só pelos batentes.
-        [SerializeField, Min(0f)] private float _doorTileMaxArea = 4f;
 
         // Relatório da última execução (só nesta sessão do editor), desenhado no gizmo.
         private readonly List<Vector3> _uncoveredCells = new List<Vector3>();
@@ -173,209 +154,21 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Reescala os pesos dos primários para a soma dar _primaryWeightBudget, mantendo a
-        /// PROPORÇÃO entre eles (a sala que você marcou como 2x continua valendo 2x). É o que
-        /// mantém o teto de recompensa do mapa igual ao da conta do currículo.
+        /// Relatório das SALAS que o NavGraph calcula no bake (cortando o grafo nas portas): cada
+        /// sala com os nós e as portas dela, e os avisos de porta que não liga duas salas. Era o
+        /// "11. Numerar salas", que gravava NavNode._areaId à mão para o tédio de sala — a sala
+        /// agora é calculada, não autorada.
         /// </summary>
-        [ContextMenu("8. Normalizar pesos dos primários (soma = orçamento)")]
-        private void NormalizeWeights()
+        [ContextMenu("11. Relatório de salas e portas")]
+        private void ReportRooms()
         {
-            RunStep("Normalizar pesos", () =>
+            if (Graph == null)
             {
-                var primaries = ValidNodes().FindAll(n => n.IsPrimary);
-                if (primaries.Count == 0)
-                {
-                    Debug.LogWarning($"{name}: nenhum primário para normalizar.", this);
-                    return;
-                }
+                Debug.LogWarning($"{name}: sem NavGraph neste objeto.", this);
+                return;
+            }
 
-                float sum = 0f;
-                foreach (NavNode node in primaries)
-                    sum += node.ExplorationWeight;
-
-                foreach (NavNode node in primaries)
-                {
-                    float weight = sum > 1e-4f
-                        ? node.ExplorationWeight * _primaryWeightBudget / sum
-                        : _primaryWeightBudget / primaries.Count;
-
-                    UnityEditor.Undo.RecordObject(node, "Normalizar pesos");
-                    node.SetExplorationWeight(Mathf.Round(weight * 1000f) / 1000f);
-                    MarkModified(node);
-                }
-
-                Debug.Log(
-                    $"{name}: {primaries.Count} primário(s), soma dos pesos {sum:0.##} -> {_primaryWeightBudget:0.##}.", this);
-            }, radialOnly: false);
-        }
-
-        /// <summary>
-        /// Peso de cada primário proporcional à ÁREA do retângulo dele (^_areaWeightExponent),
-        /// com a soma normalizada para _primaryWeightBudget — o teto de recompensa e os
-        /// thresholds do YAML não mudam, o que muda é QUAL nó vale mais.
-        ///
-        /// Efeito colateral bom: uma sala com três primários paga pela soma das áreas dos três
-        /// ladrilhos, ou seja, pela área da sala — adensar deixa de inflar o valor dela.
-        ///
-        /// Primário sem retângulo (forma Círculo/Quadrado) usa o quadrado do raio de chegada
-        /// (lado = 2 x raio), e o Console avisa.
-        /// </summary>
-        [ContextMenu("10. Pesos por área (soma = orçamento)")]
-        private void WeightsByArea()
-        {
-            RunStep("Pesos por área", () =>
-            {
-                var primaries = ValidNodes().FindAll(n => n.IsPrimary);
-                if (primaries.Count == 0)
-                {
-                    Debug.LogWarning($"{name}: nenhum primário para pesar.", this);
-                    return;
-                }
-
-                Graph.EnsureBaked();
-                var raw = new float[primaries.Count];
-                float sum = 0f;
-                int withoutArea = 0;
-                for (int i = 0; i < primaries.Count; i++)
-                {
-                    NavNode node = primaries[i];
-                    float area;
-                    if (node.HasArea)
-                    {
-                        area = node.AreaSize.x * node.AreaSize.y;
-                    }
-                    else
-                    {
-                        // Sem índice = o grafo não coletou este nó; 1 m de raio só para não zerar.
-                        float radius = node.Index >= 0 ? Graph.NodeRadius(node.Index) : 1f;
-                        float side = 2f * radius;
-                        area = side * side;
-                        withoutArea++;
-                    }
-
-                    raw[i] = Mathf.Pow(Mathf.Max(0.01f, area), _areaWeightExponent);
-                    sum += raw[i];
-                }
-
-                float min = float.MaxValue;
-                float max = 0f;
-                for (int i = 0; i < primaries.Count; i++)
-                {
-                    float weight = Mathf.Round(raw[i] * _primaryWeightBudget / sum * 1000f) / 1000f;
-                    min = Mathf.Min(min, weight);
-                    max = Mathf.Max(max, weight);
-
-                    UnityEditor.Undo.RecordObject(primaries[i], "Pesos por área");
-                    primaries[i].SetExplorationWeight(weight);
-                    MarkModified(primaries[i]);
-                }
-
-                Debug.Log(
-                    $"{name}: {primaries.Count} primário(s) pesados por área^{_areaWeightExponent:0.##}, soma " +
-                    $"{_primaryWeightBudget:0.##}, peso de {min:0.###} a {max:0.###}.", this);
-
-                if (withoutArea > 0)
-                {
-                    Debug.LogWarning(
-                        $"{name}: {withoutArea} primário(s) sem retângulo — usei o quadrado do raio de chegada.", this);
-                }
-            }, radialOnly: false);
-        }
-
-        /// <summary>
-        /// Numera as salas para o tédio de área (NavNode._areaId): tira os nós de VÃO do grafo,
-        /// e cada pedaço conexo que sobra vira uma sala (1, 2, 3...). Os vãos ficam com 0.
-        ///
-        /// Corredor também vira "sala" (é um pedaço entre vãos como qualquer outro). Se quiser
-        /// o corredor neutro — nunca entedia —, ponha 0 à mão nos nós dele depois. Rode de novo
-        /// sempre que mexer em nós ou ligações: a numeração não se atualiza sozinha.
-        /// </summary>
-        [ContextMenu("11. Numerar salas (corta o grafo nos vãos)")]
-        private void NumberRooms()
-        {
-            RunStep("Numerar salas", () =>
-            {
-                List<NavNode> nodes = ValidNodes();
-                var index = new Dictionary<NavNode, int>();
-                for (int i = 0; i < nodes.Count; i++)
-                    index[nodes[i]] = i;
-
-                List<DoorInfo> doors = FindDoors();
-                var isDoor = new bool[nodes.Count];
-                int doorCount = 0;
-                for (int i = 0; i < nodes.Count; i++)
-                {
-                    NavNode node = nodes[i];
-                    bool smallTile = _doorTileMaxArea > 0f && node.HasArea
-                        && node.AreaSize.x * node.AreaSize.y <= _doorTileMaxArea;
-                    isDoor[i] = smallTile || IsDoorNode(doors, node.Position);
-                    if (isDoor[i])
-                        doorCount++;
-                }
-
-                // Adjacência sem direção: as ligações são declaradas de um lado só.
-                var adjacency = new List<int>[nodes.Count];
-                for (int i = 0; i < nodes.Count; i++)
-                    adjacency[i] = new List<int>();
-
-                for (int i = 0; i < nodes.Count; i++)
-                {
-                    foreach (NavNode neighbor in nodes[i].Neighbors)
-                    {
-                        if (neighbor == null || !index.TryGetValue(neighbor, out int j) || j == i)
-                            continue;
-
-                        adjacency[i].Add(j);
-                        adjacency[j].Add(i);
-                    }
-                }
-
-                var area = new int[nodes.Count];
-                var queue = new Queue<int>();
-                int rooms = 0;
-                for (int start = 0; start < nodes.Count; start++)
-                {
-                    if (isDoor[start] || area[start] != 0)
-                        continue;
-
-                    rooms++;
-                    area[start] = rooms;
-                    queue.Enqueue(start);
-                    while (queue.Count > 0)
-                    {
-                        int current = queue.Dequeue();
-                        foreach (int next in adjacency[current])
-                        {
-                            if (isDoor[next] || area[next] != 0)
-                                continue;
-
-                            area[next] = rooms;
-                            queue.Enqueue(next);
-                        }
-                    }
-                }
-
-                for (int i = 0; i < nodes.Count; i++)
-                {
-                    if (nodes[i].AreaId == area[i])
-                        continue;
-
-                    UnityEditor.Undo.RecordObject(nodes[i], "Numerar salas");
-                    nodes[i].SetAreaId(area[i]);
-                    MarkModified(nodes[i]);
-                }
-
-                Debug.Log(
-                    $"{name}: {rooms} sala(s) numerada(s), {doorCount} nó(s) de vão com 0 ({doors.Count} batente(s) " +
-                    $"achado(s), ladrilho de vão até {_doorTileMaxArea:0.#} m²). Confira os rótulos S1, S2... no gizmo.", this);
-
-                if (rooms <= 1)
-                {
-                    Debug.LogWarning(
-                        $"{name}: só {rooms} sala — nenhum vão cortou o grafo. Suba _doorTileMaxArea ou confira " +
-                        "_doorNameContains, senão o mapa inteiro vira uma sala só e o tédio não serve para nada.", this);
-                }
-            }, radialOnly: false);
+            Graph.LogRoomReport();
         }
 
         // ================================================================================

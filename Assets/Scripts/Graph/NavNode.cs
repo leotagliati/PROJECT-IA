@@ -4,39 +4,40 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// O papel do nó. A separação existe porque um tipo só estava fazendo trabalhos com
-    /// requisitos opostos: a MEMÓRIA quer poucos nós, cada um com significado, e a NAVEGAÇÃO
-    /// quer muitos, formando uma malha que ensina os caminhos. Com um tipo só, adensar a malha
-    /// para o agente não se perder mexia junto no que "explorado" significa.
+    /// O papel do nó. Os valores inteiros são os serializados: não reordene.
     ///
-    /// A PONTUAÇÃO de cada papel mora no <see cref="NavGraph"/> (um número por tipo); aqui o nó
-    /// só diz o que ele é. Os valores inteiros são os serializados: não reordene.
+    /// Desde o mapa v4 (docs/graph/salas-e-portas.md) o grafo é lido como SALAS ligadas por
+    /// PORTAS: o NavGraph tira as portas e cada pedaço conexo que sobra é uma sala (ou corredor).
+    /// A exploração paga por sala coberta e por porta atravessada — nenhum nó carrega peso próprio.
     /// </summary>
     public enum NodeKind
     {
         /// <summary>
-        /// EXPLORAÇÃO (ponto de vantagem): parado aqui, a visão do agente cobre a sala/corredor.
-        /// É ele que paga cobertura (o peso dele) e pode ser alvo da fronteira.
-        /// Poucos por área (1 a 3) e com área apertada, porque nele "visitado" precisa
-        /// significar "estive lá e vi daqui". O nome no código continua Primary (é o que os
-        /// prefabs e todo o resto do código já usam); no Inspector aparece como Exploração.
+        /// PORTA: o vão entre duas salas (o jogo não tem portas, só buracos na parede). É o
+        /// que corta o grafo em salas, e atravessá-la (de uma sala para a outra) paga, com
+        /// novidade que cai a cada repetição. Um ladrilho estreito, do tamanho do vão: tem que
+        /// ligar EXATAMENTE duas salas — o bake avisa quando não liga.
+        ///
+        /// Era o PRIMÁRIO/Exploração (ponto de vantagem que pagava o próprio peso). Valor 0
+        /// mantido: os prefabs continuam carregando, e o que era primário vira porta — no
+        /// NodeTraining5 os primários já estavam nos vãos.
         /// </summary>
-        [InspectorName("Exploração (paga ao descobrir)")]
-        Primary = 0,
+        [InspectorName("Porta (vão entre salas)")]
+        Door = 0,
 
         /// <summary>
-        /// GUIA: não conta para cobertura e não é alvo de nada. Existe para o agente ter uma
-        /// âncora por perto e um caminho a seguir. Paga só o que o NavGraph der ao tipo (0 por
-        /// padrão). É o tipo que o ladrilhamento (NavGraphPlacer, menu 9) cria em todo o chão.
+        /// SALA/CORREDOR: o chão. Não paga sozinho; conta para a cobertura da sala a que pertence
+        /// (80% dos nós da sala pisados = sala concluída). É o tipo que o ladrilhamento
+        /// (NavGraphPlacer, menu 9) cria em todo o chão.
         /// </summary>
-        [InspectorName("Auxiliar (guia)")]
+        [InspectorName("Auxiliar (chão de sala)")]
         Auxiliary = 1,
 
         /// <summary>
         /// PING: um dos pontos que podem "tocar" (GraphPingSystem) e por onde os passos do hider
-        /// viram rastro. Não paga ao ser descoberto nem conta para cobertura: o que ele vale é o
-        /// prêmio de ATENDER o ping nele. Sem nenhum nó deste tipo no grafo, o ping continua
-        /// sorteando entre os de exploração (o comportamento de antes deste tipo existir).
+        /// viram rastro. Fora isso é chão de sala como o auxiliar (conta para a cobertura dela).
+        /// Sem nenhum nó deste tipo no grafo, o ping sorteia entre os nós de sala. LEGADO no
+        /// plano de salas: a fase de ping vai sortear sala -> nó por episódio.
         /// </summary>
         [InspectorName("Ping (pode tocar)")]
         Ping = 2,
@@ -57,9 +58,9 @@ namespace Assets.Scripts.Graph
     public class NavNode : MonoBehaviour
     {
         [Header("-----Papel-----")]
-        // Default Primary de propósito: é o que os nós que já existem na cena eram antes deste
-        // campo existir, então um nó desserializado sem o campo continua valendo o que valia.
-        [SerializeField] private NodeKind _kind = NodeKind.Primary;
+        // Default 0 (Porta) de propósito: é o valor que um nó desserializado sem o campo sempre
+        // teve, então os prefabs antigos continuam lendo o mesmo número.
+        [SerializeField] private NodeKind _kind = NodeKind.Door;
 
         [Header("-----Ligações-----")]
         // Preenchido na mão. O NavGraph espelha as ligações no bake (A->B implica B->A), então
@@ -73,28 +74,16 @@ namespace Assets.Scripts.Graph
         // fechada, ala bloqueada numa lição do currículo), não estado do componente.
         [SerializeField] private bool _isEnabled = true;
 
-        [Header("-----Valor-----")]
-        // Quanto vale este nó, em unidades relativas. 1 é a referência; 2 é "este ponto vale o
-        // dobro". A conversão para recompensa acontece em dois lugares só: a pontuação do TIPO
-        // no NavGraph e o fator do GraphRewardSystem — aqui você só declara a importância
-        // relativa DENTRO do tipo.
-        //
-        // O peso mora no nó, e não numa região que o agrupa: cada ponto de vantagem é uma
-        // decisão de autoria ("daqui se vê a sala"), então o valor dele é decidido no mesmo
-        // lugar em que ele é colocado. O preço disso é que a DENSIDADE da malha vira função de
-        // recompensa: dois nós de exploração de peso 1 na mesma sala pagam o dobro de um. Ao
-        // adensar uma sala, divida o peso entre os nós dela para o total da sala não mudar.
-        //
-        // Conta em nó de EXPLORAÇÃO (descoberta) e de PING (atender o ping). Num auxiliar é
-        // ignorado — o auxiliar vale a pontuação do tipo, igual para todos.
+        [Header("-----Legado (não pontua mais)-----")]
+        // LEGADO: era o peso de descoberta do nó (gravado pelo menu "10. Pesos por área", peso ∝
+        // área^0.5). Saiu com as salas: toda sala vale o mesmo, independente do tamanho, e nada
+        // no runtime lê este campo. Fica serializado só para os prefabs antigos não perderem o
+        // dado; as ferramentas de geração ainda o preenchem.
         [SerializeField] private float _explorationWeight = 1f;
 
-        // SALA a que o nó pertence (1, 2, 3...). 0 = nenhuma: corredor, vão de porta — nunca
-        // entedia. Cada sala tem um número ÚNICO (é o ID da sala, não um tipo: dois escritórios
-        // são duas áreas). Usado pelo tédio de área da GraphExplorationMemory: ficar muito tempo
-        // numa sala faz ela pagar menos e custar por step, e isso empurra o agente a variar de
-        // sala, não só de nó. Para marcar: selecione os nós da sala e digite o número uma vez
-        // (edição múltipla), ou NavGraphPlacer > "11. Numerar salas".
+        // LEGADO: o ID de sala autorado à mão (menu "11. Numerar salas" antigo), usado pelo tédio
+        // de sala que saiu. A sala agora é CALCULADA no bake do NavGraph (cortando nas portas),
+        // então este número não é lido por nada do treino. Só o rótulo do gizmo de nó solto o usa.
         [SerializeField, Min(0)] private int _areaId;
 
         [Header("-----Área de chegada-----")]
@@ -129,17 +118,17 @@ namespace Assets.Scripts.Graph
         public NodeKind Kind => _kind;
 
         /// <summary>
-        /// Nó de EXPLORAÇÃO. Atalho do teste que aparece em todo lugar: cobertura, alvo da
-        /// fronteira e recompensa de aresta são privilégio dele.
+        /// PORTA: corta o grafo em salas e paga ao ser atravessada. Atalho do teste que aparece
+        /// em todo lugar (segmentação, travessia, observação das portas).
         /// </summary>
-        public bool IsPrimary => _kind == NodeKind.Primary;
+        public bool IsDoor => _kind == NodeKind.Door;
 
         public bool IsPing => _kind == NodeKind.Ping;
 
         /// <summary>
-        /// Exploração ou ping: os nós que alguém manda o agente ALCANÇAR, e onde a chegada tem
-        /// que significar "estive lá". Os dois usam a área apertada (raio padrão de primário) e
-        /// o NavGraphPlacer não apaga nenhum deles; o auxiliar usa a área generosa.
+        /// Porta ou ping: os nós em que a chegada tem que significar "estive lá". Os dois usam a
+        /// área apertada (raio padrão de primário) e o NavGraphPlacer não apaga nenhum deles; o
+        /// auxiliar usa a área generosa.
         /// </summary>
         public bool IsTarget => _kind != NodeKind.Auxiliary;
 
@@ -159,10 +148,10 @@ namespace Assets.Scripts.Graph
         /// <summary>Centro do retângulo no mundo (na altura do nó).</summary>
         public Vector3 AreaCenter => Position + new Vector3(_areaOffset.x, 0f, _areaOffset.y);
 
-        /// <summary>Peso declarado na autoria. Nunca negativo; 0 é "não paga".</summary>
+        /// <summary>LEGADO: peso autorado (ver _explorationWeight). Nada do treino lê.</summary>
         public float ExplorationWeight => Mathf.Max(0f, _explorationWeight);
 
-        /// <summary>ID da sala (0 = nenhuma). Ver _areaId.</summary>
+        /// <summary>LEGADO: ID de sala autorado (ver _areaId). A sala real é NavGraph.RoomOf.</summary>
         public int AreaId => Mathf.Max(0, _areaId);
 
         /// <summary>
@@ -204,13 +193,13 @@ namespace Assets.Scripts.Graph
         // papel, então ponto e disco contam a mesma história — e um nó sem disco (esquecido
         // fora do grafo) ainda diz o que ele é. O ping é rosa: a mesma cor do farol do
         // GraphPingSystem quando ele toca, então "rosa" continua significando "ping".
-        internal static readonly Color PrimaryColor = new Color(0.25f, 0.75f, 0.95f, 1f);
+        internal static readonly Color DoorColor = new Color(0.25f, 0.75f, 0.95f, 1f);
         internal static readonly Color AuxiliaryColor = new Color(0.55f, 0.60f, 0.72f, 1f);
         internal static readonly Color PingColor = new Color(1f, 0.45f, 0.8f, 1f);
         private static readonly Color DisabledColor = new Color(0.35f, 0.35f, 0.35f, 1f);
 
         internal static Color ColorOf(NodeKind kind) =>
-            kind == NodeKind.Primary ? PrimaryColor : kind == NodeKind.Ping ? PingColor : AuxiliaryColor;
+            kind == NodeKind.Door ? DoorColor : kind == NodeKind.Ping ? PingColor : AuxiliaryColor;
 
         // O pontinho, e — quando o nó NÃO está na lista de nenhum grafo — também a área dele.
         // Dentro do grafo quem desenha a área é o NavGraph, que conhece o valor efetivo (padrão
@@ -240,10 +229,10 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            // O tamanho do ponto cresce com o peso (raiz, para peso 4 não virar uma bola de
-            // 4x): dá para ver de cima onde estão os nós que valem mais sem abrir o Inspector.
+            // Tamanho fixo: o peso por nó saiu (toda sala vale igual), então o ponto não tem mais
+            // o que dizer pelo tamanho — só pela cor (azul = porta, rosa = ping).
             Gizmos.color = _isEnabled ? ColorOf(_kind) : DisabledColor;
-            Gizmos.DrawSphere(Position, 0.18f * Mathf.Sqrt(Mathf.Max(0.25f, ExplorationWeight)));
+            Gizmos.DrawSphere(Position, 0.18f);
         }
 
         private void DrawOwnArea(NavGraph graph)

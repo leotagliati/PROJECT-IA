@@ -1062,7 +1062,7 @@ namespace Assets.Scripts.Graph
                 // (raio apertado, nunca apagado, posse protegida). O peso só vai para a soma do
                 // orçamento quando é de exploração — o do ping é de outro prêmio.
                 index[node] = draft.Add(node.Position, node.IsTarget, node, Graph.RadiusOf(node),
-                    node.IsPrimary ? node.ExplorationWeight : 0f);
+                    node.IsDoor ? node.ExplorationWeight : 0f);
             }
 
             foreach (KeyValuePair<NavNode, List<NavNode>> entry in BuildAdjacency(nodes))
@@ -1107,7 +1107,7 @@ namespace Assets.Scripts.Graph
                 go.transform.position = draft.Positions[i];
 
                 nodes[i] = go.AddComponent<NavNode>();
-                nodes[i].SetKind(draft.Primary[i] ? NodeKind.Primary : NodeKind.Auxiliary);
+                nodes[i].SetKind(draft.Primary[i] ? NodeKind.Door : NodeKind.Auxiliary);
                 nodes[i].SetExplorationWeight(draft.Primary[i] ? draft.Weights[i] : 0f);
                 created++;
             }
@@ -1213,7 +1213,7 @@ namespace Assets.Scripts.Graph
                     "\"1. Diagnosticar\" para ver quais (X vermelho) e o motivo no Console.", this);
             }
             string budget = Mathf.Abs(weight - _primaryWeightBudget) > 0.05f
-                ? $" DIFERENTE do orçamento ({_primaryWeightBudget:0.##}) — rode \"8. Normalizar pesos\" ou refaça a conta de recompensa"
+                ? $" DIFERENTE do orçamento ({_primaryWeightBudget:0.##}) — só informativo, o peso não pontua mais"
                 : " (= orçamento)";
 
             Debug.Log(
