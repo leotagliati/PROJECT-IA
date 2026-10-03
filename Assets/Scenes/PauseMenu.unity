@@ -6107,6 +6107,7 @@ GameObject:
   - component: {fileID: 42313647}
   - component: {fileID: 42313646}
   - component: {fileID: 42313645}
+  - component: {fileID: 42313650}
   m_Layer: 5
   m_Name: RestartButton
   m_TagString: Untagged
@@ -6215,7 +6216,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 1, g: 1, b: 1, a: 0}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -6240,6 +6241,21 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 42313643}
   m_CullTransparentMesh: 1
+--- !u!114 &42313650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 42313643}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
 --- !u!1001 &42770925
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -115154,6 +115170,7 @@ GameObject:
   - component: {fileID: 782040680}
   - component: {fileID: 782040679}
   - component: {fileID: 782040682}
+  - component: {fileID: 782040683}
   m_Layer: 5
   m_Name: QuitButton
   m_TagString: Untagged
@@ -115250,7 +115267,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 1, g: 1, b: 1, a: 0}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -284943,6 +284960,7 @@ GameObject:
   - component: {fileID: 1942407589}
   - component: {fileID: 1942407588}
   - component: {fileID: 1942407591}
+  - component: {fileID: 1942407593}
   m_Layer: 5
   m_Name: ResumeButton
   m_TagString: Untagged
@@ -285039,7 +285057,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 1, g: 1, b: 1, a: 0}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -285076,6 +285094,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1942407593
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1942407586}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
 --- !u!1001 &1942633804
 PrefabInstance:
   m_ObjectHideFlags: 0
