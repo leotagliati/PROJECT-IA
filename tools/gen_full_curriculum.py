@@ -105,7 +105,7 @@ BETA_BLOCK      epsilon: 0.2
       extrinsic:
         gamma: 0.995
         strength: 1.0
-    keep_checkpoints: 10
+    keep_checkpoints: KEEP_CHECKPOINTS
     checkpoint_interval: 500000
     max_steps: MAX_STEPS
     time_horizon: 128
@@ -271,25 +271,38 @@ SEARCH_PARAMS = [
 BETA_OLD = """      # 0.015: sem seta a unica forma de achar as saidas boas no comeco e tentar.
       beta: 0.015
 """
+# Noite (02/10, pedido do Arthur: "deixe ela mais randomica"): o DOBRO das etapas. Muito novo
+# entra no meio do run (patrulha, ping, hider, hider solto) e a politica que veio do v4_s1_01 ja
+# esta ficando decidida; mais entropia mantem ela testando saidas. Nao 0.015: com ele a entropia
+# nunca caia (E1..e2_03, desvio ~1 = politica aleatoria). Decai linear ate max_steps.
+BETA_NIGHT = """      # 0.006 (o dobro das etapas): mais exploracao, porque o run da noite muda de tarefa varias
+      # vezes. 0.015 ja se mostrou demais (a entropia nunca caia). Decai linear ate max_steps.
+      beta: 0.006
+"""
 BETA_STAGES = """      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
       # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
       beta: 0.003
 """
 
 
-def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD):
-    behaviors = BEHAVIORS.replace("MAX_STEPS", str(max_steps)).replace("BETA_BLOCK", beta)
+def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10):
+    behaviors = (BEHAVIORS.replace("MAX_STEPS", str(max_steps)).replace("BETA_BLOCK", beta)
+                 .replace("KEEP_CHECKPOINTS", str(keep)))
     out = [header, behaviors, constants, "\n  # ---- Curriculo ----\n"]
     for name, comment, values in params:
         assert len(values) == len(lessons), name
         out.append(f"  # {comment}\n")
         out.append(f"  {name}:\n    curriculum:\n")
-        for (lesson, threshold, min_len), value in zip(lessons, values):
+        for lesson_spec, value in zip(lessons, values):
+            # (nome, threshold, min_len) promove por reward; um 4o elemento troca a medida
+            # ("progress" = fracao do max_steps, para licao que nao pode prender o run).
+            lesson, threshold, min_len = lesson_spec[:3]
+            measure = lesson_spec[3] if len(lesson_spec) > 3 else "reward"
             out.append(f"      - name: {lesson}\n")
             if threshold is not None:
                 out.append(
                     "        completion_criteria:\n"
-                    "          measure: reward\n"
+                    f"          measure: {measure}\n"
                     "          behavior: GraphExplorer\n"
                     "          signal_smoothing: true\n"
                     f"          min_lesson_length: {min_len}\n"
@@ -469,9 +482,248 @@ STAGES = [
 ]
 
 
+# ------------------------------------------------------------------------------------------------
+# MAPA V4 - SALAS E PORTAS (01/10, docs/graph/salas-e-portas.md). Exploracao paga por sala coberta
+# (80% dos nos) e por porta atravessada (novidade que cai a cada repeticao); SEM seta, sem peso por
+# no. Vetor 182 (os .onnx E1-E3 nao servem). Os parametros antigos (frontier_hint, weight_jitter,
+# value_recovery_seconds, area_boredom) nao existem mais no C#; os YAMLs node4_* acima ficam como
+# historico.
+# ------------------------------------------------------------------------------------------------
+def v4_header(title, name, run, init, body):
+    init_arg = f" --initialize-from={init}" if init else ""
+    return f"""# ================================================================================================
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - {title}
+#
+#   mlagents-learn config/{name}.yaml --run-id={run}{init_arg}
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
+# Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
+# Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+{body}# ================================================================================================
+
+"""
+
+
+V4_EXPLORE_ONLY = """  hider_mode: 0
+  hider_speed: 0.0
+  hider_noise: 1.0
+  ping_interval: 0
+  ping_reward_scale: 1.0
+  discovery_reward_scale: 1.0
+  room_complete_threshold: 0.8
+  release_fraction: 0.0
+  previsited_fraction: 0.0
+"""
+
+S1_BODY = """# Do zero: recompensa e observacao novas. A sala vale o mesmo qualquer que seja o tamanho (0.25 ao
+# descobrir os 80% dos nos + 0.25 ao concluir); porta nova 0.1, saida de sala concluida 0.15 (x a
+# novidade da porta: sair por onde entrou vale metade). Sem seta e SEM nenhum pagamento por se
+# aproximar de alvo escolhido por algoritmo: so eventos que ele causa (chao novo, sala concluida,
+# porta atravessada). A decisao e "qual porta", e a novidade de cada uma esta na observacao. Mesma
+# escada da E1 (que passou em 190k), alvo agora em SALAS concluidas.
+#
+#   Licao   salas  assist threshold  min. episodios
+#   Perto   0.2    1.0    6.0        80
+#   Metade  0.5    1.0    9.0        80
+#   Quase   0.8    0.7    (final)
+#
+# THRESHOLDS (~75% de um episodio bom; 26 salas, 35 portas no NodeTraining5):
+#   Perto  = 6 salas x 0.5 + ~7 portas x 0.1 + ~5 saidas x 0.15 + conclusao 5
+#            - existencial/parede ~1 = ~8;
+#   Metade = 13 x 0.5 + ~1.5 + ~1.9 + 5 - ~2.5 = ~12.
+# Salas de 1 no (11 de 26) concluem ao entrar: as primeiras licoes ficam faceis de proposito.
+#
+# PASSA QUANDO (na Quase): Exploration/Coverage > 0.6 (salas), WallContactFraction < 0.2,
+# Doors/RepeatFraction caindo, Episode Length caindo. 5M steps; se passar antes, Ctrl+C e siga.
+# Se travar na Perto com Movement/IdleFraction alto: sem seta ele nao achou a primeira porta.
+# Primeiro ajuste: subir _doorCrossReward (porta nova paga mais) - continua sendo evento, nao seta.
+"""
+S1_LESSONS = [("Perto", 6.0, 80), ("Metade", 9.0, 80), ("Quase", None, None)]
+S1_PARAMS = [
+    ("coverage_target", "Fracao das SALAS concluidas que encerra o episodio (+5).", [0.2, 0.5, 0.8]),
+    ("steer_assist", "Steering assistido (0..1). 1 = desliza na parede.", [1.0, 1.0, 0.7]),
+]
+
+# ---- NOITE: S1 -> S6 num run so (pedido do Arthur, 01/10), herdando o v4_s1_01 ----
+NIGHT_BODY = """# Tudo num run de ~8 h, herdando o cerebro do v4_s1_01 (o vetor 182 nao mudou). As licoes de
+# exploracao promovem por REWARD (contas abaixo); as de patrulha/ping/caca por PROGRESSO (fracao do
+# max_steps), porque o reward delas e dificil de prever e uma licao nao pode prender a noite.
+#
+#   #  Licao        salas assist pre  libera ping  hider  vel  barulho desc ping$ visao solto  criterio
+#   1  Perto        0.2   1.0    0    0      0     -      -    -       1.0  1.0   0     0      reward 6.0  (80 ep.)
+#   2  Metade       0.5   1.0    0    0      0     -      -    -       1.0  1.0   0     0      reward 9.0  (80)
+#   3  Quase        0.8   0.7    0    0      0     -      -    -       1.0  1.0   0     0      reward 11.0 (150)
+#   4  MenosAssist  0.8   0.3    0.3  0      0     -      -    -       1.0  1.0   0     0      reward 8.5  (150)
+#   5  Patrulha     1.1   0.3    0    0.85   0     -      -    -       1.0  1.0   0     0      progresso 0.30 (300)
+#   6  Ping         1.1   0.3    0    0.85   2000  -      -    -       1.0  1.0   0     0      progresso 0.40 (300)
+#   7  HiderParado  1.1   0.3    0    0      0     parado -    1.0     0.5  0     1     0      progresso 0.52 (300)
+#   8  HiderAnda    1.1   0.3    0    0      0     anda   1.0  0.6     0.5  0     1     0      progresso 0.64 (300)
+#   9  HiderFoge    1.1   0.3    0    0      0     foge   2.2  0.4     0.5  0     1     0      progresso 0.78 (300)
+#  10  HiderSolto   1.1   0.3    0    0      0     foge   2.2  0.3     0.5  0     1     1      (final)
+#
+# THRESHOLDS de reward (~70% de um episodio bom; 26 salas):
+#   Quase       = 21 salas x 0.5 + ~2.5 portas + ~3 saidas + 5 - ~3.5 = ~17.5 -> 11.0;
+#   MenosAssist = 30% das salas ja nascem concluidas: ~14.5 x 0.5 + ~2 + ~2 + 5 - ~3.5 = ~13 -> 8.5.
+# PROGRESSO: com 10M steps, Patrulha sai aos 3M, Ping aos 4M, ... HiderSolto fica com os ultimos
+# ~2.2M. Se a exploracao demorar, a licao de progresso ja vencido sai depois do minimo de 300
+# episodios (~480k steps) - nenhuma licao fica sem treino nem prende o run.
+#
+# CONTRA OVERTRAINING (decorar o mapa / esquecer o que ja sabia):
+#   - tudo varia por episodio: spawn em no aleatorio, salas pre-concluidas, nos de ping sorteados por
+#     sala, hider nasce longe e (no fim) em pontos aleatorios e escondido;
+#   - nas licoes de caca a exploracao continua pagando (discovery_reward_scale 0.5, nao 0): sem isso a
+#     rede "esquece" de explorar enquanto aprende a cacar;
+#   - checkpoint a cada 500k e os 20 guardados (a noite inteira): se o fim piorar, volte a um anterior
+#     (tools/best_onnx.py) em vez de usar o ultimo;
+#   - learning rate e entropia descem linearmente ate max_steps: o run termina refinando, nao pulando.
+#
+# PING: so paga chegar (+2) e cobra expirar (-0.5) na licao Ping; nas de caca o ping so INFORMA
+# (ping_reward_scale 0, o rastro do hider nao vira renda - night_04). A sala do ping fica QUENTE
+# (explorar vale 2x) e as portas dela mostram o calor. Nada paga por metro de aproximacao.
+#
+# O QUE OLHAR DE MANHA: Environment/Lesson Number (ate onde chegou), Exploration/Coverage (salas),
+# Doors/RepeatFraction, Hunt/Seen e Hunt/Caught (nas licoes 7-10), WallContactFraction.
+"""
+NIGHT_LESSONS = [
+    ("Perto", 6.0, 80),
+    ("Metade", 9.0, 80),
+    ("Quase", 11.0, 150),
+    ("MenosAssist", 8.5, 150),
+    ("Patrulha", 0.30, 300, "progress"),
+    ("Ping", 0.40, 300, "progress"),
+    ("HiderParado", 0.52, 300, "progress"),
+    ("HiderAnda", 0.64, 300, "progress"),
+    ("HiderFoge", 0.78, 300, "progress"),
+    ("HiderSolto", None, None),
+]
+NIGHT_PARAMS = [
+    ("coverage_target", "Fracao das SALAS concluidas que encerra o episodio (+5). Acima de 1 = sem fim por cobertura.",
+     [0.2, 0.5, 0.8, 0.8, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]),
+    ("steer_assist", "Steering assistido (0..1). 1 = desliza na parede.",
+     [1.0, 1.0, 0.7, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]),
+    ("previsited_fraction", "Fracao das SALAS que ja nasce concluida (anti-decoreba).",
+     [0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("release_fraction", "Patrulha: com esta fracao usada, a porta e a sala mais antigas voltam (valendo 0.5). 0 = off.",
+     [0.0, 0.0, 0.0, 0.0, 0.85, 0.85, 0.0, 0.0, 0.0, 0.0]),
+    ("ping_interval", "Steps de fisica entre pings aleatorios (x U[0.5,1.5]). Com hider, os pings vem dos passos dele.",
+     [0, 0, 0, 0, 0, 2000, 0, 0, 0, 0]),
+    ("hider_mode", "0 nenhum / 1 parado / 2 anda / 3 foge.",
+     [0, 0, 0, 0, 0, 0, 1, 2, 3, 3]),
+    ("hider_speed", "m/s do hider (o seeker anda a 6).",
+     [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.2, 2.2]),
+    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.6, 0.4, 0.3]),
+    ("discovery_reward_scale", "Escala da exploracao. 0.5 na caca: continua valendo explorar (contra esquecer).",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5]),
+    ("ping_reward_scale", "Escala do ping (chegar +2, expirar -0.5). 0 na caca: o rastro do hider so informa.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+    ("vision_explores", "1 = o que ele VE na sala atual conta como pisado.",
+     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]),
+    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde.",
+     [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+]
+NIGHT_CONSTANTS = """  room_complete_threshold: 0.8
+  ping_single_room_chance: 0.5
+"""
+
+# ---- V4B (02/10): planta de salas + explorar = VER + suspeita multiplica, do zero ----
+# O v4_noite_01 pegou o hider em 62-70%, mas com hider a cobertura caia a cada licao (54% -> 51%)
+# enquanto a suspeita limpa subia: "limpar suspeita" e "explorar" pagavam separado e a suspeita
+# ganhava; e as salas S24 (corredor de 20 nos em anel) e S25 (sala de 23x24 m dentro dele) quase
+# nunca eram vistas - de longe nada dizia que elas existiam.
+V4B_BODY = NIGHT_BODY.replace(
+    "# Tudo num run de ~8 h, herdando o cerebro do v4_s1_01 (o vetor 182 nao mudou).",
+    """# DO ZERO (sensor novo = rede nova). O que mudou do v4_noite_01:
+#   - PLANTA DE SALAS: BufferSensor "Rooms" com as 26 salas (direcao, distancia, portas ate la,
+#     quanto ja VIU, concluida, quente, suspeita, atual). Ele sabe que a S25 existe e falta ver.
+#   - EXPLORAR = VER, desde a licao 1 (vision_explores 1): no de QUALQUER sala que entra no cone
+#     conta como visto. "Querer ver tudo".
+#   - SUSPEITA MULTIPLICA: nao paga mais sozinha (_suspicionClearedReward saiu); multiplica o valor
+#     de ver a sala (ate 3x) e REABRE sala concluida onde ela voltou a crescer. Por isso, na caca,
+#     discovery_reward_scale 1.0 (era 0.5) e sem liberacao por tempo (a suspeita faz o papel).
+#
+# (Texto abaixo herdado do v4_noite_01; os valores da tabela de licoes sao os deste arquivo.)
+#""")
+V4B_PARAMS = []
+for _name, _comment, _values in NIGHT_PARAMS:
+    if _name == "vision_explores":
+        _values = [1] * len(_values)
+        _comment = "1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro."
+    elif _name == "discovery_reward_scale":
+        _values = [1.0] * len(_values)
+        _comment = "Escala da exploracao. 1.0 sempre: a suspeita so multiplica, entao explorar nao compete com nada."
+    V4B_PARAMS.append((_name, _comment, _values))
+
+# ---- V4C (03/10): FUGA, hider na velocidade do seeker, caca e suspeita valendo muito mais ----
+# Herda o v4b_noite_01 (parou aos 7.17M na HiderFoge; pegava 83-87% com o hider a 2.2 m/s). O vetor
+# nao mudou (182 + BufferSensor Rooms), entao --initialize-from serve.
+V4C_BODY = """# FUGA A 6 m/s. Herda o v4b_noite_01 (HiderFoge: pegava ~85% com o hider a 2.2 m/s).
+#
+#   #  Licao       vel   barulho desc  ping$ solto  criterio
+#   1  FogeLenta   4.0   0.4     0.5   1.0   0      progresso 0.30 (300)
+#   2  FogeIgual   6.0   0.3     0.5   1.0   0      progresso 0.65 (300)
+#   3  Solto       6.0   0.3     0.5   1.0   1      (final)
+#
+# O QUE MUDOU (pedido do Arthur):
+#   - hider na velocidade do seeker (6 m/s) - em escada (4.0 -> 6.0): pular de 2.2 para 6 de uma vez
+#     seria tirar a muleta toda de uma vez. Com velocidades iguais so se pega encurralando (a fuga
+#     escolhe vizinho no grafo), entao o criterio e Hunt/Caught, nao a velocidade;
+#   - EXPLORACAO MENOS VALIOSA: discovery_reward_scale 0.5 (era 1.0): mapa inteiro ~12, nao ~25;
+#   - CACA BEM MAIS VALIOSA (prefab): captura 20 + 25 x tempo que sobra (era 10 + 15): 20..45;
+#     avistar 1.0 (era 0.5), aproximar 0.1/m (era 0.05);
+#   - MANTER EM VISAO: _hiderInViewReward 0.003 por decisao com ele no cone (teto ~4.8);
+#   - SALA SUSPEITA MAIS VALIOSA: teto do multiplicador na recompensa 8x (era 3x; a observacao
+#     continua normalizada pelo 3x, entao a rede herdada nao ve o vetor mudar). A sala mais suspeita
+#     paga 8 x 0.5 = 4x o valor base (era 3x); a comum paga metade;
+#   - PING VALENDO: ping_reward_scale 1.0 (era 0 na caca): chegar +2, expirar -0.5.
+#     CUIDADO: foi isso que virou renda no night_04 (seguir rastro em vez de explorar). Se aparecer
+#     cobertura despencando com reward subindo, volte para 0.3 antes de mexer em outra coisa.
+#
+# PASSA QUANDO: Hunt/Caught nao cair abaixo de ~60% na FogeIgual. Se cair a < 40%, a velocidade
+# igual e demais: segure em 4.0-5.0. 4M steps; checkpoint a cada 500k (tools/best_onnx.py).
+# DEPENDE do C# novo (GraphRewardSystem/GraphRoomMemory) e do prefab NodeTraining5 (valores novos).
+"""
+V4C_LESSONS = [
+    ("FogeLenta", 0.30, 300, "progress"),
+    ("FogeIgual", 0.65, 300, "progress"),
+    ("Solto", None, None),
+]
+V4C_PARAMS = [
+    ("coverage_target", "Sem fim por cobertura: o episodio acaba pegando o hider ou no tempo.", [1.1, 1.1, 1.1]),
+    ("steer_assist", "Steering assistido (0..1).", [0.3, 0.3, 0.3]),
+    ("previsited_fraction", "Fracao das SALAS que ja nasce concluida.", [0.0, 0.0, 0.0]),
+    ("release_fraction", "Sem liberacao por tempo: a suspeita faz o papel.", [0.0, 0.0, 0.0]),
+    ("ping_interval", "0: os pings vem dos passos do hider.", [0, 0, 0]),
+    ("hider_mode", "3 = foge.", [3, 3, 3]),
+    ("hider_speed", "m/s do hider (o seeker anda a 6). Escada ate a mesma velocidade.", [4.0, 6.0, 6.0]),
+    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.", [0.4, 0.3, 0.3]),
+    ("discovery_reward_scale", "Exploracao vale metade da do v4b: a caca e o objetivo.", [0.5, 0.5, 0.5]),
+    ("ping_reward_scale", "Ping valendo (chegar +2, expirar -0.5). Cuidado: night_04.", [1.0, 1.0, 1.0]),
+    ("vision_explores", "1 = o que ele VE conta como visto.", [1, 1, 1]),
+    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde.", [0, 0, 1]),
+]
+
+V4_STAGES = [
+    ("graph_v4_s1_salas", "v4_s1_01", None, "S1 SALAS E PORTAS (do zero, sem seta)",
+     S1_BODY, 5000000, V4_EXPLORE_ONLY, S1_LESSONS, S1_PARAMS),
+    ("graph_v4_noite", "v4_noite_01", "v4_s1_01", "NOITE: S1 -> S6 NUM RUN SO (~8 h)",
+     NIGHT_BODY, 10000000, NIGHT_CONSTANTS, NIGHT_LESSONS, NIGHT_PARAMS),
+    ("graph_v4b_noite", "v4b_noite_01", None, "V4B: PLANTA DE SALAS + VER TUDO (do zero, ~8 h)",
+     V4B_BODY, 10000000, NIGHT_CONSTANTS, NIGHT_LESSONS, V4B_PARAMS),
+    ("graph_v4c_fuga", "v4c_fuga_01", "v4b_noite_01", "V4C: FUGA A 6 m/s, CACA E SUSPEITA MAIS VALIOSAS",
+     V4C_BODY, 4000000, NIGHT_CONSTANTS, V4C_LESSONS, V4C_PARAMS),
+]
+
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)
 write('graph_node4_search.yaml', SEARCH_HEADER, 15000000, SEARCH_CONSTANTS, SEARCH_LESSONS, SEARCH_PARAMS)
 
 for name, run, init, title, body, steps, constants, lessons, params in STAGES:
     write(name + '.yaml', stage_header(title, name, run, init, body), steps, constants, lessons, params,
           beta=BETA_STAGES)
+
+for name, run, init, title, body, steps, constants, lessons, params in V4_STAGES:
+    # Um checkpoint a cada 500k guardado o run inteiro: num run sem supervisao, e o que permite
+    # voltar ao melhor ponto se o fim piorar (overtraining / esquecimento).
+    write(name + '.yaml', v4_header(title, name, run, init, body), steps, constants, lessons, params,
+          beta=BETA_NIGHT if name in ('graph_v4_noite', 'graph_v4b_noite') else BETA_STAGES, keep=max(10, steps // 500000))

@@ -1,0 +1,124 @@
+# ================================================================================================
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - S1 SALAS E PORTAS (do zero, sem seta)
+#
+#   mlagents-learn config/graph_v4_s1_salas.yaml --run-id=v4_s1_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
+# Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
+# Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+# Do zero: recompensa e observacao novas. A sala vale o mesmo qualquer que seja o tamanho (0.25 ao
+# descobrir os 80% dos nos + 0.25 ao concluir); porta nova 0.1, saida de sala concluida 0.15 (x a
+# novidade da porta: sair por onde entrou vale metade). Sem seta e SEM nenhum pagamento por se
+# aproximar de alvo escolhido por algoritmo: so eventos que ele causa (chao novo, sala concluida,
+# porta atravessada). A decisao e "qual porta", e a novidade de cada uma esta na observacao. Mesma
+# escada da E1 (que passou em 190k), alvo agora em SALAS concluidas.
+#
+#   Licao   salas  assist threshold  min. episodios
+#   Perto   0.2    1.0    6.0        80
+#   Metade  0.5    1.0    9.0        80
+#   Quase   0.8    0.7    (final)
+#
+# THRESHOLDS (~75% de um episodio bom; 26 salas, 35 portas no NodeTraining5):
+#   Perto  = 6 salas x 0.5 + ~7 portas x 0.1 + ~5 saidas x 0.15 + conclusao 5
+#            - existencial/parede ~1 = ~8;
+#   Metade = 13 x 0.5 + ~1.5 + ~1.9 + 5 - ~2.5 = ~12.
+# Salas de 1 no (11 de 26) concluem ao entrar: as primeiras licoes ficam faceis de proposito.
+#
+# PASSA QUANDO (na Quase): Exploration/Coverage > 0.6 (salas), WallContactFraction < 0.2,
+# Doors/RepeatFraction caindo, Episode Length caindo. 5M steps; se passar antes, Ctrl+C e siga.
+# Se travar na Perto com Movement/IdleFraction alto: sem seta ele nao achou a primeira porta.
+# Primeiro ajuste: subir _doorCrossReward (porta nova paga mais) - continua sendo evento, nao seta.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
+      # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 5000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  hider_mode: 0
+  hider_speed: 0.0
+  hider_noise: 1.0
+  ping_interval: 0
+  ping_reward_scale: 1.0
+  discovery_reward_scale: 1.0
+  room_complete_threshold: 0.8
+  release_fraction: 0.0
+  previsited_fraction: 0.0
+
+  # ---- Curriculo ----
+  # Fracao das SALAS concluidas que encerra o episodio (+5).
+  coverage_target:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 0.2
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 0.5
+      - name: Quase
+        value: 0.8
+
+  # Steering assistido (0..1). 1 = desliza na parede.
+  steer_assist:
+    curriculum:
+      - name: Perto
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 6.0
+          require_reset: true
+        value: 1.0
+      - name: Metade
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 80
+          threshold: 9.0
+          require_reset: true
+        value: 1.0
+      - name: Quase
+        value: 0.7

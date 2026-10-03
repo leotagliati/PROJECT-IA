@@ -1,0 +1,360 @@
+# ================================================================================================
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4C: FUGA A 6 m/s, CACA E SUSPEITA MAIS VALIOSAS
+#
+#   mlagents-learn config/graph_v4c_fuga.yaml --run-id=v4c_fuga_01 --initialize-from=v4b_noite_01
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
+# Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
+# Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
+#
+# FUGA A 6 m/s. Herda o v4b_noite_01 (HiderFoge: pegava ~85% com o hider a 2.2 m/s).
+#
+#   #  Licao       vel   barulho desc  ping$ solto  criterio
+#   1  FogeLenta   4.0   0.4     0.5   1.0   0      progresso 0.30 (300)
+#   2  FogeIgual   6.0   0.3     0.5   1.0   0      progresso 0.65 (300)
+#   3  Solto       6.0   0.3     0.5   1.0   1      (final)
+#
+# O QUE MUDOU (pedido do Arthur):
+#   - hider na velocidade do seeker (6 m/s) - em escada (4.0 -> 6.0): pular de 2.2 para 6 de uma vez
+#     seria tirar a muleta toda de uma vez. Com velocidades iguais so se pega encurralando (a fuga
+#     escolhe vizinho no grafo), entao o criterio e Hunt/Caught, nao a velocidade;
+#   - EXPLORACAO MENOS VALIOSA: discovery_reward_scale 0.5 (era 1.0): mapa inteiro ~12, nao ~25;
+#   - CACA BEM MAIS VALIOSA (prefab): captura 20 + 25 x tempo que sobra (era 10 + 15): 20..45;
+#     avistar 1.0 (era 0.5), aproximar 0.1/m (era 0.05);
+#   - MANTER EM VISAO: _hiderInViewReward 0.003 por decisao com ele no cone (teto ~4.8);
+#   - SALA SUSPEITA MAIS VALIOSA: teto do multiplicador na recompensa 8x (era 3x; a observacao
+#     continua normalizada pelo 3x, entao a rede herdada nao ve o vetor mudar). A sala mais suspeita
+#     paga 8 x 0.5 = 4x o valor base (era 3x); a comum paga metade;
+#   - PING VALENDO: ping_reward_scale 1.0 (era 0 na caca): chegar +2, expirar -0.5.
+#     CUIDADO: foi isso que virou renda no night_04 (seguir rastro em vez de explorar). Se aparecer
+#     cobertura despencando com reward subindo, volte para 0.3 antes de mexer em outra coisa.
+#
+# PASSA QUANDO: Hunt/Caught nao cair abaixo de ~60% na FogeIgual. Se cair a < 40%, a velocidade
+# igual e demais: segure em 4.0-5.0. 4M steps; checkpoint a cada 500k (tools/best_onnx.py).
+# DEPENDE do C# novo (GraphRewardSystem/GraphRoomMemory) e do prefab NodeTraining5 (valores novos).
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
+      # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.995
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 4000000
+    time_horizon: 128
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  room_complete_threshold: 0.8
+  ping_single_room_chance: 0.5
+
+  # ---- Curriculo ----
+  # Sem fim por cobertura: o episodio acaba pegando o hider ou no tempo.
+  coverage_target:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.1
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 1.1
+      - name: Solto
+        value: 1.1
+
+  # Steering assistido (0..1).
+  steer_assist:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.3
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0.3
+      - name: Solto
+        value: 0.3
+
+  # Fracao das SALAS que ja nasce concluida.
+  previsited_fraction:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0.0
+      - name: Solto
+        value: 0.0
+
+  # Sem liberacao por tempo: a suspeita faz o papel.
+  release_fraction:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0.0
+      - name: Solto
+        value: 0.0
+
+  # 0: os pings vem dos passos do hider.
+  ping_interval:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0
+      - name: Solto
+        value: 0
+
+  # 3 = foge.
+  hider_mode:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 3
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 3
+      - name: Solto
+        value: 3
+
+  # m/s do hider (o seeker anda a 6). Escada ate a mesma velocidade.
+  hider_speed:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 4.0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 6.0
+      - name: Solto
+        value: 6.0
+
+  # Chance de cada chegada do hider num no de ping virar ping.
+  hider_noise:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.4
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0.3
+      - name: Solto
+        value: 0.3
+
+  # Exploracao vale metade da do v4b: a caca e o objetivo.
+  discovery_reward_scale:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0.5
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0.5
+      - name: Solto
+        value: 0.5
+
+  # Ping valendo (chegar +2, expirar -0.5). Cuidado: night_04.
+  ping_reward_scale:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1.0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 1.0
+      - name: Solto
+        value: 1.0
+
+  # 1 = o que ele VE conta como visto.
+  vision_explores:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 1
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 1
+      - name: Solto
+        value: 1
+
+  # 1 = hider anda fora do centro dos nos e se esconde.
+  hider_loose:
+    curriculum:
+      - name: FogeLenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: FogeIgual
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.65
+          require_reset: true
+        value: 0
+      - name: Solto
+        value: 1
