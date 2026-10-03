@@ -1,21 +1,9 @@
-//using UnityEngine;
-
-//public class HoverEffect : MonoBehaviour
-//{
-//    public void OnHoverEnterEffect(GameObject go)
-//    {
-//        go.transform.localScale = new Vector3(1.2f, 1.2f, 1.2f);
-//    }
-//    public void OnHoverExitEffect(GameObject go)
-//    {
-//        go.transform.localScale = Vector3.one ;
-//    }
-//}
 using UnityEngine;
 using TMPro;
 using System.Collections;
+using UnityEngine.EventSystems;
 
-public class HoverEffect : MonoBehaviour
+public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
 {
     [Header("Scale")]
     [SerializeField] private float hoverScale = 1.2f;
@@ -26,8 +14,9 @@ public class HoverEffect : MonoBehaviour
 
     private Coroutine currentAnimation;
 
-    // Guarda a cor original do texto
+    // Cor original do texto
     private Color originalColor;
+
     private TMP_Text text;
 
     private void Awake()
@@ -40,7 +29,39 @@ public class HoverEffect : MonoBehaviour
         }
     }
 
+    // =========================================================
+    // MOUSE
+    // =========================================================
+
     public void OnHoverEnterEffect(GameObject go)
+    {
+        ActivateHover(go);
+    }
+
+    public void OnHoverExitEffect(GameObject go)
+    {
+        DeactivateHover(go);
+    }
+
+    // =========================================================
+    // EVENT SYSTEM / TECLADO / CONTROLE
+    // =========================================================
+
+    public void OnSelect(BaseEventData eventData)
+    {
+        ActivateHover(gameObject);
+    }
+
+    public void OnDeselect(BaseEventData eventData)
+    {
+        DeactivateHover(gameObject);
+    }
+
+    // =========================================================
+    // HOVER
+    // =========================================================
+
+    private void ActivateHover(GameObject go)
     {
         if (text == null)
             return;
@@ -48,18 +69,30 @@ public class HoverEffect : MonoBehaviour
         // Clareia a cor original
         Color hoverColor = originalColor * brightness;
 
-        // Garante que os valores não ultrapassem 1
+        // Evita ultrapassar 1
         hoverColor.r = Mathf.Clamp01(hoverColor.r);
         hoverColor.g = Mathf.Clamp01(hoverColor.g);
         hoverColor.b = Mathf.Clamp01(hoverColor.b);
 
-        StartHoverAnimation(go, hoverScale, hoverColor);
+        StartHoverAnimation(
+            go,
+            hoverScale,
+            hoverColor
+        );
     }
 
-    public void OnHoverExitEffect(GameObject go)
+    private void DeactivateHover(GameObject go)
     {
-        StartHoverAnimation(go, 1f, originalColor);
+        StartHoverAnimation(
+            go,
+            1f,
+            originalColor
+        );
     }
+
+    // =========================================================
+    // ANIMAÇÃO
+    // =========================================================
 
     private void StartHoverAnimation(
         GameObject go,
@@ -73,7 +106,11 @@ public class HoverEffect : MonoBehaviour
         }
 
         currentAnimation = StartCoroutine(
-            AnimateHover(go, targetScale, targetColor)
+            AnimateHover(
+                go,
+                targetScale,
+                targetColor
+            )
         );
     }
 
@@ -83,19 +120,22 @@ public class HoverEffect : MonoBehaviour
         Color targetColor
     )
     {
-        TMP_Text text = go.GetComponentInChildren<TMP_Text>();
+        TMP_Text targetText = go.GetComponentInChildren<TMP_Text>();
 
         Vector3 startScale = go.transform.localScale;
 
-        Color startColor = text != null
-            ? text.color
+        Color startColor = targetText != null
+            ? targetText.color
             : originalColor;
 
         float elapsed = 0f;
 
         while (elapsed < animationSpeed)
         {
-            elapsed += Time.deltaTime;
+            // IMPORTANTE:
+            // Time.deltaTime para quando o jogo está pausado.
+            // unscaledDeltaTime continua funcionando.
+            elapsed += Time.unscaledDeltaTime;
 
             float t = elapsed / animationSpeed;
 
@@ -110,9 +150,9 @@ public class HoverEffect : MonoBehaviour
             );
 
             // Cor
-            if (text != null)
+            if (targetText != null)
             {
-                text.color = Color.Lerp(
+                targetText.color = Color.Lerp(
                     startColor,
                     targetColor,
                     t
@@ -123,11 +163,12 @@ public class HoverEffect : MonoBehaviour
         }
 
         // Garante o valor final
-        go.transform.localScale = Vector3.one * targetScale;
+        go.transform.localScale =
+            Vector3.one * targetScale;
 
-        if (text != null)
+        if (targetText != null)
         {
-            text.color = targetColor;
+            targetText.color = targetColor;
         }
 
         currentAnimation = null;
