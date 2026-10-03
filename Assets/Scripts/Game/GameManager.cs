@@ -13,8 +13,6 @@ public enum GameState
 [DefaultExecutionOrder(-100)]
 public class GameManager : MonoBehaviour
 {
-    [SerializeField] private float preparationSeconds = 15f;
-
     // O reload mora aqui, e não nas telas de fim: a partida recomeça mesmo com uma UI mal
     // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
     // Os tempos cobrem a sequência de cada fim mais a leitura da mensagem.
@@ -33,8 +31,6 @@ public class GameManager : MonoBehaviour
     public bool IsPlaying => State == GameState.Playing;
     public bool IsOver => State == GameState.Won || State == GameState.Lost;
 
-    public float PreparationRemaining { get; private set; }
-
     public float ElapsedTime { get; private set; }
 
     void Awake()
@@ -51,10 +47,6 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        PreparationRemaining = Mathf.Max(0f, preparationSeconds);
-        if (PreparationRemaining <= 0f)
-            State = GameState.Playing;
-
         StateChanged?.Invoke(State);
     }
 
@@ -62,19 +54,18 @@ public class GameManager : MonoBehaviour
     {
         switch (State)
         {
-            case GameState.Preparing:
-                PreparationRemaining -= Time.deltaTime;
-                if (PreparationRemaining <= 0f)
-                {
-                    PreparationRemaining = 0f;
-                    SetState(GameState.Playing);
-                }
-                break;
-
             case GameState.Playing:
                 ElapsedTime += Time.deltaTime;
                 break;
         }
+    }
+    
+    public void StartMainLoop()
+    {
+        if (State != GameState.Preparing)
+            return;
+
+        SetState(GameState.Playing);
     }
 
     public void PlayerCaught() => Finish(GameState.Lost);
