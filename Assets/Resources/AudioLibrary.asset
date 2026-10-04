@@ -31,6 +31,12 @@ MonoBehaviour:
     Volume: 0.208
     PitchJitter: 0.222
     MaxDistance: 5
+  - Id: creakingDoor
+    Clips:
+    - {fileID: 8300000, guid: 8004f1432175e2447aa635f47c3a21e1, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
   - Id: flashlight_on
     Clips:
     - {fileID: 8300000, guid: f157c7da08b8e82468a97707f22fcfbc, type: 3}
@@ -113,6 +119,24 @@ MonoBehaviour:
   - Id: player_scream
     Clips:
     - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: intro_scream
+    Clips:
+    - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: doorShut
+    Clips:
+    - {fileID: 8300000, guid: 77aabf7899d320c4fb25a43a699b5c91, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: doorSlam
+    Clips:
+    - {fileID: 8300000, guid: 4ed7aa068776ff8438e432d9077936d1, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
     MaxDistance: 0
