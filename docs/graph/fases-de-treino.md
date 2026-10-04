@@ -45,7 +45,9 @@ repetir o mesmo run.
 | 7b · v4.1 | 02/10 | Node_5 (v4) | **Planta de salas** (sensor com as 26 salas), ver = explorar, suspeita multiplica | `v4.1_noite_01` (antes `v4b_noite_01`; parou aos 7.1M): explora 76–83% das salas e pega o hider em 83% (HiderFoge) |
 | 7c · v4.2 | 03/10 | Node_5 (v4) | **V4.2 do zero** (antes V5): caça com hider rápido, calor do ping no mapa inteiro, 2 sensores de raios, menos steering, parede mais cara | `v4.2_noite_01` (antes `v5_noite_01`) abandonado aos 3.72M: parou de bater mas também de explorar (22% das salas na Metade) |
 | 7d · v4.3 | 03/10 | Node_5 (v4) | **Caça herdando a v4.1**: hider sem pausa, foge a 18 m, escada 4→6→8 m/s; caça mais valiosa; calor do ping; física, parede e raios voltam aos da v4.1 | `v4.3_caca_01` parado aos 532k: vê ~89%, pega ~72%; modelo `GraphExplorer_v4.3.onnx` |
-| 7e · v4.4 | 03/10 | Node_5 (v4) | **Movimento**: 10 m/s, aceleração 35, freio 50 (para em 1 m), bater custa tempo, sem steer assist; hider 2→3→4 m/s | `v4.4_movimento_01` planejado (o prefab das mudanças entra no branch do treino) |
+| 7e · v4.4 | 03/10 | Node_5 (v4) | **Corrida**: sem aceleração nem steer assist, corpo segue o movimento (pescoço até 60°), corre com estamina, 15/18/20 m/s (patrulha/alerta/perseguição); hider anda e corre fugindo, 4→10 m/s; parede ×2 (Door grátis); suspeita ×2 | `v4.4_corrida_01` planejado (substitui o plano de movimento com aceleração 35, que não rodou) |
+| 7f · v4.5 | 03/10 | Node_5 (v4) | **Fuga**: hider corre 10→14 m/s com 6→10 s de estamina (o seeker tem 5) | não rodou (substituída pela v5.0) |
+| 8 · v5.0 | 04/10 | prefab novo (mapa v4) | **Do zero, escala do jogador**: velocidade pelo estado de alerta (patrulha 6, alerta 8, perseguição 10,2 m/s vendo o jogador), inércia, episódio de 400 s, vetor 188 (vê a própria velocidade, o estado e o relógio), hider na mesma escala | `v5.0_zero_01` planejado (15M steps) |
 
 ---
 
@@ -195,11 +197,38 @@ S1 a S6 seguidas** (`v4_noite_01`, 10M steps, 01→02/10), que chegou à última
   - **Resultado:** viu ~89%, pegou ~72%, estável; ~1 em 6 hiders escapava depois de visto (na v4.1, viu =
     pegou). A 40 m/s com aceleração 15 o seeker leva 53 m para parar e usa steer assist + corpo sem atrito
     como trilho. Modelo promovido: `GraphExplorer_v4.3.onnx`.
-- **V4.4 (`v4.4_movimento_01`, 03/10, planejado):** os valores abaixo ainda não estão no prefab (ele ficou com a
-  física da v4.3 para o modelo v4.3 rodar no jogo); aplicar no branch do treino. só movimento, mantém a caça da v4.3. Seeker 10 m/s,
-  aceleração 35, freio 50 (para em 1 m, chega ao máximo em 0.3 s); novo `_syncVelocityWithBody` (bater na
-  parede custa tempo de reaceleração, a parede deixa de ser trilho); steer assist 0.3 → 0.15 → 0 enquanto o
-  hider sobe 2 → 3 → 4 m/s. Critério: `Hunt/Caught` ≥ 70% na SemAssist com parede < 0.15 e batidas caindo.
+- **V4.4 (`v4.4_corrida_01`, 03/10, planejado; herda a v4.3):** substitui o plano anterior da v4.4 (aceleração
+  35 + freio 50), que nunca rodou. Vetor 182 e 4 ações iguais, então o `--initialize-from` carrega.
+  - **Movimento (`GraphLocomotion`, novo):** sem aceleração e sem steer assist; o corpo gira para onde anda e só
+    anda para a frente (a animação só tem andar e correr para a frente); o olhar vira só a cabeça, até 60° de
+    cada lado, e o cone de visão vai junto.
+  - **Velocidade por estado, correndo / andando:** patrulha 15 / 10, alerta (até ~25 s depois de um ping) 18 / 12,
+    perseguição (vendo o hider e 3 s depois) 20 / 13.3 m/s. Corre com a ação de andar quase no máximo, enquanto
+    tem estamina (5 s, recupera em 10 s); a estamina entra na observação [26], que era o steer assist.
+  - **Hider:** anda a 2/3 e só corre fugindo, com estamina (3 s); escada 4 → 6 → 8 → 10 m/s correndo.
+  - **Recompensa:** parede ×2 na layer Wall (0.0015/step, 0.06/batida), paredes Door_Hole na layer Door sem
+    punição; suspeita zerada paga 2 (era 1); exploração ×0.3.
+  - **Critério:** `Hunt/Caught` ≥ ~65% na MuitoRapida, parede < 0.15, `Movement/RunFraction` entre 0.1 e 0.5.
+- **V4.5 (`v4.5_fuga_01`, 03/10, planejado; herda a v4.4):** mesmo código e prefab; o hider corre 10 → 12 → 14 m/s
+  com 6 → 8 → 10 s de estamina, mais que os 5 s do seeker. A 14 m/s ele foge do seeker andando (13.3) e aguenta
+  mais: o seeker tem que correr só perto e cortar caminho. Critério: `Hunt/Caught` ≥ ~50% na FogeLonge.
+- **V4.4 e V4.5 não rodaram:** em 04/10 o plano virou um treino do zero (v5.0), abaixo.
+- **V5.0 (`v5.0_zero_01`, 04/10, planejado; do zero, prefab novo):** `config/graph_v5.0_zero.yaml`, 15M steps.
+  - **Velocidade pelo estado de alerta**, na escala do jogador (PlayerDummy da `main`: anda 6, corre 10,2): patrulha
+    6 m/s sem pista, **alerta** 8 m/s quando ouviu um barulho ou perdeu o jogador de vista há menos de 10 s, e
+    **perseguição** 10,2 m/s enquanto vê o jogador. Não há corrida por ação nem fôlego; a IA vê o próprio estado.
+    Inércia leve, giro mais lento na perseguição, bater na parede custa velocidade. A animação lê o estado
+    (`GraphAnimationSystem`: andar na patrulha e no alerta, correr na perseguição).
+  - **Hider na mesma escala:** escada 5,1 → 7 → 8,5 → 10,2 m/s correndo; na última lição ele é o jogador.
+  - **Episódio de 400 s** (era 160 s): ~2.800 m de caminho para um mapa de ~1.100 m de ligações. Custos por step
+    divididos por 2,5 para o teto continuar o mesmo.
+  - **Observação 188** (+6): a própria velocidade, em que estado está (perseguição, quanto resta do alerta, a
+    velocidade do estado), quanto do episódio passou e há quanto tempo não progride.
+  - **Toda sala vale o mesmo** na exploração; só o calor do barulho, a suspeita e a sala já explorada mudam o valor.
+  - **Sala só conta como explorada com 100% dos nós vistos** (era 80%): ele explora olhando e não pode deixar canto
+    com nó sem ver. Sobe 80% → 90% → 100% nas três primeiras lições para o começo do zero não travar.
+  - **Critério:** cobertura > 70% na Quase; `Hunt/Caught` ≥ ~60% na HiderFoge e ≥ ~40% na HiderJogador;
+    parede < 15% do tempo; `Movement/MeanSpeed` entre 6 e 10.
 - **O que ainda falta (no v4_noite_01):**
   - **teto de ~70% das salas:** o episódio de exploração nunca terminou por cobertura (sempre por
     tempo), então o bônus de 80% quase não foi pago;
