@@ -1,35 +1,41 @@
 # ================================================================================================
-# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.4: MOVIMENTO (para em 1 m, sem trilho na parede)
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.4: CORRIDA (sem aceleracao, estamina, corpo segue o movimento)
 #
-#   mlagents-learn config/graph_v4.4_movimento.yaml --run-id=v4.4_movimento_01 --initialize-from=v4.3_caca_01
+#   mlagents-learn config/graph_v4.4_corrida.yaml --run-id=v4.4_corrida_01 --initialize-from=v4.3_caca_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
 # Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
 #
-# MOVIMENTO, herdando a v4.3 (v4.3_caca_01, 532k: via ~89% e pegava ~72% do hider a 4 m/s).
+# CORRIDA, herdando a v4.3 (v4.3_caca_01, 532k: via ~89% e pegava ~72% do hider a 4 m/s).
 #
-#   #  Licao       vel  assist barulho solto  criterio
-#   1  Adapta      2.0  0.3    0.4     0      progresso 0.20 (300 ep.)
-#   2  MenosAssist 3.0  0.15   0.3     0      progresso 0.45 (300)
-#   3  SemAssist   4.0  0      0.3     0      progresso 0.70 (300)
-#   4  Solto       4.0  0      0.3     1      (final)
-#   Todas: sem fim por cobertura (1.1), hider foge (modo 3), exploracao x0.5, ping x0.4.
+#   #  Licao        hider (corre/anda)  estamina hider  barulho solto  criterio
+#   1  Lenta        4  / 2.7            3 s             0.4     0      progresso 0.15 (300 ep.)
+#   2  Media        6  / 4              3 s             0.3     0      progresso 0.35 (300)
+#   3  Rapida       8  / 5.3            3 s             0.3     0      progresso 0.55 (300)
+#   4  MuitoRapida  10 / 6.7            3 s             0.3     0      progresso 0.75 (300)
+#   5  Solta        10 / 6.7            3 s             0.3     1      (final)
+#   Todas: sem fim por cobertura (1.1), hider foge (modo 3), exploracao x0.3, ping x0.4.
 #
-# O QUE MUDA DA v4.3 (so o movimento). APLICAR NO PREFAB antes do run: o commit da v4.3 deixou o
-# NodeTraining5 com a fisica dela (40 / 15 / sem freio / sync off / assist padrao 0.3), para o modelo v4.3 rodar.
-# No SeekerMovementSystem e na arena:
-#   - velocidade 40 -> 10 m/s, aceleracao 15 -> 35, freio 50: para em ~1 m e chega ao maximo em 0.3 s
-#     (era 53 m e 2.7 s). O jogador anda a 5 e corre a 8.5;
-#   - _syncVelocityWithBody: a velocidade parte da real do corpo, entao bater na parede custa tempo
-#     (reacelerar) em vez de ela servir de trilho. Parede: mesmo preco da v4.1 (0.00075 + 0.03);
-#   - steer assist 0.3 -> 0.15 -> 0: com freio e curva de verdade ele nao precisa mais dele;
-#   - hider na escada 2 -> 3 -> 4 m/s (a v4.3 usava 4 -> 6 -> 8 contra um seeker ~2x mais rapido).
+# SEEKER (GraphLocomotion, no prefab; correndo / andando = x2/3):
+#   patrulha 15 / 10, alerta (calor do ping >= 0.5, ~25 s apos cada ping) 18 / 12,
+#   perseguicao (vendo o hider + 3 s depois) 20 / 13.3. Corre com |andar| >= 0.9; estamina 5 s,
+#   recupera 0.5 s/s (vazio -> cheio em 10 s). O hider tem 3 s: na perseguicao o seeker alcanca.
 #
-# PASSA QUANDO: Hunt/Caught volta a >= ~70% na SemAssist com WallContactFraction < 0.15 e
-# Exploration/WallHits caindo. Se a cobertura/avistamento despencar (Hunt/Seen < 60%), o episodio
-# de 160 s ficou curto para a velocidade nova: aumentar _maxEpisodeSteps e reescalar as penalidades
-# por step e outra mudanca, para o run seguinte. 5M steps, checkpoint a cada 500k.
+# O QUE MUDA DA v4.3:
+#   - MOVIMENTO: sem aceleracao (velocidade na hora), sem steer assist, o corpo gira para onde anda e so
+#     anda para a frente (de costas para o pedido, gira parado); o olhar [2..3] vira so a CABECA, ate
+#     60 graus de cada lado, e o cone de visao vai junto;
+#   - CORRIDA com estamina (observacao [26], que era o assist) e velocidade por estado (tabela acima);
+#   - HIDER anda a 2/3 e so corre fugindo, com estamina; escada 4 -> 6 -> 8 -> 10 m/s correndo;
+#   - PAREDE x2 na layer Wall (0.0015/step + 0.06/batida); layer Door (paredes Door_Hole) e Obstacle
+#     (moveis) sem punicao - aplicar no prefab, ver historico;
+#   - SUSPEITA zerada paga 2 (era 1); exploracao x0.3 (era 0.5): o foco e a captura.
+#
+# PASSA QUANDO: Hunt/Caught >= ~65% na MuitoRapida, WallContactFraction < 0.15, WallHits caindo,
+# Movement/RunFraction entre ~0.1 e ~0.5 (0 = nunca corre; ~1 = corre ate esvaziar o tempo todo).
+# Se Hunt/Caught cair < 40% numa licao, segure a escada do hider antes de mexer em recompensa.
+# 5M steps, checkpoint a cada 500k (tools/best_onnx.py --metric Hunt/Caught).
 # ================================================================================================
 
 behaviors:
@@ -72,395 +78,503 @@ environment_parameters:
   # Sem fim por cobertura: o episodio acaba pegando o hider ou no tempo.
   coverage_target:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 1.1
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 1.1
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 1.1
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
         value: 1.1
-
-  # Steering assistido (0..1). Sai aos poucos: com o movimento novo ele nao precisa.
-  steer_assist:
-    curriculum:
-      - name: Adapta
-        completion_criteria:
-          measure: progress
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 300
-          threshold: 0.2
-          require_reset: true
-        value: 0.3
-      - name: MenosAssist
-        completion_criteria:
-          measure: progress
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 300
-          threshold: 0.45
-          require_reset: true
-        value: 0.15
-      - name: SemAssist
-        completion_criteria:
-          measure: progress
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 300
-          threshold: 0.7
-          require_reset: true
-        value: 0.0
-      - name: Solto
-        value: 0.0
+      - name: Solta
+        value: 1.1
 
   # Fracao das SALAS que ja nasce concluida.
   previsited_fraction:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0.0
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0.0
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0.0
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0.0
+      - name: Solta
         value: 0.0
 
   # Sem liberacao por tempo: a suspeita faz o papel.
   release_fraction:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0.0
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0.0
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0.0
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0.0
+      - name: Solta
         value: 0.0
 
   # 0: os pings vem dos passos do hider.
   ping_interval:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0
+      - name: Solta
         value: 0
 
   # 3 = foge.
   hider_mode:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 3
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 3
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 3
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 3
+      - name: Solta
         value: 3
 
-  # m/s do hider (sem pausa, foge a menos de 18 m). Seeker a 10 m/s.
+  # m/s do hider CORRENDO (anda a 2/3). Seeker corre a 15/18/20 (patrulha/alerta/perseguicao).
   hider_speed:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
-        value: 2.0
-      - name: MenosAssist
+        value: 4.0
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
+          require_reset: true
+        value: 6.0
+      - name: Rapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.55
+          require_reset: true
+        value: 8.0
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 10.0
+      - name: Solta
+        value: 10.0
+
+  # Segundos de corrida do hider (o seeker tem 5).
+  hider_stamina:
+    curriculum:
+      - name: Lenta
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.15
           require_reset: true
         value: 3.0
-      - name: SemAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.35
           require_reset: true
-        value: 4.0
-      - name: Solto
-        value: 4.0
+        value: 3.0
+      - name: Rapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.55
+          require_reset: true
+        value: 3.0
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 3.0
+      - name: Solta
+        value: 3.0
 
   # Chance de cada chegada do hider num no de ping virar ping.
   hider_noise:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0.4
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0.3
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0.3
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0.3
+      - name: Solta
         value: 0.3
 
-  # Exploracao vale metade da v4.1: a caca e o objetivo.
+  # Exploracao x0.3 (era 0.5): o foco e pegar.
   discovery_reward_scale:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
-        value: 0.5
-      - name: MenosAssist
+        value: 0.3
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
-        value: 0.5
-      - name: SemAssist
+        value: 0.3
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
-        value: 0.5
-      - name: Solto
-        value: 0.5
+        value: 0.3
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0.3
+      - name: Solta
+        value: 0.3
 
   # Ping chegado 5 x 0.4 = 2 (expirar -0.2). Cuidado: night_04.
   ping_reward_scale:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0.4
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0.4
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0.4
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0.4
+      - name: Solta
         value: 0.4
 
   # 1 = o que ele VE (qualquer sala) conta como visto.
   vision_explores:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 1
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 1
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 1
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 1
+      - name: Solta
         value: 1
 
   # 1 = hider anda fora do centro dos nos e se esconde.
   hider_loose:
     curriculum:
-      - name: Adapta
+      - name: Lenta
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.2
+          threshold: 0.15
           require_reset: true
         value: 0
-      - name: MenosAssist
+      - name: Media
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.45
+          threshold: 0.35
           require_reset: true
         value: 0
-      - name: SemAssist
+      - name: Rapida
         completion_criteria:
           measure: progress
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 300
-          threshold: 0.7
+          threshold: 0.55
           require_reset: true
         value: 0
-      - name: Solto
+      - name: MuitoRapida
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 0.75
+          require_reset: true
+        value: 0
+      - name: Solta
         value: 1
