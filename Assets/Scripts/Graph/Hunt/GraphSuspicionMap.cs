@@ -22,8 +22,9 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(1)] private int _updateIntervalSteps = 5;
 
         [Header("-----Espalhar-----")]
-        // Velocidade (m/s) suposta para o hider quando o currículo não diz; 0 (hider parado) não espalha.
-        [SerializeField, Min(0f)] private float _defaultHiderSpeed = 1.5f;
+        // Velocidade (m/s) suposta para o hider quando o currículo não diz (6 = o jogador andando); 0 (hider
+        // parado) não espalha.
+        [SerializeField, Min(0f)] private float _defaultHiderSpeed = 6f;
 
         // Teto da fração da suspeita de um nó que sai por atualização; sem ele, arestas curtas passariam de 1 e a crença oscilaria.
         [SerializeField, Range(0.05f, 0.5f)] private float _maxSpreadPerUpdate = 0.5f;
@@ -56,7 +57,6 @@ namespace Assets.Scripts.Graph
         private NavGraph _graph;
         private GraphHiderPerception _perception;
         private GraphPingSystem _ping;
-        private GraphHider _hider;
         private IGraphTarget _target;
 
         private float[] _belief;
@@ -90,25 +90,14 @@ namespace Assets.Scripts.Graph
         /// <summary>Suspeita paga no episódio inteiro (métrica Search/Cleared).</summary>
         public float EpisodeCleared { get; private set; }
 
-        /// <summary>Troca o alvo (o jogador no modo de jogo); sem chamar, é o hider da arena.</summary>
-        public void SetTarget(IGraphTarget target) => _target = target;
-
-        public void Configure(NavGraph graph, GraphHiderPerception perception, GraphPingSystem ping)
+        /// <param name="target">O hider no treino, o jogador no modo de jogo (GraphArenaController.Target).</param>
+        public void Configure(NavGraph graph, GraphHiderPerception perception, GraphPingSystem ping, IGraphTarget target)
         {
             _graph = graph;
             _perception = perception;
             _ping = ping;
+            _target = target;
             _graph.EnsureBaked();
-
-            if (_hider == null)
-            {
-                GraphArenaController arena = GetComponentInParent<GraphArenaController>();
-                if (arena != null)
-                    _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
-            }
-
-            if (_target == null && _hider != null)
-                _target = _hider;
 
             int count = _graph.NodeCount;
             _belief = new float[count];
@@ -130,11 +119,11 @@ namespace Assets.Scripts.Graph
             }
         }
 
-        /// <param name="active">Tem hider neste episódio.</param>
-        /// <param name="hiderSpeed">m/s que o seeker supõe; &lt; 0 usa _defaultHiderSpeed, 0 = parado.</param>
-        public void ResetEpisode(bool active, float hiderSpeed)
+        /// <summary>Ligada só com hider; a velocidade suposta vem da lição (&lt; 0 = _defaultHiderSpeed, 0 = parado).</summary>
+        public void ResetEpisode(in GraphEpisodeSettings settings)
         {
-            IsActive = active && _graph != null;
+            IsActive = settings.HasHider && _graph != null;
+            float hiderSpeed = settings.AssumedHiderSpeed;
             _speed = hiderSpeed < 0f ? _defaultHiderSpeed : hiderSpeed;
             _step = 0;
             _lastPingNode = -1;

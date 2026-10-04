@@ -11,22 +11,23 @@ namespace Assets.Scripts.Graph
     /// ao perder de vista). Paga, no GraphRewardSystem: avistar (com cooldown), metros de
     /// aproximação enquanto vê e capturar (terminal).
     ///
+    /// Também é dona da APROXIMAÇÃO (distância na decisão anterior), que só vale vendo nas duas.
     /// Um por agente; Tick a cada step de física. CanSeePoint também é usado pela GraphRoomMemory
-    /// e pela GraphSuspicionMap.
+    /// e pela GraphSuspicionMap. O alvo (hider ou jogador) vem da arena no Configure.
     /// </summary>
     public class GraphHiderPerception : MonoBehaviour
     {
         [Header("-----Cone-----")]
-        // Abertura TOTAL do cone, em graus, em torno de para onde o corpo OLHA (ações [2..3]), não
-        // necessariamente para onde anda.
+        // Abertura TOTAL do cone, em graus, em torno de para onde a CABEÇA olha (GraphLocomotion: o
+        // olhar [2..3] vira o pescoço em relação ao corpo, que segue o movimento).
         [SerializeField, Range(10f, 360f)] private float _viewAngle = 100f;
 
         // Alcance da visão, em metros.
         [SerializeField, Min(1f)] private float _viewDistance = 15f;
 
-        // Altura (m) dos olhos e do ponto olhado acima do pivô de cada transform. Mobília está na
-        // layer Wall e bloqueia a visão: baixo demais, qualquer mesa tapa o cone.
-        [SerializeField] private float _eyeHeight = 1.4f;
+        // Altura (m) dos olhos acima do pivô (o pé) do seeker; o ponto olhado fica nessa mesma altura (AtEyeLevel).
+        // Mobília bloqueia a visão: baixo demais, qualquer mesa tapa o cone.
+        [SerializeField] private float _eyeHeight = 1.67f;
 
         [Header("-----Captura-----")]
         // Distância planar (m) entre centros em que o hider conta como pego (com linha livre).
@@ -38,10 +39,7 @@ namespace Assets.Scripts.Graph
         // farmar bônus entrando e saindo do cone numa quina.
         [SerializeField, Min(0)] private int _respotCooldownSteps = 250;
 
-        [Header("-----Referências-----")]
-        [SerializeField] private GraphHider _hider;
-
-        // O alvo de fato: o hider no treino, o jogador no modo de jogo (SetTarget).
+        // O hider no treino, o jogador no modo de jogo (GraphArenaController.Target).
         private IGraphTarget _target;
 
         private NavGraph _graph;
@@ -72,32 +70,44 @@ namespace Assets.Scripts.Graph
         private Vector3 _previousSeenPosition;
         private bool _hasPreviousSeenPosition;
 
+        // Direção da cabeça (SetViewDirection). Sem ela, o cone segue o corpo (seeker.forward).
+        private Vector3 _viewForward;
+        private bool _hasViewDirection;
+
         /// <summary>
         /// Avistou (não-vendo -> vendo, fora do cooldown) desde o último <see cref="ClearStepFlags"/>.
         /// </summary>
         public bool Spotted { get; private set; }
 
         /// <summary>
-        /// Pegou o hider. Fica de pé até o ResetEpisode: é evento TERMINAL, o manager paga e encerra.
+        /// Pegou o hider. Fica de pé até o ResetEpisode: é evento TERMINAL (o GraphRewardSystem paga, o Manager encerra).
         /// </summary>
         public bool Caught { get; private set; }
 
-        public void Configure(NavGraph graph)
+        // Visão e distância no ClearStepFlags anterior (a decisão anterior, com TakeActionsBetweenDecisions).
+        private bool _wasSeeing;
+        private float _distanceBefore;
+
+        /// <summary>Dá para medir aproximação: vendo agora E na decisão anterior (ganhar/perder visão salta a distância).</summary>
+        public bool HasApproach => IsSeeing && _wasSeeing;
+
+        /// <summary>Metros que encurtou até o hider desde a decisão anterior (positivo = aproximou); 0 sem <see cref="HasApproach"/>.</summary>
+        public float ApproachDelta => HasApproach ? _distanceBefore - CurrentDistance : 0f;
+
+        public void Configure(NavGraph graph, IGraphTarget target)
         {
             _graph = graph;
-
-            if (_hider == null)
-            {
-                GraphArenaController arena = GetComponentInParent<GraphArenaController>();
-                if (arena != null)
-                    _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
-            }
-
-            if (_target == null && _hider != null)
-                _target = _hider;
+            _target = target;
         }
 
-        public void SetTarget(IGraphTarget target) => _target = target;
+        /// <summary>Para onde a cabeça olha (planar, no mundo); o cone passa a seguir isto, não o corpo.</summary>
+        public void SetViewDirection(Vector3 forward)
+        {
+            forward.y = 0f;
+            _hasViewDirection = forward.sqrMagnitude > 1e-6f;
+            if (_hasViewDirection)
+                _viewForward = forward.normalized;
+        }
 
         public void ResetEpisode()
         {
@@ -107,13 +117,20 @@ namespace Assets.Scripts.Graph
             CurrentDistance = 0f;
             HiderVelocity = Vector3.zero;
             _hasPreviousSeenPosition = false;
+            _hasViewDirection = false;
             Caught = false;
             _lastSeenStep = int.MinValue;
             _step = 0;
             ClearStepFlags();
         }
 
-        public void ClearStepFlags() => Spotted = false;
+        /// <summary>Consome o "avistou" e guarda a distância desta decisão para a próxima aproximação.</summary>
+        public void ClearStepFlags()
+        {
+            Spotted = false;
+            _wasSeeing = IsSeeing;
+            _distanceBefore = IsSeeing ? CurrentDistance : 0f;
+        }
 
         /// <summary>Desfaz a captura (modo de jogo: encostar no jogador antes de a partida começar).</summary>
         public void ForgetCaught() => Caught = false;
@@ -169,7 +186,7 @@ namespace Assets.Scripts.Graph
                 return true;
 
             Vector3 eye = seeker.position + Vector3.up * _eyeHeight;
-            Vector3 target = hiderPosition + Vector3.up * _eyeHeight;
+            Vector3 target = AtEyeLevel(hiderPosition, eye);
             Vector3 ray = target - eye;
             return !Physics.Raycast(eye, ray.normalized, ray.magnitude, walls, QueryTriggerInteraction.Ignore);
         }
@@ -181,7 +198,7 @@ namespace Assets.Scripts.Graph
         public bool CanSeePoint(Transform seeker, Vector3 point)
         {
             Vector3 eye = seeker.position + Vector3.up * _eyeHeight;
-            Vector3 target = point + Vector3.up * _eyeHeight;
+            Vector3 target = AtEyeLevel(point, eye);
             Vector3 delta = target - eye;
 
             Vector3 planar = new Vector3(delta.x, 0f, delta.z);
@@ -189,10 +206,7 @@ namespace Assets.Scripts.Graph
             if (distance > _viewDistance || distance < 1e-3f)
                 return false;
 
-            Vector3 forward = new Vector3(seeker.forward.x, 0f, seeker.forward.z);
-            if (forward.sqrMagnitude < 1e-6f)
-                forward = Vector3.forward;
-
+            Vector3 forward = ViewForward(seeker);
             if (Vector3.Angle(forward, planar) > _viewAngle * 0.5f)
                 return false;
 
@@ -204,13 +218,26 @@ namespace Assets.Scripts.Graph
             return !Physics.Raycast(eye, delta.normalized, delta.magnitude, walls, QueryTriggerInteraction.Ignore);
         }
 
+        // O ponto olhado fica na ALTURA DO OLHO, sobre o X/Z do ponto: visão horizontal. Assim não importa em que
+        // altura o ponto mora (nó do grafo, que no mapa v4 fica ~1.8 m acima do piso, ou pé do alvo, no piso): o
+        // monstro olha reto, e mobília mais alta que o olho tapa. Com o seeker no nível do nó (prefabs antigos) dá o
+        // mesmo de antes; mapa de um andar só.
+        private static Vector3 AtEyeLevel(Vector3 point, Vector3 eye) => new Vector3(point.x, eye.y, point.z);
+
+        private Vector3 ViewForward(Transform seeker)
+        {
+            if (_hasViewDirection)
+                return _viewForward;
+
+            Vector3 forward = new Vector3(seeker.forward.x, 0f, seeker.forward.z);
+            return forward.sqrMagnitude > 1e-6f ? forward.normalized : Vector3.forward;
+        }
+
         // Gizmo (azul-claro): cone, linha até o hider enquanto vê e X na última posição vista quando não vê.
         private void OnDrawGizmosSelected()
         {
             Vector3 eye = transform.position + Vector3.up * _eyeHeight;
-            Vector3 forward = new Vector3(transform.forward.x, 0f, transform.forward.z).normalized;
-            if (forward.sqrMagnitude < 1e-6f)
-                forward = Vector3.forward;
+            Vector3 forward = ViewForward(transform);
 
             Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
             Quaternion left = Quaternion.Euler(0f, -_viewAngle * 0.5f, 0f);

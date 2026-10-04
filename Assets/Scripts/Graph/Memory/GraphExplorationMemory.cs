@@ -4,9 +4,11 @@ using UnityEngine;
 namespace Assets.Scripts.Graph
 {
     /// <summary>
-    /// A camada de NÓ da memória do agente no episódio: âncora (nó em que ele "está"), nós pisados,
-    /// visitas por nó e diagnósticos de loop. A camada de SALA (cobertura, portas, novidade) é a
-    /// <see cref="GraphRoomMemory"/>, que lê esta a cada step.
+    /// Memória do agente no episódio, em duas camadas:
+    ///   - NÓ (este arquivo): âncora (nó em que ele "está"), nós pisados, visitas e diagnósticos de loop;
+    ///   - SALA (<see cref="Rooms"/>, a <see cref="GraphRoomMemory"/>): cobertura, portas, novidade, calor.
+    /// A de sala lê a de nó no mesmo step; por isso Reset, Tick e ClearStepFlags passam por aqui, que
+    /// garante a ordem (nós antes de salas). Quem está fora só chama estes três e lê as propriedades.
     ///
     /// Um por agente; o <see cref="NavGraph"/> (estrutura) é compartilhado pela arena. Tick a cada
     /// step de FÍSICA (com Decision Period > 1 o agente pode cruzar um nó entre decisões), então as
@@ -27,8 +29,9 @@ namespace Assets.Scripts.Graph
 
         [Header("-----Revisita precoce (loop)-----")]
         // Revisita precoce (detector de loop): chegar numa PORTA pisada há menos de isto (steps de
-        // física; 750 = 15 s). O custo é decidido no GraphRewardSystem, só a partir da N-ésima seguida.
-        [SerializeField, Min(1)] private int _earlyRevisitWindowSteps = 750;
+        // física; 1500 = 30 s, era 15 s a 15 m/s; agora anda a 6). O custo é decidido no GraphRewardSystem,
+        // só a partir da N-ésima seguida.
+        [SerializeField, Min(1)] private int _earlyRevisitWindowSteps = 1500;
 
         [Header("-----Diagnóstico de pisca-pisca-----")]
         // Pisca-pisca de âncora (A -> B -> A): voltar ao nó anterior em menos de _flickerWindowSteps
@@ -36,6 +39,9 @@ namespace Assets.Scripts.Graph
         // dois ladrilhos, não loop; separado da revisita precoce. Só métrica.
         [SerializeField, Min(1)] private int _flickerWindowSteps = 100;
         [SerializeField, Min(0f)] private float _flickerDistance = 1f;
+
+        [Header("-----Salas e portas-----")]
+        [SerializeField] private GraphRoomMemory _rooms = new GraphRoomMemory();
 
         private static readonly Color VisitedColor = new Color(0.15f, 0.9f, 0.3f, 0.9f);
         private static readonly Color RevisitedColor = new Color(1f, 0.5f, 0.05f, 0.9f);
@@ -89,7 +95,12 @@ namespace Assets.Scripts.Graph
 
         public int TickedSteps { get; private set; }
 
-        public void Configure(NavGraph graph)
+        /// <summary>A camada de salas e portas (cobertura, novidade, calor, observação das saídas).</summary>
+        public GraphRoomMemory Rooms => _rooms;
+
+        /// <param name="perception">Para "ver = explorar" (vision_explores).</param>
+        /// <param name="suspicion">Para valorizar ver a sala suspeita e reabrir sala concluída.</param>
+        public void Configure(NavGraph graph, GraphHiderPerception perception, GraphSuspicionMap suspicion)
         {
             _graph = graph;
             _graph.EnsureBaked();
@@ -98,9 +109,32 @@ namespace Assets.Scripts.Graph
             _visitCount = new int[_graph.NodeCount];
             _lastVisitStep = new int[_graph.NodeCount];
             _loopCount = new int[_graph.NodeCount];
+
+            _rooms.Configure(graph, this, perception, suspicion);
         }
 
-        public void ResetEpisode()
+        /// <summary>Zera as duas camadas, nós antes de salas (a sala que nasce concluída marca os nós dela).</summary>
+        public void ResetEpisode(in GraphEpisodeSettings settings)
+        {
+            ResetNodes();
+            _rooms.ResetEpisode(settings);
+        }
+
+        /// <summary>Um step de física: a âncora primeiro, depois a sala (que lê a chegada deste step).</summary>
+        public void Tick(Transform agent)
+        {
+            TickNodes(agent.position);
+            _rooms.Tick(agent);
+        }
+
+        /// <summary>Zera as flags acumuladas das duas camadas, depois de cobradas; contadores não são afetados.</summary>
+        public void ClearStepFlags()
+        {
+            EarlyRevisitArrivals = 0;
+            _rooms.ClearStepFlags();
+        }
+
+        private void ResetNodes()
         {
             System.Array.Clear(_visited, 0, _visited.Length);
             System.Array.Clear(_visitCount, 0, _visitCount.Length);
@@ -119,11 +153,10 @@ namespace Assets.Scripts.Graph
             ArrivalWasNew = false;
             OffNodeSteps = 0;
             TickedSteps = 0;
-
-            ClearStepFlags();
+            EarlyRevisitArrivals = 0;
         }
 
-        public void Tick(Vector3 worldPosition)
+        private void TickNodes(Vector3 worldPosition)
         {
             // Histerese: o nó atual segura a âncora enquanto o agente ainda estiver na área dele.
             int node = _graph.FindNodeAt(worldPosition, CurrentNodeIndex);
@@ -151,12 +184,6 @@ namespace Assets.Scripts.Graph
             _lastArrivalPosition = worldPosition;
 
             RegisterArrival(node);
-        }
-
-        /// <summary>Zera as flags acumuladas, depois de cobradas na recompensa; contadores não são afetados.</summary>
-        public void ClearStepFlags()
-        {
-            EarlyRevisitArrivals = 0;
         }
 
         private void RegisterArrival(int node)
@@ -258,6 +285,8 @@ namespace Assets.Scripts.Graph
                 Gizmos.color = Color.yellow;
                 _graph.DrawNodeArea(CurrentNodeIndex, 0.12f, 1);
             }
+
+            _rooms.DrawGizmos();
         }
 
         /// <summary>Pinta a área de cada nó de sala (portas ficam com a GraphRoomMemory).</summary>
