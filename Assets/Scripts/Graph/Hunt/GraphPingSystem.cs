@@ -34,12 +34,8 @@ namespace Assets.Scripts.Graph
         // Steps de física antes do primeiro ping, para o agente sair do spawn.
         [SerializeField, Min(0)] private int _firstPingDelay = 1000;
 
-        [Header("-----Fonte do ping-----")]
-        // O hider da arena. Ativo, ele dá os pings (cada chegada toca) e o sorteio aleatório fica
-        // desligado. Fallback por GetComponentInChildren no GraphArenaController.
-        [SerializeField] private GraphHider _hider;
-
-        // O alvo de fato: o hider no treino, o jogador no modo de jogo (SetTarget).
+        // O hider no treino, o jogador no modo de jogo (GraphArenaController.Target). Ativo, ele dá os
+        // pings (cada chegada toca) e o sorteio aleatório fica desligado.
         private IGraphTarget _target;
 
         [Header("-----Gizmos (só em Play)-----")]
@@ -92,30 +88,19 @@ namespace Assets.Scripts.Graph
             return node;
         }
 
-        public void Configure(NavGraph graph)
+        public void Configure(NavGraph graph, IGraphTarget target)
         {
             _graph = graph;
+            _target = target;
             _graph.EnsureBaked();
-
-            if (_hider == null)
-            {
-                GraphArenaController arena = GetComponentInParent<GraphArenaController>();
-                if (arena != null)
-                    _hider = arena.GetComponentInChildren<GraphHider>(includeInactive: true);
-            }
-
-            if (_target == null && _hider != null)
-                _target = _hider;
         }
-
-        public void SetTarget(IGraphTarget target) => _target = target;
 
         private bool HiderDrivesPings => GraphTarget.IsLive(_target);
 
-        /// <param name="interval">Steps de física entre pings; 0 usa o padrão. Vem do currículo.</param>
-        public void ResetEpisode(int interval)
+        /// <summary>Intervalo da lição (ping_interval); 0 lá usa o _defaultInterval.</summary>
+        public void ResetEpisode(in GraphEpisodeSettings settings)
         {
-            _interval = interval > 0 ? interval : _defaultInterval;
+            _interval = settings.PingInterval > 0 ? settings.PingInterval : _defaultInterval;
             IsActive = false;
             TargetNode = -1;
             Distance = 0f;

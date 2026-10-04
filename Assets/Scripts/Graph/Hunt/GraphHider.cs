@@ -10,6 +10,8 @@ namespace Assets.Scripts.Graph
     ///
     /// Modos (currículo, hider_mode): 0 Nenhum (desligado), 1 Parado, 2 Anda (vagueia), 3 Foge
     /// (com o seeker perto, escolhe a saída que mais aumenta a distância PELO GRAFO em metros).
+    /// Velocidade (v4.4): anda a _walkFraction da velocidade e CORRE só fugindo, enquanto houver
+    /// estamina (GraphStamina, o mesmo modelo do seeker); a fuga da v4.5 dá a ele mais estamina.
     /// Solto (hider_loose): vai a pontos aleatórios dentro do nó e, às vezes, a um esconderijo
     /// (ponto pouco visível das portas da sala), onde fica parado mais tempo.
     ///
@@ -26,8 +28,15 @@ namespace Assets.Scripts.Graph
         }
 
         [Header("-----Movimento-----")]
-        // Velocidade PADRÃO (m/s), usada quando o currículo não manda outra (hider_speed).
-        [SerializeField, Min(0f)] private float _speed = 1f;
+        // Velocidade CORRENDO (m/s) quando o currículo não manda outra (hider_speed). O hider faz o papel do
+        // JOGADOR no treino: 10.2 = a corrida do PlayerDummy (6 x 1.7), a mesma do seeker (GraphLocomotion).
+        [SerializeField, Min(0f)] private float _speed = 10.2f;
+
+        // Andar = correr x isto. 0.588 = 6 / 10.2, a razão andar/correr do jogador.
+        [SerializeField, Range(0.1f, 1f)] private float _walkFraction = 0.588f;
+
+        // Só gasta fugindo. Segundos do tanque vêm do currículo (hider_stamina); 0 lá = os daqui.
+        [SerializeField] private GraphStamina _stamina = new GraphStamina();
 
         private float _currentSpeed;
 
@@ -65,11 +74,16 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
 
         [Header("-----Referências-----")]
+        // Fallback: o grafo da arena.
         [SerializeField] private NavGraph _graph;
-        // O seeker desta arena (só o modo Foge usa); fallback por GetComponentInChildren no pai.
-        [SerializeField] private Transform _seeker;
+
+        // Opcional e só visual (Animator do modelo): vazio = acha nos filhos; sem ele o hider treina igual.
+        [SerializeField] private GraphHiderAnimationSystem _animationSystem;
 
         private Rigidbody _rigidbody;
+
+        // O seeker desta arena (fuga e spawn longe dele); vem no ResetEpisode, a arena sabe quem é.
+        private Transform _seeker;
         private Mode _mode = Mode.None;
         private int _currentNode = -1;
         private int _previousNode = -1;
@@ -90,6 +104,9 @@ namespace Assets.Scripts.Graph
         public int CurrentNode => _currentNode;
 
         public Vector3 Position => transform.position;
+
+        /// <summary>Correndo neste step (fugindo com estamina). Para a animação.</summary>
+        public bool IsRunning { get; private set; }
 
         /// <summary>
         /// Nó de ping em que o hider acabou de chegar, ou -1; fica de pé até <see cref="ConsumeArrival"/>.
@@ -113,36 +130,35 @@ namespace Assets.Scripts.Graph
                 _graph = arena != null ? arena.Graph : GetComponentInParent<NavGraph>();
             }
 
-            if (_seeker == null)
-            {
-                GraphExplorerManager manager = GetComponentInParent<GraphArenaController>() != null
-                    ? GetComponentInParent<GraphArenaController>().GetComponentInChildren<GraphExplorerManager>()
-                    : null;
-                if (manager != null)
-                    _seeker = manager.transform;
-            }
+            if (_animationSystem == null)
+                _animationSystem = GetComponentInChildren<GraphHiderAnimationSystem>();
+            if (_animationSystem != null)
+                _animationSystem.Initialize();
         }
 
         /// <summary>
         /// Chamar DEPOIS do spawn do seeker (o hider nasce longe dele). Modo None desativa o GameObject.
+        /// Velocidade e estamina &lt;= 0 na lição usam as do Inspector.
         /// </summary>
-        /// <param name="speed">m/s neste episódio; &lt;= 0 usa o padrão do Inspector.</param>
-        /// <param name="noiseChance">Chance (0..1) de cada chegada virar ping.</param>
-        /// <param name="loose">Modo solto (S6): pontos aleatórios dentro do nó e esconderijos.</param>
-        public void ResetEpisode(Mode mode, float speed, float noiseChance, Vector3 seekerPosition, bool loose)
+        public void ResetEpisode(in GraphEpisodeSettings settings, Transform seeker)
         {
-            _mode = mode;
-            _loose = loose;
+            _seeker = seeker;
+            _mode = settings.HiderMode;
+            _loose = settings.HiderLoose;
+            _stamina.Reset(settings.HiderStamina);
+            IsRunning = false;
             _viaCenter = false;
             _goalIsHiding = false;
-            _currentSpeed = speed > 0f ? speed : _speed;
-            _noiseChance = Mathf.Clamp01(noiseChance);
+            _currentSpeed = settings.HiderSpeed > 0f ? settings.HiderSpeed : _speed;
+            _noiseChance = Mathf.Clamp01(settings.HiderNoise);
             PendingArrival = -1;
             _previousNode = -1;
             _targetNode = -1;
             _pauseLeft = 0;
+            if (_animationSystem != null)
+                _animationSystem.ResetEpisode();
 
-            if (_graph == null || mode == Mode.None)
+            if (_graph == null || _mode == Mode.None)
             {
                 gameObject.SetActive(false);
                 return;
@@ -151,7 +167,7 @@ namespace Assets.Scripts.Graph
             _graph.EnsureBaked();
             gameObject.SetActive(true);
 
-            _currentNode = PickSpawnNode(seekerPosition);
+            _currentNode = PickSpawnNode(seeker.position);
             if (_currentNode < 0)
             {
                 gameObject.SetActive(false);
@@ -162,29 +178,49 @@ namespace Assets.Scripts.Graph
 
             MakeNoiseAt(_currentNode);
 
-            if (mode == Mode.Static)
+            if (_mode == Mode.Static)
                 return;
 
             ChooseNextNode();
             SetGoalForTarget();
         }
 
+        /// <summary>Tira o hider de cena (modo de jogo: quem foge é o jogador).</summary>
+        public void Deactivate()
+        {
+            _mode = Mode.None;
+            PendingArrival = -1;
+            IsRunning = false;
+            gameObject.SetActive(false);
+        }
+
         private void FixedUpdate()
         {
-            if (_mode == Mode.None || _mode == Mode.Static || _graph == null)
+            if (_mode == Mode.None)
                 return;
+
+            bool moved = _mode != Mode.Static && _graph != null && StepMovement();
+            if (_animationSystem != null)
+                _animationSystem.Tick(moved, moved && IsRunning);
+        }
+
+        // Um step de física da navegação. Devolve se o corpo andou (para a animação: parado, pausado ou chegando = idle).
+        private bool StepMovement()
+        {
+            // Antes da pausa: parado também recupera estamina.
+            IsRunning = _stamina.Step(_mode == Mode.Flee && SeekerIsNear(), Time.fixedDeltaTime);
 
             if (_pauseLeft > 0)
             {
                 _pauseLeft--;
-                return;
+                return false;
             }
 
             if (_targetNode < 0)
             {
                 ChooseNextNode();
                 SetGoalForTarget();
-                return;
+                return false;
             }
 
             Vector3 goal = _goal + Vector3.up * _heightOffset;
@@ -198,18 +234,20 @@ namespace Assets.Scripts.Graph
                 {
                     _viaCenter = false;
                     _goal = _finalGoal;
-                    return;
+                    return true;
                 }
 
                 Arrive();
-                return;
+                return false;
             }
 
-            Vector3 step = delta / distance * _currentSpeed * Time.fixedDeltaTime;
+            float speed = IsRunning ? _currentSpeed : _currentSpeed * _walkFraction;
+            Vector3 step = delta / distance * speed * Time.fixedDeltaTime;
             if (step.magnitude > distance)
                 step = delta;
 
             Move(transform.position + step, delta);
+            return true;
         }
 
         private void Arrive()
@@ -381,7 +419,7 @@ namespace Assets.Scripts.Graph
             _targetNode = chosen;
         }
 
-        // Nó de spawn: sala diferente da do seeker (GraphArenaController.RandomSpawnNodeByRoom) a
+        // Nó de spawn: sala diferente da do seeker (NavGraph.RandomSpawnNode) a
         // >= _minSpawnDistanceMeters dele; mapa pequeno demais aceita o último sorteado.
         private int PickSpawnNode(Vector3 seekerPosition)
         {
@@ -391,7 +429,7 @@ namespace Assets.Scripts.Graph
 
             for (int attempt = 0; attempt < _graph.RoomCount * 2; attempt++)
             {
-                int candidate = GraphArenaController.RandomSpawnNodeByRoom(_graph, seekerRoom);
+                int candidate = _graph.RandomSpawnNode(seekerRoom);
                 if (candidate < 0)
                     break;
 

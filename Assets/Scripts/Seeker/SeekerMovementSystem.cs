@@ -2,6 +2,11 @@ using UnityEngine;
 
 namespace Assets.Scripts.Seeker
 {
+    /// <summary>
+    /// Driver de Rigidbody sem regra de agente. Seeker antigo: Move(direção) (com ou sem aceleração).
+    /// GraphExplorer: MoveFacing (o corpo segue o movimento; quem decide a velocidade é o GraphLocomotion).
+    /// Rigidbody: o do campo ou o mais próximo subindo a hierarquia (pode ficar no agente ou num filho dele).
+    /// </summary>
     public class SeekerMovementSystem : MonoBehaviour
     {
         [SerializeField] private Rigidbody _rigidbody;
@@ -10,40 +15,25 @@ namespace Assets.Scripts.Seeker
 
         public float StepDistance => _moveSpeed * Time.fixedDeltaTime;
 
+        // Só o Move(direção) do Seeker antigo; 0 = velocidade instantânea. O GraphExplorer (MoveFacing) não acelera.
         [SerializeField, Min(0f)] private float _acceleration = 0f;
-
-        // Desaceleração quando a velocidade desejada é MENOR que a atual na direção em que ele já anda
-        // (soltar, virar, parar). Maior que a aceleração = freia firme em vez de escorregar: com a mesma
-        // taxa para acelerar e frear, a 40 m/s ele deslizava metros depois de "querer" parar e se jogava
-        // na parede (steer assist cobrindo o erro). 0 = usa _acceleration (comportamento antigo).
-        [SerializeField, Min(0f)] private float _brakeAcceleration = 0f;
         [SerializeField, Min(0f)] private float _minTurnSpeed = 0.5f;
 
-        [Header("-----Olhar (só com Move(direção, olhar))-----")]
-        [SerializeField, Range(0.1f, 1f)] private float _backwardSpeedFactor = 0.6f;
-        [SerializeField, Range(0f, 1f)] private float _lookDeadzone = 0.1f;
-
-        [Header("-----Steering assistido-----")]
-        [SerializeField, Min(0f)] private float _steerMargin = 0.5f;
+        [Header("-----Corpo-----")]
+        // Material sem atrito na cápsula: raspar a parede não freia o corpo.
         [SerializeField] private bool _frictionlessBody = false;
+
+        // Trava a altura (sem gravidade): o corpo não sobe em rodapé nem quica em quina.
         [SerializeField] private bool _lockHeight = false;
 
-        // Parte da velocidade REAL do corpo a cada step, não da última pedida: o que a colisão tirou (a
-        // componente contra a parede) não volta de graça, então bater custa tempo de reaceleração em vez
-        // de a parede servir de trilho. Desligado = comportamento antigo (o Seeker por grade).
-        [SerializeField] private bool _syncVelocityWithBody = false;
-
         private Vector3 _velocity;
-        private CapsuleCollider _capsule;
-        private float _steerAssist;
-        private LayerMask _wallLayer;
 
         private Rigidbody Body
         {
             get
             {
                 if (_rigidbody == null)
-                    _rigidbody = transform.parent.GetComponent<Rigidbody>();
+                    _rigidbody = GetComponentInParent<Rigidbody>();
 
                 return _rigidbody;
             }
@@ -63,11 +53,10 @@ namespace Assets.Scripts.Seeker
                 body.useGravity = false;
             }
 
-            _capsule = body.GetComponent<CapsuleCollider>();
-
-            if (_frictionlessBody && _capsule != null)
+            CapsuleCollider capsule = body.GetComponent<CapsuleCollider>();
+            if (_frictionlessBody && capsule != null)
             {
-                _capsule.sharedMaterial = new PhysicsMaterial("SemAtrito")
+                capsule.sharedMaterial = new PhysicsMaterial("SemAtrito")
                 {
                     dynamicFriction = 0f,
                     staticFriction = 0f,
@@ -78,10 +67,19 @@ namespace Assets.Scripts.Seeker
             }
         }
 
-        public void ConfigureSteering(float assist, LayerMask walls)
+        /// <summary>
+        /// Trava (ou solta) a altura: sem gravidade, o corpo não sobe em rodapé nem quica em quina. O GraphLocomotion
+        /// chama no Configure com o padrão dele (travado), para o prefab novo não depender deste Inspector.
+        /// </summary>
+        public void SetHeightLocked(bool locked)
         {
-            _steerAssist = Mathf.Clamp01(assist);
-            _wallLayer = walls;
+            _lockHeight = locked;
+            Rigidbody body = Body;
+            if (locked)
+                body.constraints |= RigidbodyConstraints.FreezePositionY;
+            else
+                body.constraints &= ~RigidbodyConstraints.FreezePositionY;
+            body.useGravity = !locked;
         }
 
         private void SetHorizontalVelocity(Vector3 horizontal)
@@ -100,7 +98,7 @@ namespace Assets.Scripts.Seeker
                 return;
             }
 
-            AccelerateTowards(Steer(_moveSpeed * Vector3.ClampMagnitude(flat, 1f)));
+            AccelerateTowards(_moveSpeed * Vector3.ClampMagnitude(flat, 1f));
 
             if (_velocity.sqrMagnitude < _minTurnSpeed * _minTurnSpeed)
                 return;
@@ -110,82 +108,56 @@ namespace Assets.Scripts.Seeker
             Body.MoveRotation(next);
         }
 
-        public void Move(Vector3 direction, Vector3 look)
+        /// <summary>
+        /// O CORPO SEGUE O MOVIMENTO (GraphExplorer): gira para <paramref name="direction"/> a _turnSpeed e
+        /// anda só para a frente, a <paramref name="speed"/> x o alinhamento com o pedido (de costas = gira
+        /// parado). Sem aceleração: a velocidade vale no mesmo step. Nada de andar de lado ou de ré, porque
+        /// a animação só tem andar e correr para a frente. Devolve para onde o corpo fica virado.
+        /// </summary>
+        /// <param name="turnSpeed">Graus/s do giro do corpo; &lt;= 0 usa o _turnSpeed do Inspector.</param>
+        /// <param name="appliedSpeed">Velocidade de fato pedida ao Rigidbody (m/s), já com o alinhamento.</param>
+        public Vector3 MoveFacing(Vector3 direction, float speed, float turnSpeed, out float appliedSpeed)
         {
-            Vector3 flat = Vector3.ClampMagnitude(new Vector3(direction.x, 0f, direction.z), 1f);
+            Vector3 flat = new(direction.x, 0f, direction.z);
+            Quaternion rotation = Body.rotation;
+            appliedSpeed = 0f;
 
-            Vector3 forward = Body.rotation * Vector3.forward;
-            forward.y = 0f;
-            float speedFactor = 1f;
-            if (flat.sqrMagnitude > 1e-6f && forward.sqrMagnitude > 1e-6f)
+            if (speed <= 0f || flat.sqrMagnitude < 1e-6f)
             {
-                float alignment = Vector3.Dot(forward.normalized, flat.normalized);
-                if (alignment < 0f)
-                    speedFactor = Mathf.Lerp(1f, _backwardSpeedFactor, -alignment);
+                _velocity = Vector3.zero;
+                SetHorizontalVelocity(Vector3.zero);
+                return rotation * Vector3.forward;
             }
 
-            AccelerateTowards(Steer(_moveSpeed * speedFactor * flat));
+            Vector3 wanted = flat.normalized;
+            float degreesPerSecond = turnSpeed > 0f ? turnSpeed : _turnSpeed;
+            rotation = Quaternion.RotateTowards(rotation, Quaternion.LookRotation(wanted, Vector3.up),
+                degreesPerSecond * Time.fixedDeltaTime);
+            Body.MoveRotation(rotation);
 
-            Vector3 flatLook = new(look.x, 0f, look.z);
-            if (flatLook.magnitude < _lookDeadzone)
-                return;
+            Vector3 forward = rotation * Vector3.forward;
+            forward.y = 0f;
+            forward.Normalize();
+            appliedSpeed = speed * Mathf.Clamp01(Vector3.Dot(forward, wanted));
+            _velocity = forward * appliedSpeed;
+            SetHorizontalVelocity(_velocity);
+            return forward;
+        }
 
-            Quaternion target = Quaternion.LookRotation(flatLook.normalized, Vector3.up);
-            Quaternion next = Quaternion.RotateTowards(Body.rotation, target, _turnSpeed * Time.fixedDeltaTime);
-            Body.MoveRotation(next);
+        /// <summary>Velocidade REAL do corpo no plano (m/s), depois da física: o que a colisão deixou.</summary>
+        public Vector3 PlanarVelocity
+        {
+            get
+            {
+                Vector3 velocity = Body.linearVelocity;
+                return new Vector3(velocity.x, 0f, velocity.z);
+            }
         }
 
         private void AccelerateTowards(Vector3 desired)
         {
-            if (_syncVelocityWithBody)
-            {
-                Vector3 actual = Body.linearVelocity;
-                _velocity = new Vector3(actual.x, 0f, actual.z);
-            }
-
-            // Freia (menor velocidade desejada na direção atual do movimento) com _brakeAcceleration.
-            float rate = _brakeAcceleration > 0f && Vector3.Dot(desired - _velocity, _velocity) < 0f
-                ? _brakeAcceleration
-                : _acceleration;
-            _velocity = Vector3.MoveTowards(_velocity, desired, rate * Time.fixedDeltaTime);
+            _velocity = Vector3.MoveTowards(_velocity, desired, _acceleration * Time.fixedDeltaTime);
             SetHorizontalVelocity(_velocity);
-        }
-
-        private Vector3 Steer(Vector3 desired)
-        {
-            if (_steerAssist <= 0f || _wallLayer.value == 0 || _capsule == null || _acceleration <= 0f)
-                return desired;
-
-            Vector3 origin = _capsule.bounds.center;
-            Vector3 scale = _capsule.transform.lossyScale;
-            float radius = 0.9f * _capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
-            float speed = _velocity.magnitude;
-            float stopRate = _brakeAcceleration > 0f ? _brakeAcceleration : _acceleration;
-            float range = speed * speed / (2f * stopRate) + _steerMargin;
-
-            for (int iteration = 0; iteration < 2; iteration++)
-            {
-                if (desired.sqrMagnitude < 1e-6f)
-                    break;
-
-                if (!Physics.SphereCast(origin, radius, desired.normalized, out RaycastHit hit, range,
-                        _wallLayer, QueryTriggerInteraction.Ignore))
-                    break;
-
-                Vector3 normal = new(hit.normal.x, 0f, hit.normal.z);
-                if (normal.sqrMagnitude < 1e-6f)
-                    break;
-                normal.Normalize();
-
-                float into = -Vector3.Dot(desired, normal);
-                if (into <= 0f)
-                    break;
-
-                float closeness = 1f - Mathf.Clamp01(hit.distance / range);
-                desired += normal * (into * _steerAssist * closeness);
-            }
-
-            return desired;
         }
 
         private void MoveInstant(Vector3 flat)

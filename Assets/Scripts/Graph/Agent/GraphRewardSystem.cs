@@ -1,24 +1,26 @@
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace Assets.Scripts.Graph
 {
     /// <summary>
     /// Calculadora pura de recompensa: recebe um <see cref="GraphStepContext"/>, devolve o delta do
-    /// step. Todo o tuning mora aqui; o Manager nunca soma recompensa por fora. Toda sala vale o
-    /// MESMO; a GraphRoomMemory entrega unidades (já com calor/suspeita) e aqui cada uma vira
-    /// recompensa. Nenhum termo paga aproximar-se de alvo escolhido por algoritmo: só eventos que
-    /// o agente causa (a aproximação do hider só conta com ele em vista).
+    /// step. Todo o tuning mora aqui, INCLUSIVE os bônus que encerram o episódio (captura, cobertura): o
+    /// Manager só chama AddReward(EvaluateStep(contexto)), nunca soma recompensa por fora. Toda sala vale
+    /// o MESMO na exploração (a GraphRoomMemory entrega unidades: sala inteira = 1, já multiplicada pelo
+    /// calor do ping e pela suspeita do hider quando há) e aqui cada unidade vira recompensa.
+    /// Nenhum termo paga aproximar-se de alvo escolhido por algoritmo: só eventos que o agente causa (a
+    /// aproximação do hider só conta com ele em vista).
     ///
-    /// ORÇAMENTO por episódio (8000 steps de física = 1600 decisões; "x escala" = discovery_reward_scale
-    /// ou ping_reward_scale). Teto de penalidade só no pior caso; a existencial é o piso (-2):
+    /// ORÇAMENTO por episódio (v5: 20000 steps de física = 400 s = 4000 decisões; "x escala" =
+    /// discovery_reward_scale ou ping_reward_scale). Custos POR STEP foram divididos por 2.5 quando o
+    /// episódio passou de 8000 para 20000 steps, para o TETO de cada um ficar igual ao da v4:
     ///   Termo (valor)                              Teto / total
     ///   existencial (2 / steps do episódio)        -2.0
-    ///   contato com parede (0.00075/step)          -6.0 encostado o tempo todo
-    ///   batida (0.03 x batidas x até 5)            -0.9 (30 isoladas) a -4.5 (rajada)
-    ///   suavidade do andar (0.0005 x |Δ|²)         -0.2 típico; -6.4 patológico
-    ///   suavidade do olhar (0.00025 x |Δ|²)        -0.1 típico; -3.2 patológico
-    ///   estagnação (0.0005/step após 1250 steps)   -3.4
+    ///   contato com parede (0.0006/step)           -12.0 encostado o tempo todo (paredes e móveis; porta x0.25)
+    ///   batida (0.06 x batidas x até 5)            -1.8 (30 isoladas) a -9.0 (rajada)
+    ///   suavidade do andar (0.0002 x |Δ|²)         -0.2 típico; -6.4 patológico
+    ///   suavidade do olhar (0.0001 x |Δ|²)         -0.1 típico; -3.2 patológico
+    ///   estagnação (0.0002/step após 2500 steps)   -3.5
     ///   revisita precoce (0.05, após 3 seguidas)   ~-2.0 (40 chegadas)
     ///   ping perdido (0.5)                         -2.0 (4 pings)
     ///   sala explorada (0.25/sala, cauda x0.2)     +6.5 (26 salas) x escala
@@ -29,8 +31,8 @@ namespace Assets.Scripts.Graph
     ///   ping atendido (5 x PingValue)              +20 (4 pings) x escala
     ///   avistar hider (2, cooldown 5 s)            ~+8 (4 avistamentos)
     ///   aproximar vendo (0.4/m)                    +6 por 15 m em linha reta
-    ///   hider em vista (0.004/step)                +32 o episódio todo
-    ///   suspeita zerada (1 x massa de 0 a 1)       ~1 por crença inteira limpa
+    ///   hider em vista (0.0015/step)               +30 o episódio todo
+    ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
     /// NodeTraining5 (26 salas, 35 portas) coberto por inteiro: ~25 de exploração.
     /// </summary>
@@ -43,28 +45,36 @@ namespace Assets.Scripts.Graph
 
         // Por STEP em contato, não por evento (o Unity re-dispara a colisão ao deslizar). Ao mudar
         // _maxEpisodeSteps, reescale pelo teto (valor x steps), não pelo valor por step.
-        // Subir este preço ensinou o agente a não passar em porta; prefira mexer no movimento (freio).
-        [SerializeField] private float _wallContactPenalty = 0.00075f;
+        // 0.0006 na v5 = 0.0015 da v4.4 x 8000 / 20000 (mesmo teto, -12). Vale para paredes e móveis; a porta
+        // (layer Door, GraphExplorerManager._doorLayer) paga x _doorPenaltyScale.
+        [SerializeField] private float _wallContactPenalty = 0.0006f;
 
-        // Por BATIDA (início de contato, WallHitTracker) x batidas nos últimos ~5 s (até
-        // _wallHitEscalationCap): 0.03, 0.06, 0.09... Cobra o ricochete, que o contínuo mal vê.
-        [SerializeField] private float _wallHitPenalty = 0.03f;
+        // Fração do custo de parede (contato e batida) que a PORTA paga. 0.25: o vão tem 2 m e o corpo 1.38, então
+        // raspar o batente passando é quase inevitável; custo cheio ensinou a evitar portas na v4.2, e zero deixava
+        // a parede inteira da peça Door_Hole grátis. Ainda custa, então mirar o meio do vão compensa. 1 = igual à parede.
+        [SerializeField, Min(0f)] private float _doorPenaltyScale = 0.25f;
+
+        // Por BATIDA (início de contato, GraphBodyTracker) x batidas nos últimos ~5 s (até
+        // _wallHitEscalationCap): 0.06, 0.12, 0.18... Cobra o ricochete, que o contínuo mal vê.
+        // 0.06 na v4.4 (era 0.03): a 15-20 m/s, bater é correr para a parede.
+        [SerializeField] private float _wallHitPenalty = 0.06f;
         [SerializeField, Min(1)] private int _wallHitEscalationCap = 5;
 
         // Custo por |mudança de ação|² a cada decisão, contra o "beyblade". Ir reto custa zero;
-        // pagar por ir reto seria farmável.
-        [SerializeField] private float _actionChangePenalty = 0.0005f;
+        // pagar por ir reto seria farmável. 0.0002 na v5 (era 0.0005): 2.5x mais decisões por episódio.
+        [SerializeField] private float _actionChangePenalty = 0.0002f;
 
         // O mesmo para as ações de olhar [2..3], metade do preço porque varrer a sala com o olhar é legítimo.
-        [SerializeField] private float _lookChangePenalty = 0.00025f;
+        [SerializeField] private float _lookChangePenalty = 0.0001f;
 
         // Contra entalar numa quina ou orbitar sala já vista. Só entra após _stagnationSteps sem
         // PROGRESSO DE SALA (nó novo, sala concluída ou porta com novidade >= 0.25), não sem movimento.
-        [SerializeField] private float _stagnationPenalty = 0.0005f;
+        // 0.0002 na v5 (era 0.0005): teto -3.5 com o episódio de 20000 steps.
+        [SerializeField] private float _stagnationPenalty = 0.0002f;
 
-        // Em steps de FÍSICA (1250 = 25 s). Tem que passar da travessia normal entre dois nós,
-        // senão pune a viagem legítima e cancela o prêmio da chegada.
-        [SerializeField] private int _stagnationSteps = 1250;
+        // Em steps de FÍSICA (2500 = 50 s; era 25 s a 15 m/s, agora anda a 6). Tem que passar da travessia
+        // normal entre duas salas, senão pune a viagem legítima e cancela o prêmio da chegada.
+        [SerializeField] private int _stagnationSteps = 2500;
 
         // LOOP: custo por chegada numa PORTA pisada há < ~15 s (GraphExplorationMemory._earlyRevisitWindowSteps),
         // só após _earlyRevisitGrace revisitas SEGUIDAS (sair de um beco passa pela porta de entrada).
@@ -114,30 +124,25 @@ namespace Assets.Scripts.Graph
         [SerializeField] private float _hiderCaughtReward = 20f;
 
         // Por STEP DE FÍSICA com o hider no cone e linha livre: faz o seeker seguir o alvo em vez de
-        // só avistar. 0.004 x 8000 = 32 tem que ficar abaixo de pegar cedo (45), senão perseguir para
-        // sempre pagaria mais que capturar.
-        [SerializeField, Min(0f)] private float _hiderInViewReward = 0.004f;
+        // só avistar. 0.0015 x 20000 = 30 tem que ficar abaixo de pegar cedo (45), senão perseguir para
+        // sempre pagaria mais que capturar (era 0.004 com o episódio de 8000).
+        [SerializeField, Min(0f)] private float _hiderInViewReward = 0.0015f;
 
         // Paga a massa de crença zerada (fração de 1) ao ver ou pisar onde o hider poderia estar
         // (GraphSuspicionMap.ClearedMass). A carência de 10 s por nó (_reclearCooldownSteps) segue
-        // contra ficar olhando o mesmo lugar.
-        [SerializeField, Min(0f)] private float _suspicionClearedReward = 1f;
+        // contra ficar olhando o mesmo lugar. 2 na v4.4 (era 1): procurar onde ele PODE estar é o
+        // caminho da captura; ainda bem abaixo de pegar (20-45).
+        [SerializeField, Min(0f)] private float _suspicionClearedReward = 2f;
 
         // Somado à captura x fração do episódio que SOBRA, para pegar encerrar o episódio não
         // compensar a renda cortada: pegar no início = 45, no fim = 20.
         [SerializeField, Min(0f)] private float _hiderCaughtEarlyBonus = 25f;
 
-        public float FullCoverageReward => _fullCoverageReward;
+        /// <summary>Steps sem progresso de sala a partir dos quais a estagnação cobra (normaliza a observação [35]).</summary>
+        public int StagnationSteps => _stagnationSteps;
 
-        /// <summary>Captura + bônus pela fração do episódio que ainda restava (0..1).</summary>
-        public float HiderCaughtReward(float remainingFraction) =>
-            _hiderCaughtReward + _hiderCaughtEarlyBonus * Mathf.Clamp01(remainingFraction);
-
-        public void ResetEpisode()
-        {
-            // Sem estado entre steps por enquanto; termo com histórico nasce aqui, não no Manager.
-        }
-
+        // Sem estado entre steps: termo que precise de histórico guarda o estado no sistema dono dele
+        // (ex.: a aproximação do hider mora na GraphHiderPerception), nunca aqui nem no Manager.
         public float EvaluateStep(in GraphStepContext context)
         {
             float reward = 0f;
@@ -147,9 +152,14 @@ namespace Assets.Scripts.Graph
 
             if (context.IsTouchingWall)
                 reward -= _wallContactPenalty;
+            else if (context.IsTouchingDoor)
+                reward -= _wallContactPenalty * _doorPenaltyScale;
 
             if (context.WallHits > 0)
-                reward -= _wallHitPenalty * context.WallHits * Mathf.Min(context.RecentWallHits, _wallHitEscalationCap);
+            {
+                float scale = context.WallHitIsDoor ? _doorPenaltyScale : 1f;
+                reward -= _wallHitPenalty * scale * context.WallHits * Mathf.Min(context.RecentWallHits, _wallHitEscalationCap);
+            }
 
             reward -= _actionChangePenalty * context.ActionChangeSq;
             reward -= _lookChangePenalty * context.LookChangeSq;
@@ -184,6 +194,17 @@ namespace Assets.Scripts.Graph
                 reward += _hiderInViewReward;
 
             reward += _suspicionClearedReward * context.SuspicionClearedMass;
+
+            // Fim do episódio: a captura tem prioridade (na caça é ela que explica o fim se as duas ocorrerem).
+            if (context.HiderCaught)
+            {
+                float remaining = 1f - (float)context.ElapsedSteps / Mathf.Max(1, context.MaxEpisodeSteps);
+                reward += _hiderCaughtReward + _hiderCaughtEarlyBonus * Mathf.Clamp01(remaining);
+            }
+            else if (context.CoverageReached)
+            {
+                reward += _fullCoverageReward;
+            }
 
             return reward;
         }

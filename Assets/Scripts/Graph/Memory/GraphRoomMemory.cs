@@ -8,13 +8,17 @@ namespace Assets.Scripts.Graph
     /// quantas vezes cada porta foi atravessada e o que ainda vale. Lê a GraphExplorationMemory a
     /// cada step de física e entrega UNIDADES (sala inteira = 1, porta nova = 1); o GraphRewardSystem
     /// converte em recompensa. Também serve a observação (Refresh, saídas, slots de porta).
-    /// Regras: sala concluída com ⌈limiar x N⌉ nós pisados; novidade da porta decai por travessia
+    /// Regras: na exploração TODA SALA VALE 1, qualquer que seja o tamanho (a fatia de cada nó é
+    /// 1 / ⌈limiar x N⌉); só o calor do ping, a suspeita do hider e a liberação mudam esse valor (Scale).
+    /// Sala concluída com ⌈limiar x N⌉ nós pisados; novidade da porta decai por travessia
     /// (sala de UMA porta: ida e volta contam como uma); sala quente = a do último ping, com calor
     /// pelo prédio; suspeita multiplica o valor de ver a sala; vision_explores conta nós vistos
     /// como pisados; liberação devolve a porta/sala mais antiga valendo _releasedValue.
-    /// Invariante: Tick DEPOIS do Tick da memória de nós; flags acumulam até o ClearStepFlags.
+    /// Não é componente: é a camada de SALA da <see cref="GraphExplorationMemory"/>, que a serializa (ajustes no
+    /// Inspector dela) e chama Reset/Tick/Clear na ordem certa (nós antes de salas).
     /// </summary>
-    public class GraphRoomMemory : MonoBehaviour
+    [System.Serializable]
+    public class GraphRoomMemory
     {
         [Header("-----Portas-----")]
         // Quanto a porta perde a cada travessia (1, 0.5, 0.25...). Um vai-e-vem infinito soma no máximo 2x a primeira.
@@ -215,13 +219,14 @@ namespace Assets.Scripts.Graph
 
         /// <summary>
         /// Zera o episódio. Chamar DEPOIS do ResetEpisode da memória de nós. Sempre sobra ao menos
-        /// uma sala por concluir (previsitedFraction).
+        /// uma sala por concluir (previsited_fraction).
         /// </summary>
-        public void ResetEpisode(float completeThreshold, float previsitedFraction, float releaseFraction, bool visionExplores)
+        public void ResetEpisode(in GraphEpisodeSettings settings)
         {
-            completeThreshold = Mathf.Clamp(completeThreshold, 0.05f, 1f);
-            _releaseFraction = Mathf.Clamp01(releaseFraction);
-            _visionExplores = visionExplores && _perception != null;
+            float completeThreshold = Mathf.Clamp(settings.RoomCompleteThreshold, 0.05f, 1f);
+            float previsitedFraction = settings.PrevisitedFraction;
+            _releaseFraction = Mathf.Clamp01(settings.ReleaseFraction);
+            _visionExplores = settings.VisionExplores && _perception != null;
             _hotRoom = -1;
             _heatLevel = 0f;
             System.Array.Clear(_heatShape, 0, _heatShape.Length);
@@ -445,6 +450,9 @@ namespace Assets.Scripts.Graph
         public float RoomHeat(int room) => room >= 0 ? _heatLevel * _heatShape[room] : 0f;
 
         public float CurrentRoomHeat => RoomHeat(CurrentRoom);
+
+        /// <summary>Calor do mapa (0..1): 1 quando um ping começa, cai com a meia-vida. Alerta do GraphLocomotion.</summary>
+        public float HeatLevel => _heatLevel;
 
         /// <summary>Calor da sala do OUTRO lado da porta (vista da sala atual).</summary>
         public float DoorHeat(int door)
@@ -795,7 +803,8 @@ namespace Assets.Scripts.Graph
             });
         }
 
-        private void OnDrawGizmos()
+        /// <summary>Chamado pelo OnDrawGizmos da GraphExplorationMemory (esta classe não é componente).</summary>
+        public void DrawGizmos()
         {
             if (!_drawGizmos || _graph == null || _roomVisited == null || !Application.isPlaying)
                 return;
