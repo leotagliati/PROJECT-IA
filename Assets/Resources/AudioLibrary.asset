@@ -116,3 +116,9 @@ MonoBehaviour:
     Volume: 0.6
     PitchJitter: 0.04
     MaxDistance: 0
+  - Id: intro_scream
+    Clips:
+    - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
