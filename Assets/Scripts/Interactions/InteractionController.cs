@@ -158,9 +158,15 @@ public class InteractionController : MonoBehaviour
             return;
 
         // Interact é Button sem interaction: performed no aperto, canceled ao soltar. Para um
-        // arrastável, o aperto agarra e o canceled solta.
+        // arrastável, o aperto agarra e o canceled solta — mas só no mouse. No controle não há
+        // delta de mouse para arrastar (o analógico dá posição, não movimento), então o botão
+        // cai no Interact comum, e o objeto decide o que é "usar" (a porta alterna sozinha).
+        // Decidido pelo dispositivo que apertou, não por configuração: quem joga alternando
+        // entre os dois recebe o esquema certo em cada aperto.
+        bool fromGamepad = ctx.control != null && ctx.control.device is Gamepad;
+
         InteractionResult result;
-        if (currentInteractable is IDraggable draggable)
+        if (currentInteractable is IDraggable draggable && !fromGamepad)
         {
             result = draggable.BeginDrag(this, currentHitPoint);
             if (result.Succeeded)

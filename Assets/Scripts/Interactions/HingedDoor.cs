@@ -37,6 +37,16 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
     [Range(0f, 1f)]
     [SerializeField] private float limitBounce = 0.15f;
 
+    [Header("Controle (botão abre/fecha)")]
+    [Tooltip("Velocidade de cruzeiro (graus/s) quando a porta se move sozinha pelo botão do controle.")]
+    [SerializeField] private float autoSpeed = 110f;
+
+    [SerializeField] private float autoAcceleration = 360f;
+
+    [Tooltip("Velocidade com que a porta automática chega no limite. Fica entre latchMinSpeed e " +
+             "slamSpeed de propósito: fechar soa o clique do trinco, abrir não bate na parede.")]
+    [SerializeField] private float autoArriveSpeed = 30f;
+
     [Header("Trancas")]
     [Tooltip("Cadeados desta porta. Vazio = porta destrancada.")]
     [SerializeField] private List<DoorLock> locks = new List<DoorLock>();
@@ -102,6 +112,8 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
     private float angularVelocity;
     private float pendingAngle;
     private bool grabbed;
+    private bool autoMoving;
+    private float autoTarget;
     private bool restingOnLow;
     private bool restingOnHigh;
     private AudioSource creakSource;
@@ -121,6 +133,11 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
     public string ErrorMessage => IsUnlocked ? null : string.Format(lockedMessageFormat, locks.Count);
 
     public Vector3 GrabPoint => transform.TransformPoint(localGrabPoint);
+
+    // A pose da cena (0) é a porta fechada: o batente é o limite mais perto dela.
+    private float ClosedAngle => Mathf.Abs(minAngle) <= Mathf.Abs(maxAngle) ? minAngle : maxAngle;
+
+    private float OpenAngle => Mathf.Abs(minAngle) <= Mathf.Abs(maxAngle) ? maxAngle : minAngle;
 
     private Vector3 HingeAxis => transform.parent != null ? transform.parent.TransformDirection(Vector3.up) : Vector3.up;
 
@@ -189,24 +206,54 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
             doorLock.Unlocked -= HandleLockUnlocked;
 
         grabbed = false;
+        autoMoving = false;
         creakGain = 0f;
 
         if (creakSource != null)
             creakSource.Pause();
     }
 
-    // Clique sem segurar não faz nada: quem move a porta é o arrasto.
-    public InteractionResult Interact(InteractionController interactor) => InteractionResult.Success;
+    /// <summary>
+    /// Caminho do controle (o InteractionController só chama isto quando o aperto veio de um
+    /// gamepad; no mouse o aperto vira arrasto). Alterna: porta fechada abre, qualquer outra
+    /// coisa fecha — porta entreaberta pelo mouse fecha, que é o que se espera de "usar".
+    /// Apertar de novo no meio do movimento inverte.
+    /// </summary>
+    public InteractionResult Interact(InteractionController interactor)
+    {
+        if (RefuseIfLocked(out InteractionResult refused))
+            return refused;
+
+        bool goingOpen = autoMoving
+            ? Mathf.Approximately(autoTarget, ClosedAngle)
+            : Mathf.Abs(angle - ClosedAngle) <= contactRearmAngle;
+
+        autoTarget = goingOpen ? OpenAngle : ClosedAngle;
+        autoMoving = true;
+        return InteractionResult.Success;
+    }
+
+    private bool RefuseIfLocked(out InteractionResult result)
+    {
+        result = InteractionResult.Success;
+
+        if (IsUnlocked)
+            return false;
+
+        if (!string.IsNullOrEmpty(lockedSoundId))
+            AudioProvider.PlayAt(lockedSoundId, transform.position);
+
+        result = InteractionResult.Fail(ErrorMessage);
+        return true;
+    }
 
     public InteractionResult BeginDrag(InteractionController interactor, Vector3 grabPoint)
     {
-        if (!IsUnlocked)
-        {
-            if (!string.IsNullOrEmpty(lockedSoundId))
-                AudioProvider.PlayAt(lockedSoundId, transform.position);
+        if (RefuseIfLocked(out InteractionResult refused))
+            return refused;
 
-            return InteractionResult.Fail(ErrorMessage);
-        }
+        // Agarrar no meio do movimento automático assume o controle na hora.
+        autoMoving = false;
 
         // Em espaço local: o ponto agarrado gira junto com a porta, e o braço de alavanca
         // continua certo no meio do arrasto.
@@ -265,6 +312,18 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
             // de física há passos sem input, e a média evita soltar com velocidade zero.
             angularVelocity = Mathf.Lerp(angularVelocity, step / dt, 0.35f);
         }
+        else if (autoMoving)
+        {
+            // Perfil de "rampa": acelera até autoSpeed e freia o bastante para chegar no
+            // limite a autoArriveSpeed. Passa pelo mesmo angularVelocity/ApplyLimits do
+            // arrasto, então rangido, clique do trinco e batida saem de graça.
+            float remaining = Mathf.Abs(autoTarget - angle);
+            float brakingSpeed = Mathf.Sqrt(2f * autoAcceleration * remaining);
+            float speed = Mathf.Min(autoSpeed, Mathf.Max(autoArriveSpeed, brakingSpeed));
+
+            angularVelocity = Mathf.MoveTowards(angularVelocity, Mathf.Sign(autoTarget - angle) * speed, autoAcceleration * dt);
+            step = Mathf.Clamp(angularVelocity * dt, -maxStep, maxStep);
+        }
         else
         {
             angularVelocity *= Mathf.Exp(-friction * dt);
@@ -273,6 +332,11 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 
         angle += step;
         ApplyLimits(Mathf.Abs(step) / dt);
+
+        // Os alvos são sempre os limites, então chegar = ApplyLimits ter prendido a porta lá.
+        // O quique que ele aplicou fica: a porta assenta com o atrito normal.
+        if (autoMoving && Mathf.Approximately(angle, autoTarget))
+            autoMoving = false;
 
         Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
         body.MoveRotation(parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, Vector3.up));
@@ -305,10 +369,7 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
         else restingOnLow = true;
 
         if (!alreadyResting)
-        {
-            bool highIsClosed = Mathf.Abs(high) < Mathf.Abs(low);
-            PlayContact(closing: hitHigh == highIsClosed, impactSpeed);
-        }
+            PlayContact(closing: Mathf.Approximately(angle, ClosedAngle), impactSpeed);
 
         if (intoLimit)
             angularVelocity = -angularVelocity * limitBounce;
