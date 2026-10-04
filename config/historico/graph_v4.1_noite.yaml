@@ -1,13 +1,23 @@
 # ================================================================================================
-# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.0 NOITE: S1 -> S6 NUM RUN SO (~8 h)
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.1: PLANTA DE SALAS + VER TUDO (do zero, ~8 h)
 #
-#   mlagents-learn config/graph_v4_noite.yaml --run-id=v4_noite_01 --initialize-from=v4_s1_01
+#   mlagents-learn config/historico/graph_v4.1_noite.yaml --run-id=v4.1_noite_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
 # Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
 #
-# Tudo num run de ~8 h, herdando o cerebro do v4_s1_01 (o vetor 182 nao mudou). As licoes de
+# DO ZERO (sensor novo = rede nova). O que mudou do v4_noite_01:
+#   - PLANTA DE SALAS: BufferSensor "Rooms" com as 26 salas (direcao, distancia, portas ate la,
+#     quanto ja VIU, concluida, quente, suspeita, atual). Ele sabe que a S25 existe e falta ver.
+#   - EXPLORAR = VER, desde a licao 1 (vision_explores 1): no de QUALQUER sala que entra no cone
+#     conta como visto. "Querer ver tudo".
+#   - SUSPEITA MULTIPLICA: nao paga mais sozinha (_suspicionClearedReward saiu); multiplica o valor
+#     de ver a sala (ate 3x) e REABRE sala concluida onde ela voltou a crescer. Por isso, na caca,
+#     discovery_reward_scale 1.0 (era 0.5) e sem liberacao por tempo (a suspeita faz o papel).
+#
+# (Texto abaixo herdado do v4_noite_01; os valores da tabela de licoes sao os deste arquivo.)
+# As licoes de
 # exploracao promovem por REWARD (contas abaixo); as de patrulha/ping/caca por PROGRESSO (fracao do
 # max_steps), porque o reward delas e dificil de prever e uma licao nao pode prender a noite.
 #
@@ -780,7 +790,7 @@ environment_parameters:
       - name: HiderSolto
         value: 0.3
 
-  # Escala da exploracao. 0.5 na caca: continua valendo explorar (contra esquecer).
+  # Escala da exploracao. 1.0 sempre: a suspeita so multiplica, entao explorar nao compete com nada.
   discovery_reward_scale:
     curriculum:
       - name: Perto
@@ -845,7 +855,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.52
           require_reset: true
-        value: 0.5
+        value: 1.0
       - name: HiderAnda
         completion_criteria:
           measure: progress
@@ -854,7 +864,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.64
           require_reset: true
-        value: 0.5
+        value: 1.0
       - name: HiderFoge
         completion_criteria:
           measure: progress
@@ -863,9 +873,9 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.78
           require_reset: true
-        value: 0.5
+        value: 1.0
       - name: HiderSolto
-        value: 0.5
+        value: 1.0
 
   # Escala do ping (chegar +2, expirar -0.5). 0 na caca: o rastro do hider so informa.
   ping_reward_scale:
@@ -954,7 +964,7 @@ environment_parameters:
       - name: HiderSolto
         value: 0.0
 
-  # 1 = o que ele VE na sala atual conta como pisado.
+  # 1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.
   vision_explores:
     curriculum:
       - name: Perto
@@ -965,7 +975,7 @@ environment_parameters:
           min_lesson_length: 80
           threshold: 6.0
           require_reset: true
-        value: 0
+        value: 1
       - name: Metade
         completion_criteria:
           measure: reward
@@ -974,7 +984,7 @@ environment_parameters:
           min_lesson_length: 80
           threshold: 9.0
           require_reset: true
-        value: 0
+        value: 1
       - name: Quase
         completion_criteria:
           measure: reward
@@ -983,7 +993,7 @@ environment_parameters:
           min_lesson_length: 150
           threshold: 11.0
           require_reset: true
-        value: 0
+        value: 1
       - name: MenosAssist
         completion_criteria:
           measure: reward
@@ -992,7 +1002,7 @@ environment_parameters:
           min_lesson_length: 150
           threshold: 8.5
           require_reset: true
-        value: 0
+        value: 1
       - name: Patrulha
         completion_criteria:
           measure: progress
@@ -1001,7 +1011,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.3
           require_reset: true
-        value: 0
+        value: 1
       - name: Ping
         completion_criteria:
           measure: progress
@@ -1010,7 +1020,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.4
           require_reset: true
-        value: 0
+        value: 1
       - name: HiderParado
         completion_criteria:
           measure: progress

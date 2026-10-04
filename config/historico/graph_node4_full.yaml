@@ -2,7 +2,7 @@
 # GraphExplorer - mapa da Node_4: TUDO NUM TREINO SO, do zero (28/09/2026)
 #   explorar -> patrulhar -> ping -> hider parado -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_full.yaml --run-id=node4_full_01
+#   mlagents-learn config/historico/graph_node4_full.yaml --run-id=node4_full_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui.
 # Junta o graph_node4_patrol.yaml e o graph_node4_hunt.yaml numa escada so, sem

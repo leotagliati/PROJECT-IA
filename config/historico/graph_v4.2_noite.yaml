@@ -1,7 +1,7 @@
 # ================================================================================================
 # GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.2 (ABANDONADA): DO ZERO - CACA RAPIDA, CALOR DO PING, RAIOS DUPLOS
 #
-#   mlagents-learn config/graph_v4.2_noite.yaml --run-id=v4.2_noite_01
+#   mlagents-learn config/historico/graph_v4.2_noite.yaml --run-id=v4.2_noite_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.

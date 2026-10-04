@@ -1,7 +1,7 @@
 # ================================================================================================
 # GraphExplorer - Node_4 - E1 ANDAR E EXPLORAR (do zero)
 #
-#   mlagents-learn config/graph_node4_e1_explorar.yaml --run-id=node4_e1_01
+#   mlagents-learn config/historico/graph_node4_e1_explorar.yaml --run-id=node4_e1_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
 # seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.

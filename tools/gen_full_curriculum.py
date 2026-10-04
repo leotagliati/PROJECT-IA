@@ -8,7 +8,7 @@ HEADER = """# ==================================================================
 # GraphExplorer - mapa da Node_4: TUDO NUM TREINO SO, do zero (28/09/2026)
 #   explorar -> patrulhar -> ping -> hider parado -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_full.yaml --run-id=node4_full_01
+#   mlagents-learn config/historico/graph_node4_full.yaml --run-id=node4_full_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui.
 # Junta o graph_node4_patrol.yaml e o graph_node4_hunt.yaml numa escada so, sem
@@ -170,7 +170,7 @@ SEARCH_HEADER = """# ===========================================================
 # GraphExplorer - mapa da Node_4: PROCURA + PING, do zero (28/09/2026)
 #   hider parado -> anda devagar -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_search.yaml --run-id=node4_search_01
+#   mlagents-learn config/historico/graph_node4_search.yaml --run-id=node4_search_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/procura-e-ping.md.
 # Vetor 118, 4 acoes, rede 256 x 2.
@@ -285,7 +285,9 @@ BETA_STAGES = """      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1.
 """
 
 
-def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10):
+# folder: subpasta de config/. Os currículos fora de uso vão para config/historico/ (só registro); na raiz fica
+# só o que se treina hoje (a v5 e o seeker_curriculum.yaml, que não é gerado aqui).
+def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10, folder='historico'):
     behaviors = (BEHAVIORS.replace("MAX_STEPS", str(max_steps)).replace("BETA_BLOCK", beta)
                  .replace("KEEP_CHECKPOINTS", str(keep)))
     out = [header, behaviors, constants, "\n  # ---- Curriculo ----\n"]
@@ -311,7 +313,8 @@ def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD
             out.append(f"        value: {value}\n")
         out.append("\n")
 
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', filename)
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', folder, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     io.open(path, 'w', encoding='utf-8', newline='\n').write(''.join(out).rstrip('\n') + '\n')
     print(f'Gerado: {path}')
 
@@ -327,7 +330,7 @@ def stage_header(title, name, run, init, body):
     return f"""# ================================================================================================
 # GraphExplorer - Node_4 - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run}{init_arg}
+#   mlagents-learn config/historico/{name}.yaml --run-id={run}{init_arg}
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
 # seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
@@ -494,7 +497,7 @@ def v4_header(title, name, run, init, body):
     return f"""# ================================================================================================
 # GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run}{init_arg}
+#   mlagents-learn config/historico/{name}.yaml --run-id={run}{init_arg}
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
@@ -1023,4 +1026,4 @@ for name, run, init, title, body, steps, constants, lessons, params in V4_STAGES
 
 for name, run, title, body, steps, constants, lessons, params in V5_STAGES:
     write(name + '.yaml', v5_header(title, name, run, body), steps, constants, lessons, params,
-          beta=BETA_NIGHT, keep=max(10, steps // 500000))
+          beta=BETA_NIGHT, keep=max(10, steps // 500000), folder='')
