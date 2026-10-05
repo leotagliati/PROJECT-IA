@@ -427,17 +427,30 @@ namespace Assets.Scripts.Graph
         /// dela; nunca porta. -1 se nenhuma sala tem nó válido. Sala primeiro: sortear entre nós fazia a sala grande
         /// nascer 20x mais que um armário. Usado no spawn do agente (GraphArenaController) e do hider.
         /// </summary>
-        public int RandomSpawnNode(int avoidRoom = -1)
+        public int RandomSpawnNode(int avoidRoom = -1) => RandomSpawnNode(null, avoidRoom);
+
+        /// <summary>
+        /// Igual, mas a sala é sorteada com peso (<paramref name="roomWeights"/>, um por sala; null = por igual).
+        /// O GraphArenaController pesa as salas que o agente raramente conclui, para ele treinar onde não vai.
+        /// </summary>
+        public int RandomSpawnNode(float[] roomWeights, int avoidRoom = -1)
         {
             EnsureBaked();
             int rooms = RoomCount;
             if (rooms == 0)
                 return -1;
 
+            float total = 0f;
+            if (roomWeights != null)
+            {
+                for (int r = 0; r < rooms && r < roomWeights.Length; r++)
+                    total += Mathf.Max(0f, roomWeights[r]);
+            }
+
             // Sorteio com rejeição, até 4 voltas no número de salas.
             for (int attempt = 0; attempt < rooms * 4; attempt++)
             {
-                int room = Random.Range(0, rooms);
+                int room = total > 0f ? PickWeightedRoom(roomWeights, total) : Random.Range(0, rooms);
                 if (room == avoidRoom && rooms > 1)
                     continue;
 
@@ -452,6 +465,20 @@ namespace Assets.Scripts.Graph
             }
 
             return -1;
+        }
+
+        private int PickWeightedRoom(float[] weights, float total)
+        {
+            float pick = Random.value * total;
+            int last = Mathf.Min(RoomCount, weights.Length) - 1;
+            for (int r = 0; r < last; r++)
+            {
+                pick -= Mathf.Max(0f, weights[r]);
+                if (pick <= 0f)
+                    return r;
+            }
+
+            return last;
         }
 
         private void MeasureSpawnable()

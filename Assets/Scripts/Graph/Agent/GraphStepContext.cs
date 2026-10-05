@@ -40,6 +40,9 @@ namespace Assets.Scripts.Graph
         /// <summary>Fatia descoberta depois de concluída (a "cauda", que paga pouco).</summary>
         public float RoomTailValue;
 
+        /// <summary>Migalha de sala grande antes de concluir (a sala inteira soma 1 x o valor dela).</summary>
+        public float RoomCrumbValue;
+
         /// <summary>Salas concluídas neste step (1 cada; calor, suspeita e liberação mudam esse valor).</summary>
         public float RoomCompletedValue;
 

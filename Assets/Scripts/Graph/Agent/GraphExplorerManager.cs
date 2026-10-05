@@ -62,12 +62,12 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(0.1f)] private float _hiderVelocityScale = 5f;
 
         [Header("-----Settings-----")]
-        // Em steps de FÍSICA, não decisões: 20000 = 400 s a 0.02 s, ou 4000 decisões com Decision Period 5
-        // (o Episode Length do TensorBoard). v5: era 8000 (160 s) a 15 m/s; na velocidade do jogador (6 / 10.2)
-        // 400 s dão ~2800 m de caminho, contra ~1100 m de ligações no NodeTraining5: tempo de ver o mapa
-        // todo. Contato com parede e estagnação são cobrados por step: mudar isto muda o teto deles
-        // (tabela no cabeçalho do GraphRewardSystem).
-        [SerializeField] private int _maxEpisodeSteps = 20000;
+        // Em steps de FÍSICA, não decisões: 35000 = 700 s a 0.02 s, ou 7000 decisões com Decision Period 5
+        // (o Episode Length do TensorBoard). v5.0: 20000 (400 s); o v5.1_zero_01 fazia ~20 das 26 salas e o tempo
+        // acabava antes de ele descer para a parte de baixo do mapa, então 700 s (05/10). Contato com parede,
+        // estagnação e hider em vista são cobrados por step: mudar isto muda o teto deles (tabela no cabeçalho
+        // do GraphRewardSystem).
+        [SerializeField] private int _maxEpisodeSteps = 35000;
 
         [Header("-----Porta (custo reduzido)-----")]
         // Layer das PORTAS (as peças Door_Hole): parede para visão, grafo e observação [8], mas o contato custa só
@@ -312,6 +312,7 @@ namespace Assets.Scripts.Graph
             _arenaController.ResetHider(transform);
 
             _memory.ResetEpisode(_settings);
+            Rooms.SetRoomCompletionRates(_arenaController.RoomCompletionRate);
             _body.ResetEpisode();
             _ping.ResetEpisode(_settings);
             _perception.ResetEpisode();
@@ -424,6 +425,7 @@ namespace Assets.Scripts.Graph
 
             RoomNodeValue = Rooms.RoomNodeValue,
             RoomTailValue = Rooms.RoomTailValue,
+            RoomCrumbValue = Rooms.RoomCrumbValue,
             RoomCompletedValue = Rooms.RoomCompletedValue,
             DoorCrossValue = Rooms.DoorCrossValue,
             RoomExitValue = Rooms.RoomExitValue,
@@ -512,6 +514,7 @@ namespace Assets.Scripts.Graph
         /// compare runs por elas.
         ///   Exploration/Coverage         fração das salas concluídas ao fim
         ///   Rooms/Completed              salas concluídas (inclui liberadas e refeitas)
+        ///   Rooms/S00..S25               fração dos episódios em que cada sala foi concluída
         ///   Doors/Crossings              travessias de porta
         ///   Doors/RepeatFraction         fração das travessias por porta já usada (novidade &lt; 1)
         ///   Doors/UsedFraction           fração das portas do mapa atravessadas ao menos uma vez
@@ -525,11 +528,35 @@ namespace Assets.Scripts.Graph
         ///   Hunt/Seen, Hunt/Caught       só com hider: viu alguma vez / pegou
         ///   Search/Cleared               suspeita limpa que pagou (procura)
         /// </summary>
+        private string[] _roomStatNames;
+
+        private void RecordRoomStats(StatsRecorder stats)
+        {
+            int rooms = _graph.RoomCount;
+            if (_roomStatNames == null || _roomStatNames.Length != rooms)
+            {
+                _roomStatNames = new string[rooms];
+                for (int r = 0; r < rooms; r++)
+                    _roomStatNames[r] = $"Rooms/S{r:00}";
+            }
+
+            for (int r = 0; r < rooms; r++)
+            {
+                if (!Rooms.IsRoomPrevisited(r))
+                    stats.Add(_roomStatNames[r], Rooms.IsRoomCompleted(r) ? 1f : 0f);
+            }
+        }
+
         private void RecordEpisodeStats()
         {
             StatsRecorder stats = Academy.Instance.StatsRecorder;
             stats.Add("Exploration/Coverage", Rooms.CompletedFraction);
             stats.Add("Rooms/Completed", Rooms.RoomsCompletedTotal);
+
+            // Por sala: média = fração dos episódios em que ela foi concluída (Rooms/S0..). Mostra QUAIS ficam
+            // de fora. Depois vai para a média móvel da arena (spawn e valor de sala rara).
+            RecordRoomStats(stats);
+            _arenaController.RecordRoomOutcome(Rooms);
             stats.Add("Doors/Crossings", Rooms.Crossings);
             if (Rooms.Crossings > 0)
                 stats.Add("Doors/RepeatFraction", (float)Rooms.RepeatCrossings / Rooms.Crossings);

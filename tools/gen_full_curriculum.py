@@ -279,6 +279,11 @@ BETA_NIGHT = """      # 0.006 (o dobro das etapas): mais exploracao, porque o ru
       # vezes. 0.015 ja se mostrou demais (a entropia nunca caia). Decai linear ate max_steps.
       beta: 0.006
 """
+# v5.1 (05/10, no meio do run): o dobro da noite. Entropia em 0.89 e caindo aos 9.7M, e ele preso na parte de
+# cima do mapa; mais variedade para tentar descer. Decai linear ate max_steps.
+BETA_V51 = """      # 0.012 (o dobro do 0.006 da noite): mais variedade para sair da parte de cima do mapa. Decai linear.
+      beta: 0.012
+"""
 BETA_STAGES = """      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
       # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
       beta: 0.003
@@ -1034,6 +1039,24 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 #   - PLANTA: portas ate a sala / 16 (era 10, que saturava S9 <-> S18 em "inalcancavel").
 #   Sem bussola (nada diz qual porta leva ao que falta): ele tem que ler a planta. Pedido do Arthur.
 #
+# AJUSTE NO MEIO DO RUN (05/10, ~9.7M, retomado com --resume): ele fazia ~20 salas, sempre a parte de cima do
+#   mapa (salas interligadas), e nunca descia. Mudou, sem mexer na rede:
+#   - SPAWN NAS SALAS ESQUECIDAS: a arena guarda a taxa de conclusao de cada sala (media movel ~10 episodios) e
+#     sorteia o spawn com peso 0.2 + (1 - taxa). Ele passa a treinar onde nao ia.
+#   - SALA RARA VALE MAIS: x (1 + (1 - taxa)), alem do valor crescente. Sempre concluida x1, nunca x2.
+#   - EPISODIO de 700 s (35000 steps; era 400 s): tempo de fazer a parte de cima E descer. Custos por step
+#     x 20000/35000 (mesmo teto).
+#   - BETA 0.012 (era 0.006) e max_steps 25M (era 15M): mais variedade (entropia em 0.89 e caindo) e espaco para
+#     as licoes de caca depois do Completo. Com 25M o learning rate e o beta voltam a ~40% do inicial.
+#   - METRICA Rooms/S00..S25: fracao dos episodios em que cada sala foi concluida.
+#   Resultado: em ~15.5M ele fechava 25/26 salas (a ala S14/S17/S18/S23/S25 foi de ~0 a ~1) e passou para a
+#   Patrulha (15.93M). Ficou so a S24: anel de 20 nos em volta da S25, cantos a ~18 m das portas (visao 15 m).
+# MIGALHAS (05/10, ~16M, --resume): sala com >= 10 nos (S12, S16, S24) paga tambem por no novo antes de concluir,
+#   0.5 x valor da sala espalhado nos nos (GraphRewardSystem._bigRoomCrumbReward, GraphRoomMemory._crumbMinNodes).
+# MAX_STEPS 40M (05/10, ~16M, mesma parada): as licoes 4+ passam por PROGRESSO, e com 25M o run ja estava em 64%;
+#   cada licao de caca teria so o minimo (~1M). Com 40M: HiderParado ~17-18M, Anda ~21M, Foge ~25.5M, Rapido ~31M,
+#   Jogador ~37M (3-5.5M cada). LR e beta sao recalculados pelo novo total (LR ~1.1e-4 -> ~1.8e-4).
+#
 #   #  Licao         salas sala% libera ping  hider  corre  folego barulho desc ping$ solto  criterio
 #   1  Inicio        1.0   0.8   0      0     -      -      -      -       1.0  1.0   0      reward 10.0 (80 ep.)
 #   2  Meio          1.0   0.9   0      0     -      -      -      -       1.0  1.0   0      reward 15.0 (80)
@@ -1052,7 +1075,7 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 #
 # PASSA QUANDO: Exploration/Coverage > 0.8 no Completo e subindo; Movement/MeanSpeed > ~5; WallContactFraction
 #   < 0.15. Se Coverage travar em ~0.5 depois de ~3M: LSTM (memoria do episodio) num run novo, nao bussola.
-# Checkpoint a cada 500k, todos guardados. ~41 s / 10k steps no build com 3 envs: uma noite (~10 h) = ~9M.
+# Checkpoint a cada 500k, todos guardados. ~1M steps/h no build com 3 envs: uma noite (~10 h) = ~9-10M.
 """
 V5_1_LESSONS = [
     ("Inicio", 10.0, 80),
@@ -1096,7 +1119,7 @@ V5_1_PARAMS = [
 ]
 V5_1_STAGES = [
     ("graph_v5.1_zero", "v5.1_zero_01", "V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998",
-     V5_1_BODY, 15000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
+     V5_1_BODY, 40000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
 ]
 
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)
@@ -1118,4 +1141,4 @@ for name, run, title, body, steps, constants, lessons, params in V5_STAGES:
 
 for name, run, title, body, steps, constants, lessons, params in V5_1_STAGES:
     write(name + '.yaml', v5_header(title, name, run, body), steps, constants, lessons, params,
-          beta=BETA_NIGHT, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256)
+          beta=BETA_V51, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256)

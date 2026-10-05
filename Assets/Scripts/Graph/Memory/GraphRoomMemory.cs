@@ -39,6 +39,20 @@ namespace Assets.Scripts.Graph
         // só as de 1 nó e parava. Ele vê a fração concluída (observação [7]), então sabe quanto a próxima vale.
         [SerializeField, Min(0f)] private float _progressValueGain = 1f;
 
+        // Sala RARA vale mais: x (1 + ganho x (1 - taxa de conclusão dela nos últimos episódios da arena),
+        // GraphArenaController.RoomCompletionRate). O valor crescente acima depende de QUANTAS salas já foram
+        // feitas neste episódio; este depende de QUAIS ele costuma pular (a parte de baixo do mapa no
+        // v5.1_zero_01). Com 1: sala sempre concluída x1, nunca concluída x2. É evento (concluir), não seta.
+        [SerializeField, Min(0f)] private float _rarityValueGain = 1f;
+
+        [Header("-----Migalhas (salas grandes)-----")]
+        // Sala com pelo menos isto de nós paga também por NÓ novo (visto ou pisado) antes de concluir, não só no
+        // fim. A S24 do NodeTraining5 (anel de 20 nós em volta da S25, ~32 x 36 m) ficou em 0% até 16M: as portas
+        // da sala do meio ficam no meio dos lados, a visão alcança 15 m e os cantos ficam a ~18 m. Ir a um canto
+        // não pagava nada até fazer os outros três. 10 pega S12 (18), S16 (12) e S24 (20); as pequenas seguem
+        // pagando só ao concluir (com fatias em toda sala, as de 1 nó rendiam sem concluir nada).
+        [SerializeField, Min(1)] private int _crumbMinNodes = 10;
+
         [Header("-----Sala quente (ping)-----")]
         // Valor de cada fatia da sala do ping (e da conclusão dela) em relação a uma sala normal.
         // Só esquenta quando um ping começa; re-esquentar a mesma sala não faz nada.
@@ -107,6 +121,7 @@ namespace Assets.Scripts.Graph
         private bool[] _roomCompleted;
         private bool[] _roomPrevisited;
         private int[] _roomCompletedStep;
+        private float[] _roomCompletionRates;  // da arena, só leitura (ver SetRoomCompletionRates)
         private float[] _roomValueScale;   // base: 1, liberada (_releasedValue) ou quente (_hotRoomValue)
         private float[] _roomSuspicion;    // multiplicador da suspeita (>= 1)
         private int[] _roomHops;           // portas da sala atual até cada sala
@@ -156,6 +171,12 @@ namespace Assets.Scripts.Graph
         /// <summary>Fatia de sala descoberta DEPOIS de ela ser concluída (a "cauda").</summary>
         public float RoomTailValue { get; private set; }
 
+        /// <summary>
+        /// Migalha: fatia de SALA GRANDE (_crumbMinNodes) descoberta antes de concluir. A sala inteira soma o
+        /// mesmo valor da conclusão dela (Scale), o reward escolhe quanto isso vale.
+        /// </summary>
+        public float RoomCrumbValue { get; private set; }
+
         /// <summary>Salas concluídas no intervalo (liberada conta _releasedValue).</summary>
         public float RoomCompletedValue { get; private set; }
 
@@ -174,6 +195,17 @@ namespace Assets.Scripts.Graph
         public int RoomsCompletedTotal { get; private set; }
         public int DoorsUsed => _usedDoorCount;
         public int DoorCount => _doorCount;
+
+        /// <summary>
+        /// Taxas de conclusão por sala que valem neste episódio (o Manager passa as da arena no início dele).
+        /// Null = sem histórico (todas x1).
+        /// </summary>
+        public void SetRoomCompletionRates(float[] rates) => _roomCompletionRates = rates;
+
+        private float RarityValue(int room) =>
+            _roomCompletionRates != null && room < _roomCompletionRates.Length
+                ? 1f + _rarityValueGain * (1f - Mathf.Clamp01(_roomCompletionRates[room]))
+                : 1f;
 
         /// <summary>Multiplicador de toda sala ainda por fazer: cresce com a fração já concluída.</summary>
         private float ProgressValue => 1f + _progressValueGain * CompletedFraction;
@@ -314,6 +346,7 @@ namespace Assets.Scripts.Graph
         {
             RoomNodeValue = 0f;
             RoomTailValue = 0f;
+            RoomCrumbValue = 0f;
             RoomCompletedValue = 0f;
             DoorCrossValue = 0f;
             RoomExitValue = 0f;
@@ -457,7 +490,7 @@ namespace Assets.Scripts.Graph
             float suspicion = 1f + (_roomSuspicion[room] - 1f) * stretch;
 
             float ping = Mathf.Lerp(1f, _pingQuietScale, _heatLevel) + _heatValueBoost * RoomHeat(room);
-            return _roomValueScale[room] * ProgressValue * suspicion * ping;
+            return _roomValueScale[room] * ProgressValue * RarityValue(room) * suspicion * ping;
         }
 
         /// <summary>Calor da sala (0..1): 1 na sala do último ping, cai por porta de distância e com o tempo.</summary>
@@ -597,6 +630,9 @@ namespace Assets.Scripts.Graph
             }
 
             RoomNodeValue += share;
+            if (_graph.NodesOfRoom(room).Length >= _crumbMinNodes)
+                RoomCrumbValue += share;
+
             if (_roomVisited[room] >= _roomNeeded[room])
             {
                 _roomCompleted[room] = true;
@@ -778,6 +814,9 @@ namespace Assets.Scripts.Graph
         public float DoorPathDistance(int door) => _doorPathDistance[door];
 
         public bool IsRoomCompleted(int room) => _roomCompleted[room];
+
+        /// <summary>A sala nasceu concluída neste episódio (previsited_fraction).</summary>
+        public bool IsRoomPrevisited(int room) => _roomPrevisited[room];
 
         /// <summary>Quanto da sala já foi visto, rumo à conclusão (1 = concluída).</summary>
         public float RoomProgress(int room) => Mathf.Clamp01((float)_roomVisited[room] / _roomNeeded[room]);

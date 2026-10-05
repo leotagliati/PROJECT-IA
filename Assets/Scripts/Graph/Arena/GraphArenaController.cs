@@ -242,6 +242,17 @@ namespace Assets.Scripts.Graph
         // Sorteia entre os _spawnPoints; origem fixa deixa a política decorar a sequência de curvas.
         [SerializeField] private bool _randomizeSpawn = true;
 
+        [Header("-----Salas esquecidas-----")]
+        // Taxa de conclusão de cada sala nos episódios desta arena (média móvel, peso deste episódio). 0.1 = ~os
+        // últimos 10 episódios. Alimenta o spawn e o valor de sala rara (GraphRoomMemory._rarityValueGain).
+        [SerializeField, Range(0.01f, 1f)] private float _roomRateSmoothing = 0.1f;
+
+        // Spawn por sala com peso piso + (1 - taxa de conclusão): nasce mais onde quase nunca conclui. O run
+        // v5.1_zero_01 fazia a parte de cima do mapa (salas interligadas) e nunca descia: sem nascer lá, nunca
+        // treinava lá. O piso mantém as salas comuns no sorteio. Muda só ONDE ele treina, nada dentro do episódio.
+        [SerializeField] private bool _spawnFavorsRareRooms = true;
+        [SerializeField, Min(0f)] private float _rareSpawnFloor = 0.2f;
+
         [Header("-----Feedback-----")]
         // Só debug visual. Mantenha 0 para treinar.
         [SerializeField] private float _episodeEndDelay = 0f;
@@ -250,6 +261,8 @@ namespace Assets.Scripts.Graph
         private bool _initialized;
         private int _lastSpawnIndex = -1;
         private GraphPlayerTarget _playerTarget;
+        private float[] _roomCompletionRate;   // por sala, média móvel entre episódios; começa em 0.5 (sem dado)
+        private float[] _spawnWeights;
 
         /// <summary>
         /// Resolvido sob demanda, não no Awake: o agente lê isto no Initialize, que pode vir antes
@@ -267,6 +280,55 @@ namespace Assets.Scripts.Graph
         }
 
         public bool GameMode => _gameMode;
+
+        /// <summary>
+        /// Taxa de conclusão de cada sala nos últimos episódios desta arena (0..1, média móvel). Null até o grafo
+        /// existir. Só leitura: quem atualiza é <see cref="RecordRoomOutcome"/>.
+        /// </summary>
+        public float[] RoomCompletionRate
+        {
+            get
+            {
+                EnsureRoomStats();
+                return _roomCompletionRate;
+            }
+        }
+
+        /// <summary>
+        /// Fim de episódio: soma na média móvel quais salas foram concluídas. Salas pré-concluídas ficam de fora
+        /// (o mérito não foi do agente e a taxa delas não diz nada).
+        /// </summary>
+        public void RecordRoomOutcome(GraphRoomMemory rooms)
+        {
+            EnsureRoomStats();
+            if (_roomCompletionRate == null)
+                return;
+
+            for (int r = 0; r < _roomCompletionRate.Length; r++)
+            {
+                if (rooms.IsRoomPrevisited(r))
+                    continue;
+
+                float outcome = rooms.IsRoomCompleted(r) ? 1f : 0f;
+                _roomCompletionRate[r] = Mathf.Lerp(_roomCompletionRate[r], outcome, _roomRateSmoothing);
+            }
+        }
+
+        private void EnsureRoomStats()
+        {
+            NavGraph graph = Graph;
+            if (graph == null)
+                return;
+
+            graph.EnsureBaked();
+            if (_roomCompletionRate != null && _roomCompletionRate.Length == graph.RoomCount)
+                return;
+
+            _roomCompletionRate = new float[graph.RoomCount];
+            _spawnWeights = new float[graph.RoomCount];
+            for (int r = 0; r < _roomCompletionRate.Length; r++)
+                _roomCompletionRate[r] = 0.5f;
+        }
 
         public float EpisodeEndDelay => _episodeEndDelay;
 
@@ -412,13 +474,29 @@ namespace Assets.Scripts.Graph
             if (graph == null || graph.NodeCount == 0)
                 return false;
 
-            int node = graph.RandomSpawnNode();
+            int node = graph.RandomSpawnNode(RareRoomSpawnWeights());
             if (node < 0)
                 return false;
 
             position = graph.NodePosition(node) + Vector3.up * _nodeSpawnHeightOffset;
             rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
             return true;
+        }
+
+        // Null = sorteio por igual (desligado ou modo de jogo, onde o spawn não deve depender do histórico).
+        private float[] RareRoomSpawnWeights()
+        {
+            if (!_spawnFavorsRareRooms || _gameMode)
+                return null;
+
+            EnsureRoomStats();
+            if (_roomCompletionRate == null)
+                return null;
+
+            for (int r = 0; r < _spawnWeights.Length; r++)
+                _spawnWeights[r] = _rareSpawnFloor + (1f - _roomCompletionRate[r]);
+
+            return _spawnWeights;
         }
 
         private GraphEpisodeSettings ApplyCurriculum()
