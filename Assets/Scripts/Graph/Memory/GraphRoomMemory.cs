@@ -21,12 +21,23 @@ namespace Assets.Scripts.Graph
     public class GraphRoomMemory
     {
         [Header("-----Portas-----")]
-        // Quanto a porta perde a cada travessia (1, 0.5, 0.25...). Um vai-e-vem infinito soma no máximo 2x a primeira.
+        // Quanto a porta perde a cada travessia (1, 0.5, ...).
         [SerializeField, Range(0.05f, 0.95f)] private float _doorNoveltyDecay = 0.5f;
+
+        // Travessias que ainda pagam; da seguinte em diante a porta vale 0 (porta e saída de sala concluída).
+        // 1 na v5.1 = cada porta paga UMA vez (era a cauda 0.5, 0.25...: o run v5.0_zero_02 decorou um loop fixo de
+        // salas que ainda rendia). Beco (sala de 1 porta): a volta paga igual à ida, então entrar num beco compensa.
+        [SerializeField, Min(1)] private int _doorPaidCrossings = 1;
 
         [Header("-----Liberação (release_fraction no currículo)-----")]
         // Valor com que porta e sala liberadas voltam (1 = igual a nova). Abaixo de 1 para o inédito pagar mais.
         [SerializeField, Range(0f, 1f)] private float _releasedValue = 0.5f;
+
+        [Header("-----Valor crescente das salas-----")]
+        // Cada sala concluída valoriza as que faltam: valor x (1 + ganho x fração concluída). Com 1, a primeira vale
+        // 1 e a última ~2. As salas que sobram são as caras (grandes, no fundo do mapa): o run v5.0_zero_02 fazia
+        // só as de 1 nó e parava. Ele vê a fração concluída (observação [7]), então sabe quanto a próxima vale.
+        [SerializeField, Min(0f)] private float _progressValueGain = 1f;
 
         [Header("-----Sala quente (ping)-----")]
         // Valor de cada fatia da sala do ping (e da conclusão dela) em relação a uma sala normal.
@@ -163,6 +174,9 @@ namespace Assets.Scripts.Graph
         public int RoomsCompletedTotal { get; private set; }
         public int DoorsUsed => _usedDoorCount;
         public int DoorCount => _doorCount;
+
+        /// <summary>Multiplicador de toda sala ainda por fazer: cresce com a fração já concluída.</summary>
+        private float ProgressValue => 1f + _progressValueGain * CompletedFraction;
 
         /// <summary>
         /// Fração das salas concluídas, sem as que já nasceram concluídas (saem do numerador e do
@@ -443,7 +457,7 @@ namespace Assets.Scripts.Graph
             float suspicion = 1f + (_roomSuspicion[room] - 1f) * stretch;
 
             float ping = Mathf.Lerp(1f, _pingQuietScale, _heatLevel) + _heatValueBoost * RoomHeat(room);
-            return _roomValueScale[room] * suspicion * ping;
+            return _roomValueScale[room] * ProgressValue * suspicion * ping;
         }
 
         /// <summary>Calor da sala (0..1): 1 na sala do último ping, cai por porta de distância e com o tempo.</summary>
@@ -527,7 +541,7 @@ namespace Assets.Scripts.Graph
         }
 
         private float Novelty(int door, int crossings) =>
-            _doorBase[door] * Mathf.Pow(_doorNoveltyDecay, Mathf.Max(0, crossings));
+            crossings >= _doorPaidCrossings ? 0f : _doorBase[door] * Mathf.Pow(_doorNoveltyDecay, Mathf.Max(0, crossings));
 
         /// <summary>Novidade ATUAL da porta (0..1): quanto a próxima travessia dela paga.</summary>
         public float DoorNovelty(int door) => Novelty(door, _doorCrossings[door]);

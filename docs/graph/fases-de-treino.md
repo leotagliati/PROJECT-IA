@@ -47,7 +47,8 @@ repetir o mesmo run.
 | 7d · v4.3 | 03/10 | Node_5 (v4) | **Caça herdando a v4.1**: hider sem pausa, foge a 18 m, escada 4→6→8 m/s; caça mais valiosa; calor do ping; física, parede e raios voltam aos da v4.1 | `v4.3_caca_01` parado aos 532k: vê ~89%, pega ~72%; modelo `GraphExplorer_v4.3.onnx` |
 | 7e · v4.4 | 03/10 | Node_5 (v4) | **Corrida**: sem aceleração nem steer assist, corpo segue o movimento (pescoço até 60°), corre com estamina, 15/18/20 m/s (patrulha/alerta/perseguição); hider anda e corre fugindo, 4→10 m/s; parede ×2 (Door grátis); suspeita ×2 | `v4.4_corrida_01` planejado (substitui o plano de movimento com aceleração 35, que não rodou) |
 | 7f · v4.5 | 03/10 | Node_5 (v4) | **Fuga**: hider corre 10→14 m/s com 6→10 s de estamina (o seeker tem 5) | não rodou (substituída pela v5.0) |
-| 8 · v5.0 | 04/10 | prefab novo (mapa v4) | **Do zero, escala do jogador**: velocidade pelo estado de alerta (patrulha 6, alerta 8, perseguição 10,2 m/s vendo o jogador), inércia, episódio de 400 s, vetor 188 (vê a própria velocidade, o estado e o relógio), hider na mesma escala | `v5.0_zero_01` planejado (15M steps) |
+| 8 · v5.0 | 04/10 | prefab novo (mapa v4) | **Do zero, escala do jogador**: velocidade pelo estado de alerta (patrulha 6, alerta 8, perseguição 10,2 m/s vendo o jogador), inércia, episódio de 400 s, vetor 188, hider na mesma escala | `v5.0_zero_02` (3.15M): passou a Perto em ~1.47M, Metade em ~3.1M, parado na Quase com cobertura ~44%. **Decorou um loop de salas baratas** (1 nó) perto do spawn e ignorou as grandes (S7–S9, S14, S17–S18, S23–S25). Abandonado. |
+| 9 · v5.1 | 04/10 | prefab novo (mapa v4) | **Economia de salas**: sala paga UMA VEZ ao completar (0.5), porta paga só a 1ª vez (0.1), valor cresce com tamanho. Sem salas pré-concluídas. Meta = 100% dos nós vistos. Planta com hops/16. | `v5.1_zero_01` (a rodar): critério cobertura > 0.8 na lição Completo; se travar em ~50% após ~3M, próximo é LSTM. |
 
 ---
 
@@ -213,27 +214,36 @@ S1 a S6 seguidas** (`v4_noite_01`, 10M steps, 01→02/10), que chegou à última
   com 6 → 8 → 10 s de estamina, mais que os 5 s do seeker. A 14 m/s ele foge do seeker andando (13.3) e aguenta
   mais: o seeker tem que correr só perto e cortar caminho. Critério: `Hunt/Caught` ≥ ~50% na FogeLonge.
 - **V4.4 e V4.5 não rodaram:** em 04/10 o plano virou um treino do zero (v5.0), abaixo.
-- **V5.0 (`v5.0_zero_01`, 04/10, planejado; do zero, prefab novo):** `config/graph_v5.0_zero.yaml`, 15M steps.
+- **V5.0 (`v5.0_zero_02`, 04/10 → 05/10, do zero, prefab novo, build standalone):** `config/graph_v5.0_zero.yaml`, 3.15M de 15M steps.
   - **Velocidade pelo estado de alerta**, na escala do jogador (PlayerDummy da `main`: anda 6, corre 10,2): patrulha
     6 m/s sem pista, **alerta** 8 m/s quando ouviu um barulho ou perdeu o jogador de vista há menos de 10 s, e
     **perseguição** 10,2 m/s enquanto vê o jogador. Não há corrida por ação nem fôlego; a IA vê o próprio estado.
-    Inércia leve, giro mais lento na perseguição, bater na parede custa velocidade. A animação lê o estado
-    (`GraphAnimationSystem`: andar na patrulha e no alerta, correr na perseguição).
-  - **Hider na mesma escala:** escada 5,1 → 7 → 8,5 → 10,2 m/s correndo; na última lição ele é o jogador.
+    Inércia leve, giro mais lento na perseguição, bater na parede custa velocidade.
+  - **Hider na mesma escala:** escada 5,1 → 7 → 8,5 → 10,2 m/s correndo; na última lição é o jogador.
   - **Episódio de 400 s** (era 160 s): ~2.800 m de caminho para um mapa de ~1.100 m de ligações. Custos por step
-    divididos por 2,5 para o teto continuar o mesmo.
-  - **Observação 188** (+6): a própria velocidade, em que estado está (perseguição, quanto resta do alerta, a
-    velocidade do estado), quanto do episódio passou e há quanto tempo não progride.
-  - **Toda sala vale o mesmo** na exploração; só o calor do barulho, a suspeita e a sala já explorada mudam o valor.
-  - **Sala só conta como explorada com 100% dos nós vistos** (era 80%): ele explora olhando e não pode deixar canto
-    com nó sem ver. Sobe 80% → 90% → 100% nas três primeiras lições para o começo do zero não travar.
-  - **Critério:** cobertura > 70% na Quase; `Hunt/Caught` ≥ ~60% na HiderFoge e ≥ ~40% na HiderJogador;
-    parede < 15% do tempo; `Movement/MeanSpeed` entre 6 e 10.
-- **O que ainda falta (no v4_noite_01):**
-  - **teto de ~70% das salas:** o episódio de exploração nunca terminou por cobertura (sempre por
-    tempo), então o bônus de 80% quase não foi pago;
-  - metade das travessias de porta é repetida, com ~12 loops por episódio;
-  - ~38 batidas na parede por episódio na exploração.
+    divididos por 2,5.
+  - **Observação 188** (+6): velocidade própria, estado (patrulha/alerta/perseguição), fração do episódio, tempo
+    sem progresso.
+  - **Toda sala vale o mesmo** na exploração (decidido com o Arthur); só o calor, a suspeita e a sala já explorada
+    mudam o valor.
+  - **Sala 100% explorada:** 80% → 90% → 100% nas três primeiras lições (o critério subiu de 80% de nós
+    pisados/vistos de uma vez, impedindo o começo do zero).
+  - **Resultado:** passou a Perto em ~1.47M, Metade em ~3.1M (meta trocada no meio), parado na Quase com cobertura
+    ~44%. **Decorou um padrão barato:** as 11 salas de 1 nó perto do spawn valiam ~0.5 pontos each, enquanto as
+    grandes (S7–S9, S14, S17–S18, S23–S25) ficaram ignoradas. Causa: valor fixo por sala completada, sem escala
+    por tamanho.
+- **V5.1 (`v5.1_zero_01`, 04/10 em diante, do zero, build standalone):** `config/graph_v5.1_zero.yaml`, a rodar até 15M.
+  - **Economia de salas:** sala paga 0.5 **uma única vez** ao completar (era fatias até 80% e cauda ×0.2). Porta
+    paga 0.1 só a 1ª travessia (`_doorPaidCrossings` 1; beco: volta paga igual). Saída de sala concluída 0.15, só
+    primeira vez.
+  - **Valor crescente:** as salas da última lição (S25 com 23 nós) valem ~2× as da primeira (S1 com 1 nó), via
+    `GraphRoomMemory._progressValueGain` 1. O agente vê essa escala em observação.
+  - **Sem muleta:** sem salas pré-concluídas (`previsited_fraction` 0), meta 100% desde a lição 1 (Inicio 0.8 / Meio
+    0.9 / Completo 1.0 de nós vistos). Critério de passagem por reward (10 / 15 / 21).
+  - **Planta atualizada:** `BufferSensor` com 26 floats (uma por sala), incluindo hops até o ping ÷ 16 (era ÷10,
+    saturava). Sem "bússola por porta".
+  - **Critério:** cobertura > 80% na lição Completo. Se travar em ~50% após ~3M steps, próximo será um run com
+    **LSTM** para capturar sequências temporais.
 
 ## Fase 6 — Em etapas, 28/09 a 01/10
 
@@ -436,8 +446,9 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
 
 ## Próximos passos
 
-- **S1** (salas e portas, do zero, sem seta): `v4_s1_01`. Se passar, S2 (menos ajuda contra a
-  parede), depois S3 (patrulha por liberação), S4 (ping por sala), S5 (hider pingando) e S6 (hider
-  se escondendo).
+- **V5.1** (economia de salas, do zero): `v5.1_zero_01` a rodar. Critério: cobertura > 80% na lição
+  Completo; se travar em ~50% após ~3M steps, próximo será um run com **LSTM** para capturar
+  dependências temporais que a rede feedforward não vê.
+- Se a V5.1 passar: V5.2 com caça do hider (4 lições de velocidade crescente + solto).
 - A linha E4/E5 do Node_4 fica parada: os cérebros dela não servem no vetor novo.
 - Ideia não planejada: esconderijos embaixo de móveis.

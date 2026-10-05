@@ -23,10 +23,10 @@ namespace Assets.Scripts.Graph
     ///   estagnação (0.0002/step após 2500 steps)   -3.5
     ///   revisita precoce (0.05, após 3 seguidas)   ~-2.0 (40 chegadas)
     ///   ping perdido (0.5)                         -2.0 (4 pings)
-    ///   sala explorada (0.25/sala, cauda x0.2)     +6.5 (26 salas) x escala
-    ///   sala concluída (0.25/sala)                 +6.5 x escala
-    ///   porta (0.1 x novidade)                     +3.5 (35 portas; vai-e-vem até 2x) x escala
-    ///   saída de sala concluída (0.15 x novidade)  ~+3.9 x escala
+    ///   sala explorada (fatias, 0 na v5.1)         0 (a sala paga UMA vez, ao concluir)
+    ///   sala concluída (0.5/sala x 1..2 crescente) ~+19 (26 salas) x escala
+    ///   porta (0.1, só a 1ª travessia)             +3.5 (35 portas) x escala
+    ///   saída de sala concluída (0.15, 1ª vez)     ~+2.5 x escala
     ///   cobertura (5, encerra)                     +5
     ///   ping atendido (5 x PingValue)              +20 (4 pings) x escala
     ///   avistar hider (2, cooldown 5 s)            ~+8 (4 avistamentos)
@@ -34,7 +34,7 @@ namespace Assets.Scripts.Graph
     ///   hider em vista (0.0015/step)               +30 o episódio todo
     ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
-    /// NodeTraining5 (26 salas, 35 portas) coberto por inteiro: ~25 de exploração.
+    /// NodeTraining5 (26 salas, 35 portas) coberto por inteiro: ~25 de exploração + 5 da cobertura.
     /// </summary>
     public class GraphRewardSystem : MonoBehaviour
     {
@@ -82,17 +82,20 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(0)] private int _earlyRevisitGrace = 3;
 
         [Header("-----Salas e portas-----")]
-        // A sala inteira (fatias por nó até 80% dela) vale isto, qualquer que seja o tamanho.
-        [SerializeField] private float _roomExploreReward = 0.25f;
+        // Fatias por nó da sala (a sala inteira vale isto). 0 na v5.1: a sala paga UMA vez, ao concluir (pedido do
+        // Arthur); com fatias, as salas de 1 nó e o começo das grandes rendiam sem concluir nada.
+        [SerializeField] private float _roomExploreReward = 0f;
 
         // Fração do valor de um nó que a CAUDA paga (nós não pisados de sala já concluída). Baixo
         // para varrer o último canto perder para ir à próxima sala.
         [SerializeField, Range(0f, 1f)] private float _completedRoomNodeFraction = 0.2f;
 
         // Concluir a sala (room_complete_threshold dos nós). Uma vez por sala, de novo (valendo menos) se liberada.
-        [SerializeField] private float _roomCompletedReward = 0.25f;
+        // 0.5 na v5.1 = as fatias (0.25) + a conclusão (0.25) de antes, agora tudo no evento de concluir; x o valor
+        // crescente da GraphRoomMemory (1 na primeira sala, ~2 na última).
+        [SerializeField] private float _roomCompletedReward = 0.5f;
 
-        // Atravessar uma porta x novidade (1, 0.5, 0.25...). Pequeno: porta é meio, não fim.
+        // Atravessar uma porta x novidade (só a 1ª travessia paga: GraphRoomMemory._doorPaidCrossings). Pequeno: porta é meio, não fim.
         [SerializeField] private float _doorCrossReward = 0.1f;
 
         // Sair de sala concluída x novidade da porta: faz "sair por outra porta" valer mais que voltar.

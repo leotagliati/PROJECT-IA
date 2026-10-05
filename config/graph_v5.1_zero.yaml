@@ -1,54 +1,42 @@
 # ================================================================================================
-# GraphExplorer - mapa v4 (prefab NodeTraining6, cena Node_6 com as 6 arenas ligadas) - V5.0: DO ZERO - CORPO DO JOGADOR, EPISODIO LONGO, VETOR 188
+# GraphExplorer - mapa v4 (prefab NodeTraining - V5 training, cena Arthur/V5 - Training) - V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998
 #
-#   mlagents-learn config/graph_v5.0_zero.yaml --run-id=v5.0_zero_01
+#   mlagents-learn config/graph_v5.1_zero.yaml --run-id=v5.1_zero_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
 # Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.
 #
-# DO ZERO. O que mudou da v4.x:
-#   - VELOCIDADE PELO ESTADO DE ALERTA (escala do jogador, PlayerDummy da main: anda 6, corre 10.2):
-#     Patrulha 6 m/s (sem pista), Alerta 8 m/s (ouviu um ping ou perdeu o alvo de vista ha < 10 s),
-#     Perseguicao 10.2 m/s (VENDO o alvo). Sem corrida por acao e sem folego: ver o jogador e o que o deixa
-#     rapido, e ele ve o proprio estado. Inercia leve (acelera 20, freia 40 m/s2), giro 540/s e 360/s na
-#     perseguicao, parede
-#     custa velocidade. Sem estados de alerta/perseguicao: a velocidade e sempre a do jogador.
-#   - HIDER na mesma escala: hider_speed e a corrida dele (anda a 0.588 x, a razao do jogador).
-#   - EPISODIO de 20000 steps = 400 s (era 160 s): a 6-10 m/s da ~2800 m de caminho, contra ~1100 m de
-#     ligacoes no mapa (diametro 248 m). Custos por step divididos por 2.5 (mesmo teto da v4).
-#   - OBSERVACAO 188 (+6): a propria velocidade X/Z, estado (perseguicao; alerta e quanto resta dele; [26] = a
-#     velocidade do estado), fracao do episodio e tempo sem
-#     progresso. Ele ve o proprio movimento e o relogio.
-#   - TODA SALA VALE O MESMO na exploracao (1 por sala, qualquer tamanho); so calor do ping, suspeita
-#     e sala ja explorada (cauda x0.2) mudam o valor.
-#   - EXPLORAR = VER, e a sala so CONCLUI com 100% dos nos vistos (room_complete_threshold 1.0): nenhum
-#     canto com no fica sem olhar. Degrau 0.8 -> 0.9 -> 1.0 nas tres primeiras licoes para o comeco do
-#     zero nao travar no ultimo no de cada sala; de Quase em diante e 1.0 ate o fim. Canto SEM no nao conta.
+# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta, episodio de 400 s, vetor 188), mudando:
+#   - SALA PAGA UMA VEZ: so ao concluir (0.5 x valor crescente), sem fatias por no nem cauda. Porta paga so a
+#     1a travessia (beco: a volta paga igual). Repetir caminho nao rende nada.
+#   - VALOR CRESCENTE: cada sala concluida valoriza as que faltam (1 na primeira, ~2 na ultima). As que sobram
+#     sao as caras (grandes, no fundo do mapa), e ele ve a fracao concluida [7].
+#   - META = TODAS AS SALAS (coverage_target 1.0) desde a licao 1; as 3 primeiras licoes so apertam a conclusao
+#     da sala (0.8 -> 0.9 -> 1.0 dos nos vistos). Sem salas pre-concluidas (a licao Variado saiu).
+#   - GAMMA 0.998 (era 0.995): horizonte ~500 decisoes = 50 s em vez de ~20 s; sala a 30 s de distancia vale
+#     ~0.55 em vez de ~0.22 de uma sala ao lado. time_horizon 256 acompanha.
+#   - PLANTA: portas ate a sala / 16 (era 10, que saturava S9 <-> S18 em "inalcancavel").
+#   Sem bussola (nada diz qual porta leva ao que falta): ele tem que ler a planta. Pedido do Arthur.
 #
-#   #  Licao         salas sala% pre  libera ping  hider  corre  folego barulho desc ping$ solto  criterio
-#   1  Perto         0.2   0.8   0    0      0     -      -      -      -       1.0  1.0   0      reward 6.0  (80 ep.)
-#   2  Metade        0.5   0.9   0    0      0     -      -      -      -       1.0  1.0   0      reward 9.0  (80)
-#   3  Quase         0.8   1.0   0    0      0     -      -      -      -       1.0  1.0   0      reward 11.0 (100)
-#   4  Variado       0.8   1.0   0.3  0      0     -      -      -      -       1.0  1.0   0      reward 8.5  (100)
-#   (sala% = room_complete_threshold; 1.0 da licao 3 ate o fim)
-#   5  Patrulha      1.1   0    0.85   0     -      -      -      -       1.0  1.0   0      progresso 0.25 (150)
-#   6  Ping          1.1   0    0.85   4000  -      -      -      -       1.0  1.0   0      progresso 0.33 (150)
-#   7  HiderParado   1.1   0    0      0     parado -      10     1.0     0.5  0     0      progresso 0.42 (150)
-#   8  HiderAnda     1.1   0    0      0     anda   5.1    10     0.6     0.5  0     0      progresso 0.52 (150)
-#   9  HiderFoge     1.1   0    0      0     foge   7.0    10     0.4     0.5  0     0      progresso 0.64 (150)
-#  10  HiderRapido   1.1   0    0      0     foge   8.5    10     0.3     0.5  0     0      progresso 0.78 (150)
-#  11  HiderJogador  1.1   0    0      0     foge   10.2   10     0.3     0.5  0     1      (final)
-#   "corre" = m/s do hider correndo (anda a 0.588 x: 3 / 4.1 / 5 / 6 m/s). Ver = explorar desde a licao 1.
-#   Na licao 11 o hider e o jogador: corre 10.2 por 10 s; o seeker so chega a 10.2 vendo ele. So pega quem corta caminho.
+#   #  Licao         salas sala% libera ping  hider  corre  folego barulho desc ping$ solto  criterio
+#   1  Inicio        1.0   0.8   0      0     -      -      -      -       1.0  1.0   0      reward 10.0 (80 ep.)
+#   2  Meio          1.0   0.9   0      0     -      -      -      -       1.0  1.0   0      reward 15.0 (80)
+#   3  Completo      1.0   1.0   0      0     -      -      -      -       1.0  1.0   0      reward 21.0 (100)
+#   4  Patrulha      1.1   1.0   0.85   0     -      -      -      -       1.0  1.0   0      progresso 0.25 (150)
+#   5  Ping          1.1   1.0   0.85   4000  -      -      -      -       1.0  1.0   0      progresso 0.33 (150)
+#   6  HiderParado   1.1   1.0   0      0     parado -      10     1.0     0.5  0     0      progresso 0.42 (150)
+#   7  HiderAnda     1.1   1.0   0      0     anda   5.1    10     0.6     0.5  0     0      progresso 0.52 (150)
+#   8  HiderFoge     1.1   1.0   0      0     foge   7.0    10     0.4     0.5  0     0      progresso 0.64 (150)
+#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.5  0     0      progresso 0.78 (150)
+#  10  HiderJogador  1.1   1.0   0      0     foge   10.2   10     0.3     0.5  0     1      (final)
 #
-# THRESHOLDS de reward: os da v4.1 (mesmas recompensas de sala/porta; ~70% de um episodio bom).
-# PROGRESSO: 15M steps; a Patrulha sai aos 3.75M, o Ping aos ~5M ... HiderJogador fica com os ultimos
-# ~3.3M. Um episodio longo tem ate 4000 decisoes: 150 episodios = ate 600k steps por licao.
+# THRESHOLDS (26 salas, 35 portas): mapa inteiro = salas 0.5 x (26 + 12.5) = ~19 + portas ~3.5 + saidas ~2.5
+#   + cobertura 5 - custos ~3 = ~27. Parando em ~16 salas (60%) ~10; em ~21 (80%) ~15. Inicio 10 = ~60% das
+#   salas; Meio 15 = ~80%; Completo 21 = a maioria dos episodios fechando o mapa.
 #
-# PASSA QUANDO: Exploration/Coverage > 0.7 na Quase; Hunt/Caught >= ~60% na HiderFoge e >= ~40% na
-# HiderJogador; WallContactFraction < 0.15; Movement/ChaseFraction e AlertFraction subindo nas licoes de caca;
-# Movement/MeanSpeed acima de ~6 (abaixo = parado demais). Checkpoint a cada 500k, todos guardados
-# (tools/best_onnx.py). 15M steps ~ 12 h na maquina do Arthur (10M levavam ~8 h).
+# PASSA QUANDO: Exploration/Coverage > 0.8 no Completo e subindo; Movement/MeanSpeed > ~5; WallContactFraction
+#   < 0.15. Se Coverage travar em ~0.5 depois de ~3M: LSTM (memoria do episodio) num run novo, nao bussola.
+# Checkpoint a cada 500k, todos guardados. ~41 s / 10k steps no build com 3 envs: uma noite (~10 h) = ~9M.
 # ================================================================================================
 
 behaviors:
@@ -74,12 +62,12 @@ behaviors:
       vis_encode_type: simple
     reward_signals:
       extrinsic:
-        gamma: 0.995
+        gamma: 0.998
         strength: 1.0
     keep_checkpoints: 30
     checkpoint_interval: 500000
     max_steps: 15000000
-    time_horizon: 128
+    time_horizon: 256
     summary_freq: 10000
 
 environment_parameters:
@@ -90,40 +78,31 @@ environment_parameters:
   # Fracao dos nos de uma sala que precisam ser VISTOS para concluir. 1.0 = a sala inteira.
   room_complete_threshold:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0.8
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0.9
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 1.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -186,42 +165,33 @@ environment_parameters:
   # Fracao das SALAS concluidas que encerra o episodio (+5). Acima de 1 = sem fim por cobertura.
   coverage_target:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
-        value: 0.2
-      - name: Metade
+        value: 1.0
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
-        value: 0.5
-      - name: Quase
+        value: 1.0
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
+          threshold: 21.0
           require_reset: true
-        value: 0.8
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
-          require_reset: true
-        value: 0.8
+        value: 1.0
       - name: Patrulha
         completion_criteria:
           measure: progress
@@ -279,45 +249,36 @@ environment_parameters:
       - name: HiderJogador
         value: 1.1
 
-  # Fracao das SALAS que ja nasce concluida (anti-decoreba).
+  # Fracao das SALAS que ja nasce concluida. 0 na v5.1 (pedido do Arthur).
   previsited_fraction:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
+          threshold: 21.0
           require_reset: true
         value: 0.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
-          require_reset: true
-        value: 0.3
       - name: Patrulha
         completion_criteria:
           measure: progress
@@ -378,40 +339,31 @@ environment_parameters:
   # Patrulha: com esta fracao usada, a porta e a sala mais antigas voltam. 0 = off.
   release_fraction:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 0.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 0.0
       - name: Patrulha
@@ -474,40 +426,31 @@ environment_parameters:
   # Steps de fisica entre pings aleatorios (x U[0.5,1.5]; 4000 = 80 s). Com hider, os pings vem dos passos dele.
   ping_interval:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 0
       - name: Patrulha
@@ -570,40 +513,31 @@ environment_parameters:
   # 0 nenhum / 1 parado / 2 anda / 3 foge.
   hider_mode:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 0
       - name: Patrulha
@@ -666,40 +600,31 @@ environment_parameters:
   # m/s do hider CORRENDO (anda a 0.588 x). 10.2 = o jogador (e o seeker em perseguicao).
   hider_speed:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 0.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 0.0
       - name: Patrulha
@@ -762,40 +687,31 @@ environment_parameters:
   # Segundos de corrida do hider (10 = o jogador).
   hider_stamina:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 10.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 10.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 10.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 10.0
       - name: Patrulha
@@ -858,40 +774,31 @@ environment_parameters:
   # Chance de cada chegada do hider num no de ping virar ping.
   hider_noise:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 1.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 1.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 1.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -954,40 +861,31 @@ environment_parameters:
   # Escala da exploracao. 0.5 na caca: continua valendo explorar (contra esquecer).
   discovery_reward_scale:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 1.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 1.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 1.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -1050,40 +948,31 @@ environment_parameters:
   # Escala do ping (chegar +5, expirar -0.5). 0 na caca: o rastro do hider so informa.
   ping_reward_scale:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 1.0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 1.0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 1.0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -1146,40 +1035,31 @@ environment_parameters:
   # 1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.
   vision_explores:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 1
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 1
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 1
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 1
       - name: Patrulha
@@ -1242,40 +1122,31 @@ environment_parameters:
   # 1 = hider anda fora do centro dos nos e se esconde.
   hider_loose:
     curriculum:
-      - name: Perto
+      - name: Inicio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 6.0
+          threshold: 10.0
           require_reset: true
         value: 0
-      - name: Metade
+      - name: Meio
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 9.0
+          threshold: 15.0
           require_reset: true
         value: 0
-      - name: Quase
+      - name: Completo
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 100
-          threshold: 11.0
-          require_reset: true
-        value: 0
-      - name: Variado
-        completion_criteria:
-          measure: reward
-          behavior: GraphExplorer
-          signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.5
+          threshold: 21.0
           require_reset: true
         value: 0
       - name: Patrulha

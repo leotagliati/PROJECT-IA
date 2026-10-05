@@ -67,7 +67,9 @@ namespace Assets.Scripts.Graph
         // (0 = média, 1 = teto), [8] é a atual, [9] nº de portas / 8.
         public const int RoomFeatures = 10;
         public const int MaxRooms = 32;
-        private const float RoomHopsScale = 10f;
+        // 16 (era 10): o NodeTraining - V5 training tem salas a 10 portas (S9 <-> S18), que saturavam em 1 e ficavam
+        // iguais a "inalcançável".
+        private const float RoomHopsScale = 16f;
         private const string RoomSensorName = "Rooms";
 
         private readonly NavGraph _graph;
