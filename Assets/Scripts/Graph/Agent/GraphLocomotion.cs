@@ -8,9 +8,9 @@ namespace Assets.Scripts.Graph
     /// (e se fica parado). O <see cref="SeekerMovementSystem"/> só executa no Rigidbody (MoveFacing).
     ///
     ///   ESTADOS (a política vê qual está ativo e quanto falta, observação [26] e [32..33]):
-    ///     Patrulha     sem pista                                        -> anda a 6 m/s (o andar do jogador)
-    ///     Alerta       ouviu um ping ou perdeu o alvo de vista há pouco  -> 8 m/s, por _alertSeconds
-    ///     Perseguição  está VENDO o alvo                                 -> 10.2 m/s (a corrida do jogador)
+    ///     Patrulha     sem pista                                        -> 7 m/s (um pouco acima do andar do jogador, 6)
+    ///     Alerta       ouviu um ping ou perdeu o alvo de vista há pouco  -> 8.5 m/s, por _alertSeconds
+    ///     Perseguição  está VENDO o alvo                                 -> 10 m/s (logo abaixo da corrida do jogador, 10.2)
     ///   Não há corrida por ação nem fôlego: ver o jogador É o que deixa o monstro rápido. Ao perder de vista,
     ///   cai para Alerta (sabe a região, não o ponto), e depois de _alertSeconds sem pista volta à Patrulha.
     ///
@@ -31,15 +31,17 @@ namespace Assets.Scripts.Graph
         }
 
         [Header("-----Velocidade por estado (m/s)-----")]
-        // PlayerMovement.moveSpeed do PlayerDummy (main): o monstro patrulha andando como o jogador anda.
-        [SerializeField, Min(0f)] private float _patrolSpeed = 6f;
+        // 7 (05/10, ~21M; era 6 = o andar do jogador, PlayerDummy moveSpeed 6): rondando parecia lento demais.
+        // Um pouco acima do andar: o jogador andando é alcançado devagar; agachado (2.7) nem se fala.
+        [SerializeField, Min(0f)] private float _patrolSpeed = 7f;
 
-        // Entre andar e correr: sabe a região do alvo (ping, ou acabou de perdê-lo de vista).
-        [SerializeField, Min(0f)] private float _alertSpeed = 8f;
+        // Entre patrulhar e correr: sabe a região do alvo (ping, ou acabou de perdê-lo de vista). 8.5 (era 8).
+        [SerializeField, Min(0f)] private float _alertSpeed = 8.5f;
 
-        // moveSpeed x sprintMultiplier do PlayerDummy (6 x 1.7): vendo o jogador, corre como ele corre, mas sem
-        // fôlego (o jogador tem 10 s): quem corta caminho ou some de vista escapa.
-        [SerializeField, Min(0f)] private float _chaseSpeed = 10.2f;
+        // 10 (era 10.2 = moveSpeed x sprintMultiplier do PlayerDummy, 6 x 1.7): vendo o jogador, corre quase como
+        // ele, mas sem fôlego. O jogador correndo abre 0.2 m/s enquanto tem os 10 s de fôlego; depois, é alcançado.
+        // Mudou a velocidade do jogador: mude aqui e GraphHider._speed/_walkFraction (hider_speed no currículo).
+        [SerializeField, Min(0f)] private float _chaseSpeed = 10f;
 
         [Header("-----Estado de alerta-----")]
         // Segundos em Alerta depois da última pista (perdeu de vista ou um ping começou).

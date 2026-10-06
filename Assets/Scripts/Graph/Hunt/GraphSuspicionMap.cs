@@ -5,8 +5,13 @@ namespace Assets.Scripts.Graph
     /// <summary>
     /// A PROCURA: crença do seeker sobre onde o hider pode estar, uma probabilidade por nó (soma 1;
     /// docs/graph/procura-e-ping.md). Espalha pelas arestas na velocidade suposta do hider, zera os
-    /// nós que o seeker vê ou pisa, concentra no nó do ping (_pingConfidence) e no hider visto;
-    /// zerou tudo, volta a uniforme no que não está vendo. Só usa pistas legítimas (visão e ping).
+    /// nós que o seeker vê ou pisa e concentra no nó do ping (_pingConfidence); zerou tudo, volta a
+    /// uniforme no que não está vendo. Só usa pistas legítimas (visão e ping).
+    ///
+    /// VENDO o hider a crença fica ZERADA: não há o que supor, nada paga e nenhuma sala reabre por
+    /// suspeita (antes ela ficava 100% no nó dele e as salas vizinhas reabriam valendo até 8x, renda
+    /// maior que pegar). Ao PERDER de vista, ela nasce no nó mais perto de onde ele sumiu que o seeker não
+    /// está vendo, puxada para a direção em que ele ia (SeedFromLoss), e daí espalha pelo grafo.
     ///
     /// Observação: por vizinho, a suspeita alcançável pela saída (NavGraph.ScoreBeyond) e 3 globais
     /// (ativa, certeza, tempo desde a última pista). Paga _suspicionClearedReward x massa zerada,
@@ -41,6 +46,11 @@ namespace Assets.Scripts.Graph
         // Fração da crença que vai para o nó do ping; com 1.0 um ping velho apagaria a dedução anterior.
         [SerializeField, Range(0f, 1f)] private float _pingConfidence = 0.9f;
 
+        // Ao perder de vista, quanto pesa a mais um nó na direção em que o hider corria: peso = 1 + isto x
+        // alinhamento (0 de lado ou atrás, 1 bem na frente). 2 = o nó à frente vale 3x o de trás; a crença não
+        // some de trás porque ele pode ter dado meia-volta logo depois de sair do cone.
+        [SerializeField, Min(0f)] private float _headingBias = 2f;
+
         // Segundos que normalizam o "tempo desde a última pista" na observação (satura em 1; 60 = GraphPingSystem._duration).
         [SerializeField, Min(1f)] private float _evidenceHorizonSeconds = 60f;
 
@@ -72,6 +82,13 @@ namespace Assets.Scripts.Graph
         private int _lastEvidenceStep;
         private bool _hasEvidence;
         private float _bestExitValue;
+
+        // Rastreio: vendo o hider agora; nó e direção (planar, unitária ou zero) da última vez que foi visto.
+        private bool _tracking;
+        private int _lostNode = -1;
+        private Vector3 _lostHeading;
+        private int[] _bfsQueue;
+        private int[] _bfsDepth;
 
         /// <summary>Ligada neste episódio (tem hider). Desligada, a observação é zero e nada paga.</summary>
         public bool IsActive { get; private set; }
@@ -106,6 +123,8 @@ namespace Assets.Scripts.Graph
             _lastSeenStep = new int[count];
             _seenThisUpdate = new bool[count];
             _exitValue = new float[count];
+            _bfsQueue = new int[count];
+            _bfsDepth = new int[count];
 
             // Comprimento médio das arestas do nó: converte velocidade do hider em fração espalhada.
             for (int i = 0; i < count; i++)
@@ -130,6 +149,9 @@ namespace Assets.Scripts.Graph
             _hasEvidence = false;
             _lastEvidenceStep = 0;
             _bestExitValue = 0f;
+            _tracking = false;
+            _lostNode = -1;
+            _lostHeading = Vector3.zero;
             EpisodeCleared = 0f;
             ClearStepFlags();
 
@@ -176,6 +198,19 @@ namespace Assets.Scripts.Graph
 
             _step++;
 
+            // Vendo: crença zerada, conferida todo step para a perda de vista ser semeada no step exato.
+            if (_perception != null && _perception.IsSeeing && GraphTarget.IsLive(_target))
+            {
+                Track();
+                return;
+            }
+
+            if (_tracking)
+            {
+                _tracking = false;
+                SeedFromLoss(seeker, currentNode);
+            }
+
             // Ping lido todo step: um ping substituído entre duas atualizações ainda é pista.
             int pingNode = _ping != null && _ping.IsActive ? _ping.TargetNode : -1;
             if (pingNode >= 0 && pingNode != _lastPingNode)
@@ -186,20 +221,110 @@ namespace Assets.Scripts.Graph
                 return;
 
             Spread(_updateIntervalSteps * Time.fixedDeltaTime);
+            ClearVisible(seeker, currentNode);
+            UpdateCertainty();
+        }
 
-            // Vendo o hider, nada paga por limpar: ver já tem recompensa própria.
-            if (_perception != null && _perception.IsSeeing && GraphTarget.IsLive(_target) && _target.CurrentNode >= 0)
+        // Um step vendo o hider: zera a crença (na entrada) e guarda onde ele está e para onde vai. O ping fica
+        // mudo enquanto isso (GraphPingSystem), então _lastPingNode volta a -1 e o próximo barulho é pista nova.
+        private void Track()
+        {
+            if (!_tracking)
             {
-                ConcentrateOn(_target.CurrentNode, 1f);
-                MarkEvidence();
+                System.Array.Clear(_belief, 0, _belief.Length);
+                Certainty = 0f;
+                _lostHeading = Vector3.zero;
+                _tracking = true;
             }
-            else
+
+            if (_target.CurrentNode >= 0)
+                _lostNode = _target.CurrentNode;
+
+            // HiderVelocity é zero no 1º step de visão: guarda a última direção medida, não a apaga. 0.5 m/s de
+            // corte: parado ou girando no lugar não tem direção.
+            Vector3 velocity = _perception.HiderVelocity;
+            velocity.y = 0f;
+            if (velocity.sqrMagnitude > 0.25f)
+                _lostHeading = velocity.normalized;
+
+            _lastPingNode = -1;
+            MarkEvidence();
+        }
+
+        // Perdeu de vista: se o hider estivesse num nó visível, estaria sendo visto. Então ele está no "anel" mais
+        // próximo, pelo grafo, de nós FORA da vista a partir de onde sumiu (busca em largura que atravessa os
+        // visíveis), com peso maior na direção em que corria. Daí o Spread espalha e a visão limpa: a procura
+        // começa onde ele sumiu, não no mapa todo. Os nós do anel não estão à vista, então nada paga na hora;
+        // paga ir olhar (com a carência por nó de sempre).
+        private void SeedFromLoss(Transform seeker, int currentNode)
+        {
+            System.Array.Clear(_belief, 0, _belief.Length);
+            MarkEvidence();
+
+            if (_lostNode < 0 || !_graph.IsNodeEnabled(_lostNode))
             {
-                ClearVisible(seeker, currentNode);
+                ResetUniform(excludeSeen: false);
+                return;
             }
+
+            for (int i = 0; i < _bfsDepth.Length; i++)
+                _bfsDepth[i] = -1;
+
+            Vector3 origin = _graph.NodePosition(_lostNode);
+            int head = 0, tail = 0, ringDepth = -1;
+            float total = 0f;
+            _bfsQueue[tail++] = _lostNode;
+            _bfsDepth[_lostNode] = 0;
+
+            while (head < tail)
+            {
+                int node = _bfsQueue[head++];
+                int depth = _bfsDepth[node];
+                if (ringDepth >= 0 && depth > ringDepth)
+                    break;
+
+                if (!IsVisible(seeker, currentNode, node))
+                {
+                    float weight = 1f;
+                    Vector3 offset = _graph.NodePosition(node) - origin;
+                    offset.y = 0f;
+                    if (_lostHeading.sqrMagnitude > 0f && offset.sqrMagnitude > 1e-4f)
+                        weight += _headingBias * Mathf.Max(0f, Vector3.Dot(offset.normalized, _lostHeading));
+
+                    _belief[node] = weight;
+                    total += weight;
+                    ringDepth = depth;
+                    continue;
+                }
+
+                foreach (int neighbor in _graph.GetNeighbors(node))
+                {
+                    if (_bfsDepth[neighbor] >= 0 || !_graph.IsNodeEnabled(neighbor))
+                        continue;
+
+                    _bfsDepth[neighbor] = depth + 1;
+                    _bfsQueue[tail++] = neighbor;
+                }
+            }
+
+            // Tudo que se alcança está à vista (não deveria acontecer): fica no nó em que sumiu.
+            if (total <= 0f)
+            {
+                _belief[_lostNode] = 1f;
+                total = 1f;
+            }
+
+            for (int i = 0; i < _belief.Length; i++)
+                _belief[i] /= total;
 
             UpdateCertainty();
         }
+
+        // Nó que o seeker vê, pisa ou tem a menos de _touchRadius: se o hider estivesse ali, seria visto.
+        private bool IsVisible(Transform seeker, int currentNode, int node) =>
+            node == currentNode
+            || PlanarDistance(seeker.position, _graph.NodePosition(node)) <= _touchRadius
+            || (_perception != null && _perception.CanSeePoint(seeker, _graph.NodePosition(node)));
 
         // Cada nó manda aos vizinhos a fração da suspeita que o hider andaria em dt; conserva a soma.
         private void Spread(float dt)
@@ -247,7 +372,6 @@ namespace Assets.Scripts.Graph
         // âncora: se o hider estivesse ali, estaria sendo visto. Renormaliza o resto.
         private void ClearVisible(Transform seeker, int currentNode)
         {
-            Vector3 position = seeker.position;
             float removed = 0f;
             float paid = 0f;
 
@@ -259,12 +383,7 @@ namespace Assets.Scripts.Graph
                 if (_belief[i] <= 1e-6f || !_graph.IsNodeEnabled(i))
                     continue;
 
-                Vector3 node = _graph.NodePosition(i);
-                bool seen = i == currentNode
-                            || PlanarDistance(position, node) <= _touchRadius
-                            || (_perception != null && _perception.CanSeePoint(seeker, node));
-
-                if (!seen)
+                if (!IsVisible(seeker, currentNode, i))
                     continue;
 
                 _seenThisUpdate[i] = true;

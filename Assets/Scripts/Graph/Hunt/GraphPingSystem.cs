@@ -6,7 +6,8 @@ namespace Assets.Scripts.Graph
     /// O PING: um nó de ping do mapa "toca" e o agente tem que ir até ele (NavGraph.IsPingSource).
     /// Com hider ligado, o ping é o rastro dele: cada chegada do hider num nó de ping toca ali;
     /// sem hider, o nó é sorteado a cada _defaultInterval/ping_interval steps. Nada aqui sabe de
-    /// posição do hider além do nó da chegada.
+    /// posição do hider além do nó da chegada. Com o alvo À VISTA o ping não existe: o ativo some (sem
+    /// contar como perdido) e as chegadas não tocam. Barulho é pista de quem sumiu, não de quem está na frente.
     ///
     /// Observação [13..15]: ativo, distância em metros pelo grafo (normalizada por
     /// NavGraph.PathDiameter) e quente/frio (-1/0/+1 na última troca de nó). Sem direção nem
@@ -77,6 +78,13 @@ namespace Assets.Scripts.Graph
 
         private int _startedNode = -1;
 
+        // Contagem do episódio, só para o TensorBoard (Ping/*): sem isso, "o ping funciona?" só se via de forma
+        // indireta (AlertFraction e saltos na reward).
+        public int EpisodeStarted { get; private set; }
+        public int EpisodeReached { get; private set; }
+        public int EpisodeMissed { get; private set; }
+        public int EpisodeSilenced { get; private set; }
+
         /// <summary>
         /// Nó em que um ping COMEÇOU desde a última consulta, ou -1. O manager consome a cada step
         /// para esquentar a sala do barulho.
@@ -106,6 +114,10 @@ namespace Assets.Scripts.Graph
             Distance = 0f;
             HotCold = 0;
             _startedNode = -1;
+            EpisodeStarted = 0;
+            EpisodeReached = 0;
+            EpisodeMissed = 0;
+            EpisodeSilenced = 0;
             ClearStepFlags();
 
             _nextPingStep = _interval > 0 ? _firstPingDelay + Jittered(_interval) : int.MaxValue;
@@ -121,17 +133,29 @@ namespace Assets.Scripts.Graph
         }
 
         /// <summary>
-        /// Chamar a cada step de física, DEPOIS do Tick da memória (usa o nó âncora atualizado).
+        /// Chamar a cada step de física, DEPOIS do Tick da memória (usa o nó âncora atualizado) e da
+        /// visão (<paramref name="targetVisible"/> = GraphHiderPerception.IsSeeing deste step).
         /// </summary>
-        public void Tick(int currentNode, int elapsedSteps)
+        public void Tick(int currentNode, int elapsedSteps, bool targetVisible)
         {
             if (_graph == null)
                 return;
 
-            // Chegada do hider substitui o ping ativo (o rastro se moveu) sem contar como perdido.
             if (HiderDrivesPings)
             {
                 int arrival = _target.ConsumeArrival();
+
+                // Vendo o alvo, o ping deixa de existir: ir ao nó do barulho pagaria por um rastro velho com o
+                // hider na frente, e a sala quente (GraphRoomMemory) reabria e pagava de novo. A chegada é
+                // consumida mesmo assim, senão viraria ping atrasado no instante em que ele some.
+                if (targetVisible)
+                {
+                    if (IsActive)
+                        Silence();
+                    return;
+                }
+
+                // Chegada do hider substitui o ping ativo (o rastro se moveu) sem contar como perdido.
                 if (arrival >= 0 && arrival != TargetNode)
                     StartPingAt(arrival, currentNode, elapsedSteps);
             }
@@ -141,6 +165,7 @@ namespace Assets.Scripts.Graph
                 if (currentNode == TargetNode)
                 {
                     Reached = true;
+                    EpisodeReached++;
                     ReachedValue += _graph.PingValue(TargetNode);
                     EndPing(elapsedSteps);
                     return;
@@ -149,6 +174,7 @@ namespace Assets.Scripts.Graph
                 if (elapsedSteps >= _expiresAtStep)
                 {
                     Missed = true;
+                    EpisodeMissed++;
                     EndPing(elapsedSteps);
                     return;
                 }
@@ -179,10 +205,21 @@ namespace Assets.Scripts.Graph
             IsActive = true;
             TargetNode = target;
             _startedNode = target;
+            EpisodeStarted++;
             HotCold = 0;
             _expiresAtStep = elapsedSteps + _duration;
             _lastDistanceNode = -1;
             UpdateDistance(currentNode);
+        }
+
+        // Apaga o ping ativo sem chegada nem expiração (alvo à vista). Só existe com hider, que não usa _nextPingStep.
+        private void Silence()
+        {
+            IsActive = false;
+            TargetNode = -1;
+            Distance = 0f;
+            HotCold = 0;
+            EpisodeSilenced++;
         }
 
         private void EndPing(int elapsedSteps)

@@ -29,7 +29,7 @@ namespace Assets.Scripts.Graph
 
         [Header("-----Movimento-----")]
         // Velocidade CORRENDO (m/s) quando o currículo não manda outra (hider_speed). O hider faz o papel do
-        // JOGADOR no treino: 10.2 = a corrida do PlayerDummy (6 x 1.7), a mesma do seeker (GraphLocomotion).
+        // JOGADOR no treino: 10.2 = a corrida do PlayerDummy (6 x 1.7); o seeker persegue a 10 (GraphLocomotion).
         [SerializeField, Min(0f)] private float _speed = 10.2f;
 
         // Andar = correr x isto. 0.588 = 6 / 10.2, a razão andar/correr do jogador.

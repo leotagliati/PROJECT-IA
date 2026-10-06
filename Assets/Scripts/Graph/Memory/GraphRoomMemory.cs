@@ -49,9 +49,11 @@ namespace Assets.Scripts.Graph
         // Sala com pelo menos isto de nós paga também por NÓ novo (visto ou pisado) antes de concluir, não só no
         // fim. A S24 do NodeTraining5 (anel de 20 nós em volta da S25, ~32 x 36 m) ficou em 0% até 16M: as portas
         // da sala do meio ficam no meio dos lados, a visão alcança 15 m e os cantos ficam a ~18 m. Ir a um canto
-        // não pagava nada até fazer os outros três. 10 pega S12 (18), S16 (12) e S24 (20); as pequenas seguem
-        // pagando só ao concluir (com fatias em toda sala, as de 1 nó rendiam sem concluir nada).
-        [SerializeField, Min(1)] private int _crumbMinNodes = 10;
+        // não pagava nada até fazer os outros três. As migalhas sozinhas não resolveram (S24 em ~2% até 18.8M) e o
+        // anel foi cortado em duas salas de 9 (Node (5) e (14) viraram porta, 05/10). 9 pega S12 (18), S16 (12) e
+        // as duas metades do anel; as pequenas seguem pagando só ao concluir (com fatias em toda sala, as de 1 nó
+        // rendiam sem concluir nada).
+        [SerializeField, Min(1)] private int _crumbMinNodes = 9;
 
         [Header("-----Sala quente (ping)-----")]
         // Valor de cada fatia da sala do ping (e da conclusão dela) em relação a uma sala normal.
@@ -536,6 +538,20 @@ namespace Assets.Scripts.Graph
                 Reopen(room, _hotRoomValue);
 
             _roomValueScale[room] = _hotRoomValue;
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// Apaga o calor do ping: o alvo está à vista e o ping deixou de existir (GraphPingSystem). Sem isto a sala
+        /// do barulho seguia valendo até ~8.5x por 25 s de meia-vida com o hider na frente do monstro.
+        /// </summary>
+        public void ClearHeat()
+        {
+            if (_heatLevel <= 0f && _hotRoom < 0)
+                return;
+
+            CoolHotRoom();
+            _heatLevel = 0f;
             _dirty = true;
         }
 

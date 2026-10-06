@@ -16,7 +16,7 @@ namespace Assets.Scripts.Graph
     ///   GraphHiderPerception    visão, captura, aproximação               | idem
     ///   GraphPingSystem         barulho do hider / pings aleatórios        | idem
     ///   GraphSuspicionMap       crença de onde o hider está                | idem
-    ///   GraphLocomotion         estado de alerta -> velocidade (6 / 8 / 10.2), pescoço (+ SeekerMovementSystem)
+    ///   GraphLocomotion         estado de alerta -> velocidade (7 / 8.5 / 10), pescoço (+ SeekerMovementSystem)
     ///   GraphRewardSystem       recompensa (função pura do GraphStepContext)
     ///   GraphObservations       layout do vetor (188) e da planta de salas  | classe simples, criada aqui
     ///   GraphBodyTracker        parede, batidas, suavidade, parado          | classe simples, criada aqui
@@ -73,7 +73,8 @@ namespace Assets.Scripts.Graph
         // Layer das PORTAS (as peças Door_Hole): parede para visão, grafo e observação [8], mas o contato custa só
         // GraphRewardSystem._doorPenaltyScale do de parede. O resto do Wall Layer do NavGraph (Wall, Obstacle) é
         // parede com custo cheio. Tem que estar TAMBÉM no Wall Layer do NavGraph (o ValidateSetup avisa).
-        // Padrão (Add Component / Reset): Door.
+        // Padrão (Add Component / Reset): Door. Desde 06/10 as Door_Hole do mapa estão em Wall (o monstro raspava o
+        // batente barato e ficava preso na porta), então nada usa esta layer e porta custa como parede.
         [SerializeField] private LayerMask _doorLayer;
 
         [Header("-----Diagnóstico-----")]
@@ -325,8 +326,9 @@ namespace Assets.Scripts.Graph
         }
 
         // Sentir: amostrado a cada step de FÍSICA, não por decisão (com Decision Period > 1 o agente pode
-        // cruzar um nó inteiro entre duas decisões). Ordem importa: memória (nós -> salas) -> ping -> visão ->
-        // procura; cada um lê o estado do anterior neste step.
+        // cruzar um nó inteiro entre duas decisões). Ordem importa: memória (nós -> salas) -> visão -> ping ->
+        // procura; cada um lê o estado do anterior neste step. A visão vem antes do ping (06/10): vendo o alvo, o
+        // ping não existe e o calor que ele deixou some (era renda: a sala quente reabria e pagava de novo).
         private void FixedUpdate()
         {
             if (_episodeEnding || _graph == null)
@@ -334,15 +336,18 @@ namespace Assets.Scripts.Graph
 
             _memory.Tick(transform);
 
-            _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps);
+            _perception.Tick(transform);
+
+            _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps, _perception.IsSeeing);
+            if (_perception.IsSeeing)
+                Rooms.ClearHeat();
+
             int started = _ping.ConsumeStarted();
             if (started >= 0)
             {
                 Rooms.HeatRoom(_graph.RoomOf(started));
                 _locomotion.NotifyHeard();
             }
-
-            _perception.Tick(transform);
 
             // Estado de alerta logo depois da visão e do ping: vendo = Perseguição, pista recente = Alerta.
             _locomotion.UpdateAwareness(_perception.IsSeeing);
@@ -514,7 +519,7 @@ namespace Assets.Scripts.Graph
         /// compare runs por elas.
         ///   Exploration/Coverage         fração das salas concluídas ao fim
         ///   Rooms/Completed              salas concluídas (inclui liberadas e refeitas)
-        ///   Rooms/S00..S25               fração dos episódios em que cada sala foi concluída
+        ///   Rooms/S00..S26               fração dos episódios em que cada sala foi concluída
         ///   Doors/Crossings              travessias de porta
         ///   Doors/RepeatFraction         fração das travessias por porta já usada (novidade &lt; 1)
         ///   Doors/UsedFraction           fração das portas do mapa atravessadas ao menos uma vez
@@ -522,9 +527,12 @@ namespace Assets.Scripts.Graph
         ///   Exploration/EarlyRevisits    revisitas precoces (loop)
         ///   Exploration/AnchorFlicker    pisca-pisca de âncora (A-B-A em &lt; 2 s andando &lt; 1 m): borda de ladrilho
         ///   Exploration/WallContactFraction, WallHits; Movement/IdleFraction, ActionJitter, LookJitter (GraphBodyTracker)
-        ///   Movement/ChaseFraction       fração do episódio em Perseguição (vendo o alvo, 10.2 m/s)
+        ///   Movement/ChaseFraction       fração do episódio em Perseguição (vendo o alvo, 10 m/s)
         ///   Movement/AlertFraction       fração em Alerta (ouviu ping ou perdeu de vista há pouco, 8 m/s)
-        ///   Movement/MeanSpeed           velocidade média (m/s; patrulha 6, alerta 8, perseguição 10.2)
+        ///   Movement/MeanSpeed           velocidade média (m/s; patrulha 7, alerta 8.5, perseguição 10)
+        ///   Ping/Started, Ping/Reached, Ping/Missed  pings no episódio: começaram / atendidos / expiraram
+        ///   Ping/ReachedFraction         atendidos / (atendidos + expirados); com hider o rastro troca sem expirar
+        ///   Ping/Silenced                pings apagados por o alvo estar à vista
         ///   Hunt/Seen, Hunt/Caught       só com hider: viu alguma vez / pegou
         ///   Search/Cleared               suspeita limpa que pagou (procura)
         /// </summary>
@@ -575,6 +583,17 @@ namespace Assets.Scripts.Graph
                 stats.Add("Movement/ChaseFraction", _locomotion.ChaseFraction);
                 stats.Add("Movement/AlertFraction", _locomotion.AlertFraction);
                 stats.Add("Movement/MeanSpeed", _locomotion.MeanSpeed);
+            }
+
+            if (_ping.EpisodeStarted > 0)
+            {
+                stats.Add("Ping/Started", _ping.EpisodeStarted);
+                stats.Add("Ping/Reached", _ping.EpisodeReached);
+                stats.Add("Ping/Missed", _ping.EpisodeMissed);
+                stats.Add("Ping/Silenced", _ping.EpisodeSilenced);
+                int resolved = _ping.EpisodeReached + _ping.EpisodeMissed;
+                if (resolved > 0)
+                    stats.Add("Ping/ReachedFraction", (float)_ping.EpisodeReached / resolved);
             }
 
             if (_settings.HasHider)

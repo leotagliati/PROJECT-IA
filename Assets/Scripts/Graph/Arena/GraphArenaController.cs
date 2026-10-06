@@ -131,24 +131,24 @@ namespace Assets.Scripts.Graph
 
 #if UNITY_EDITOR
         /// <summary>
-        /// Põe na layer certa todo objeto com collider da arena: peças com "Door_Hole" no nome (e os filhos delas) em
-        /// Door (contato custa menos, GraphRewardSystem._doorPenaltyScale), o resto em Wall (paredes e móveis, custo
-        /// cheio). Ficam de fora: chão e teto (pelo nome, ou placa fina e larga: na layer de parede o teste de corpo do
+        /// Põe na layer Wall todo objeto com collider da arena: paredes, móveis e as peças Door_Hole (custo cheio).
+        /// Até 06/10 as Door_Hole iam para a layer Door, com contato a 25% do da parede; o monstro aprendeu a raspar o
+        /// batente e ficava preso na porta de vez em quando, então a porta voltou a ser parede como outra qualquer.
+        /// Ficam de fora: chão e teto (pelo nome, ou placa fina e larga: na layer de parede o teste de corpo do
         /// NavGraph encostaria neles e bloquearia tudo), o monstro, o hider, os nós e triggers. Com Undo; rode no
         /// Prefab Mode da arena e depois "Validar ligações" no NavGraph (móvel que virou parede pode cortar ligação).
         /// </summary>
-        [ContextMenu("Ajustar layers das paredes (Wall / Door)")]
+        [ContextMenu("Ajustar layers das paredes (Wall)")]
         private void AssignWallLayers()
         {
             int wall = LayerMask.NameToLayer("Wall");
-            int door = LayerMask.NameToLayer("Door");
-            if (wall < 0 || door < 0)
+            if (wall < 0)
             {
-                Debug.LogError($"{name}: faltam as layers \"Wall\" e/ou \"Door\" no Tags and Layers.", this);
+                Debug.LogError($"{name}: falta a layer \"Wall\" no Tags and Layers.", this);
                 return;
             }
 
-            int toWall = 0, toDoor = 0, unchanged = 0;
+            int toWall = 0, unchanged = 0;
             var skipped = new System.Collections.Generic.SortedSet<string>();
             var done = new System.Collections.Generic.HashSet<GameObject>();
             foreach (Collider collider in GetComponentsInChildren<Collider>(includeInactive: true))
@@ -167,21 +167,20 @@ namespace Assets.Scripts.Graph
                     continue;
                 }
 
-                int target = HasDoorHoleInParents(go.transform) ? door : wall;
-                if (go.layer == target)
+                if (go.layer == wall)
                 {
                     unchanged++;
                     continue;
                 }
 
                 UnityEditor.Undo.RecordObject(go, "Ajustar layers das paredes");
-                go.layer = target;
+                go.layer = wall;
                 if (UnityEditor.PrefabUtility.IsPartOfPrefabInstance(go))
                     UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications(go);
-                if (target == door) toDoor++; else toWall++;
+                toWall++;
             }
 
-            Debug.Log($"{name}: layers ajustadas — {toWall} para Wall, {toDoor} para Door, {unchanged} já estavam certos. " +
+            Debug.Log($"{name}: layers ajustadas — {toWall} para Wall, {unchanged} já estavam certos. " +
                       $"Fora (chão/teto): {string.Join(", ", skipped)}", this);
         }
 
@@ -194,17 +193,6 @@ namespace Assets.Scripts.Graph
 
             Vector3 size = collider.bounds.size;
             return size.y < 0.3f && Mathf.Max(size.x, size.z) > 2f;
-        }
-
-        private static bool HasDoorHoleInParents(Transform t)
-        {
-            for (; t != null; t = t.parent)
-            {
-                if (t.name.Contains("Door_Hole"))
-                    return true;
-            }
-
-            return false;
         }
 
         [ContextMenu("Usar padrões do treino (v5)")]
@@ -261,7 +249,7 @@ namespace Assets.Scripts.Graph
         private bool _initialized;
         private int _lastSpawnIndex = -1;
         private GraphPlayerTarget _playerTarget;
-        private float[] _roomCompletionRate;   // por sala, média móvel entre episódios; começa em 0.5 (sem dado)
+        private float[] _roomCompletionRate;   // por sala, média móvel entre episódios; começa em 1 (ver EnsureRoomStats)
         private float[] _spawnWeights;
 
         /// <summary>
@@ -326,8 +314,12 @@ namespace Assets.Scripts.Graph
 
             _roomCompletionRate = new float[graph.RoomCount];
             _spawnWeights = new float[graph.RoomCount];
+            // Começa em 1 ("sempre concluída" = x1, peso mínimo no spawn), não em 0.5: a taxa vive só na memória do
+            // build, e com 0.5 todo --resume fazia TODA sala valer x1.5 nos ~10 primeiros episódios. A reward
+            // inflada passou o Completo (critério 27) em 17.76M com a S24 ainda em 0. Assim só as salas que ele
+            // realmente pula sobem para x2, aos poucos.
             for (int r = 0; r < _roomCompletionRate.Length; r++)
-                _roomCompletionRate[r] = 0.5f;
+                _roomCompletionRate[r] = 1f;
         }
 
         public float EpisodeEndDelay => _episodeEndDelay;

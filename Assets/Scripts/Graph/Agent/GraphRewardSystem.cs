@@ -25,7 +25,7 @@ namespace Assets.Scripts.Graph
     ///   ping perdido (0.5)                         -2.0 (4 pings)
     ///   sala explorada (fatias, 0 na v5.1)         0 (a sala paga UMA vez, ao concluir)
     ///   sala concluída (0.5 x crescente x rara)    ~+19 a ~+30 (26 salas; rara = 1..2) x escala
-    ///   migalhas (0.5/sala grande, >= 10 nós)       ~+2.5 (S12, S16, S24 x valor) x escala
+    ///   migalhas (0.5/sala grande, >= 9 nós)        ~+3 (S12, S16 e as metades do anel x valor) x escala
     ///   porta (0.1, só a 1ª travessia)             +3.5 (35 portas) x escala
     ///   saída de sala concluída (0.15, 1ª vez)     ~+2.5 x escala
     ///   cobertura (5, encerra)                     +5
@@ -35,7 +35,7 @@ namespace Assets.Scripts.Graph
     ///   hider em vista (0.00086/step)              +30 o episódio todo
     ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
-    /// NodeTraining5 (26 salas, 35 portas) coberto por inteiro: ~25 de exploração + 5 da cobertura.
+    /// NodeTraining5 (27 salas, 37 portas desde o corte do anel S24) coberto por inteiro: ~25 de exploração + 5 da cobertura.
     /// </summary>
     public class GraphRewardSystem : MonoBehaviour
     {
@@ -53,6 +53,8 @@ namespace Assets.Scripts.Graph
         // Fração do custo de parede (contato e batida) que a PORTA paga. 0.25: o vão tem 2 m e o corpo 1.38, então
         // raspar o batente passando é quase inevitável; custo cheio ensinou a evitar portas na v4.2, e zero deixava
         // a parede inteira da peça Door_Hole grátis. Ainda custa, então mirar o meio do vão compensa. 1 = igual à parede.
+        // Desde 06/10 as Door_Hole estão na layer Wall (barato demais: raspava o batente e ficava preso), então isto
+        // só vale para o que estiver na layer Door, e no mapa atual nada está.
         [SerializeField, Min(0f)] private float _doorPenaltyScale = 0.25f;
 
         // Por BATIDA (início de contato, GraphBodyTracker) x batidas nos últimos ~5 s (até
