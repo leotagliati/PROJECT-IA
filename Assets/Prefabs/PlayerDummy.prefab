@@ -318,6 +318,7 @@ MonoBehaviour:
   fovMultiplier: 0.576
   shakeAmplitude: 2.04
   stingerSoundId: caught
+  screamSoundId: player_scream
 --- !u!114 &8099519185051215575
 MonoBehaviour:
   m_ObjectHideFlags: 0
