@@ -9,6 +9,12 @@ namespace Assets.Scripts.Graph
     /// posição do hider além do nó da chegada. Com o alvo À VISTA o ping não existe: o ativo some (sem
     /// contar como perdido) e as chegadas não tocam. Barulho é pista de quem sumiu, não de quem está na frente.
     ///
+    /// AUDIÇÃO (06/10): alvo CORRENDO a até _runHearingMeters pelo grafo é ouvido; o ping vai para o nó dele e
+    /// segue o alvo enquanto ele corre e é ouvido (HeardRunning; o Manager põe o seeker em Perseguição). Ping
+    /// de alvo (ouvido ou chegada) ESMAECE: a força (Strength, observação [13]) cai pela metade a cada
+    /// _targetPingHalfLifeSteps desde a última renovação, e ele só some quando outro barulho o substitui, quando o
+    /// seeker chega nele ou quando o alvo é visto. O ping aleatório (sem alvo) segue com força 1 e expira em _duration.
+    ///
     /// Observação [13..15]: ativo, distância em metros pelo grafo (normalizada por
     /// NavGraph.PathDiameter) e quente/frio (-1/0/+1 na última troca de nó). Sem direção nem
     /// caminho, de propósito: o agente descobre a saída em que a distância cai.
@@ -35,6 +41,19 @@ namespace Assets.Scripts.Graph
         // Steps de física antes do primeiro ping, para o agente sair do spawn.
         [SerializeField, Min(0)] private int _firstPingDelay = 1000;
 
+        [Header("-----Audição (alvo correndo)-----")]
+        // Distância (m PELO GRAFO, o caminho pelas portas, não a reta através da parede) até onde o seeker ouve o
+        // alvo CORRENDO. 30 m = uma ou duas salas. 0 = sem audição.
+        [SerializeField, Min(0f)] private float _runHearingMeters = 30f;
+
+        // Steps de física entre as checagens de audição (custa um Dijkstra). 10 = 0.2 s.
+        [SerializeField, Min(1)] private int _hearCheckSteps = 10;
+
+        // Meia-vida da FORÇA do ping do alvo (ouvido correndo ou chegada do hider), em steps de física, contada da
+        // última renovação: 500 = 10 s (força 0.5 aos 10 s, 0.25 aos 20 s...). Não expira: um rastro velho é
+        // fraco, não inexistente, e só some quando outro barulho toca, o seeker chega ou o alvo é visto.
+        [SerializeField, Min(1)] private int _targetPingHalfLifeSteps = 500;
+
         // O hider no treino, o jogador no modo de jogo (GraphArenaController.Target). Ativo, ele dá os
         // pings (cada chegada toca) e o sorteio aleatório fica desligado.
         private IGraphTarget _target;
@@ -48,9 +67,20 @@ namespace Assets.Scripts.Graph
         private NavGraph _graph;
         private int _interval;
         private int _nextPingStep;
-        private int _expiresAtStep;
+        private int _expiresAtStep;     // < 0 = não expira (ping do alvo)
+        private int _renewedAtStep;
+        private int _lastElapsedStep;
+        private bool _fades;
 
         public bool IsActive { get; private set; }
+
+        /// <summary>
+        /// Força do ping (0..1): 1 ao tocar ou ser renovado; o do alvo cai pela meia-vida, o aleatório fica em 1.
+        /// 0 sem ping.
+        /// </summary>
+        public float Strength => !IsActive ? 0f
+            : !_fades ? 1f
+            : Mathf.Pow(0.5f, Mathf.Max(0, _lastElapsedStep - _renewedAtStep) / (float)_targetPingHalfLifeSteps);
 
         /// <summary>Nó que está tocando, ou -1.</summary>
         public int TargetNode { get; private set; } = -1;
@@ -84,6 +114,15 @@ namespace Assets.Scripts.Graph
         public int EpisodeReached { get; private set; }
         public int EpisodeMissed { get; private set; }
         public int EpisodeSilenced { get; private set; }
+        public int EpisodeHeard { get; private set; }
+
+        /// <summary>
+        /// Ouviu o alvo correndo na última checagem de audição (vale até a próxima). O Manager usa para pôr o
+        /// seeker em Perseguição (GraphLocomotion.NotifyChaseCue).
+        /// </summary>
+        public bool HeardRunning { get; private set; }
+
+        private int _ticks;
 
         /// <summary>
         /// Nó em que um ping COMEÇOU desde a última consulta, ou -1. O manager consome a cada step
@@ -118,6 +157,9 @@ namespace Assets.Scripts.Graph
             EpisodeReached = 0;
             EpisodeMissed = 0;
             EpisodeSilenced = 0;
+            EpisodeHeard = 0;
+            HeardRunning = false;
+            _ticks = 0;
             ClearStepFlags();
 
             _nextPingStep = _interval > 0 ? _firstPingDelay + Jittered(_interval) : int.MaxValue;
@@ -141,6 +183,9 @@ namespace Assets.Scripts.Graph
             if (_graph == null)
                 return;
 
+            _ticks++;
+            _lastElapsedStep = elapsedSteps;
+
             if (HiderDrivesPings)
             {
                 int arrival = _target.ConsumeArrival();
@@ -150,6 +195,7 @@ namespace Assets.Scripts.Graph
                 // consumida mesmo assim, senão viraria ping atrasado no instante em que ele some.
                 if (targetVisible)
                 {
+                    HeardRunning = false;
                     if (IsActive)
                         Silence();
                     return;
@@ -157,7 +203,10 @@ namespace Assets.Scripts.Graph
 
                 // Chegada do hider substitui o ping ativo (o rastro se moveu) sem contar como perdido.
                 if (arrival >= 0 && arrival != TargetNode)
-                    StartPingAt(arrival, currentNode, elapsedSteps);
+                    StartPingAt(arrival, currentNode, elapsedSteps, duration: -1);
+
+                if (_ticks % _hearCheckSteps == 0)
+                    HearRunning(currentNode, elapsedSteps);
             }
 
             if (IsActive)
@@ -171,7 +220,7 @@ namespace Assets.Scripts.Graph
                     return;
                 }
 
-                if (elapsedSteps >= _expiresAtStep)
+                if (_expiresAtStep >= 0 && elapsedSteps >= _expiresAtStep)
                 {
                     Missed = true;
                     EpisodeMissed++;
@@ -197,17 +246,47 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            StartPingAt(target, currentNode, elapsedSteps);
+            StartPingAt(target, currentNode, elapsedSteps, _duration);
         }
 
-        private void StartPingAt(int target, int currentNode, int elapsedSteps)
+        // Alvo correndo ao alcance (pelo grafo): o ping vai para o nó dele, ou só renova se já está lá.
+        private void HearRunning(int currentNode, int elapsedSteps)
+        {
+            bool wasHeard = HeardRunning;
+            HeardRunning = false;
+
+            if (_runHearingMeters <= 0f || !_target.IsRunning || currentNode < 0)
+                return;
+
+            int node = _target.CurrentNode;
+            if (node < 0)
+                return;
+
+            if (node != currentNode
+                && (!_graph.TryFindPathTo(currentNode, node, out _, out float distance) || distance > _runHearingMeters))
+                return;
+
+            HeardRunning = true;
+            if (!wasHeard)
+                EpisodeHeard++;
+
+            if (IsActive && TargetNode == node)
+                _renewedAtStep = elapsedSteps;
+            else
+                StartPingAt(node, currentNode, elapsedSteps, duration: -1);
+        }
+
+        private void StartPingAt(int target, int currentNode, int elapsedSteps, int duration)
         {
             IsActive = true;
             TargetNode = target;
             _startedNode = target;
             EpisodeStarted++;
             HotCold = 0;
-            _expiresAtStep = elapsedSteps + _duration;
+            // duration < 0: ping do alvo, não expira e esmaece (Strength).
+            _expiresAtStep = duration >= 0 ? elapsedSteps + duration : -1;
+            _fades = duration < 0;
+            _renewedAtStep = elapsedSteps;
             _lastDistanceNode = -1;
             UpdateDistance(currentNode);
         }

@@ -15,6 +15,15 @@ namespace Assets.Scripts.Graph
     /// "todos os nós", que amarraria a rede a este mapa. Parede vem do Ray Perception Sensor 3D do prefab.
     /// A ORDEM abaixo é o contrato com os .onnx: mudar layout ou tamanho invalida todos e exige ajustar o
     /// VectorObservationSize (o <see cref="Validate"/> avisa). Use os slots reservados antes de crescer.
+    ///
+    /// FOCO NO ALVO (06/10), em três níveis (FocusLevel):
+    ///   Chase   VENDO o alvo: exploração E pistas (suspeita, calor do ping) zeradas. Só geometria, corpo e visão.
+    ///   Search  perdeu de vista há < GraphHiderPerception._searchFocusSeconds: exploração zerada, pistas valem.
+    ///   None    patrulha (nunca viu, ou faz tempo): tudo.
+    /// "Exploração" = cobertura, progresso e conclusão de sala, estagnação, visitado / quanto resta / vim daqui /
+    /// passagens / quão perto por vizinho, novidade / entrada / outro lado concluído por porta, e o mesmo na planta.
+    /// "Pistas" = calor (sala, porta, planta) e suspeita (planta; a por vizinho já é zero vendo). O ping [13..15]
+    /// fica sempre (vendo, ele não existe). Mesmo tamanho de vetor (o .onnx segue valendo com --resume).
     /// </summary>
     public class GraphObservations
     {
@@ -149,6 +158,7 @@ namespace Assets.Scripts.Graph
         {
             Vector3 position = agent.position;
             int current = _memory.CurrentNodeIndex;
+            _focus = _perception.IsSeeing ? FocusLevel.Chase : _perception.IsSearching ? FocusLevel.Search : FocusLevel.None;
 
             // ---- Nó atual (4) ----
             sensor.AddObservation(_memory.IsAtNode);
@@ -163,21 +173,22 @@ namespace Assets.Scripts.Graph
             // ---- Cobertura (1) + encostado em parede (1) ----
             // Salas concluídas no geral; e se o último step de física terminou em contato (OnCollisionStay roda
             // depois da decisão anterior, antes desta).
-            sensor.AddObservation(_rooms.CompletedFraction);
+            sensor.AddObservation(Explore(_rooms.CompletedFraction));
             sensor.AddObservation(_body.IsTouchingAnyWall ? 1f : 0f);
 
             // ---- Sala atual (4) ----
             // Uma vez por decisão: portas da sala e quanto resta por saída.
             _rooms.Refresh();
-            sensor.AddObservation(_rooms.CurrentRoomProgress);
-            sensor.AddObservation(_rooms.CurrentRoomCompleted ? 1f : 0f);
+            sensor.AddObservation(Explore(_rooms.CurrentRoomProgress));
+            sensor.AddObservation(Explore(_rooms.CurrentRoomCompleted ? 1f : 0f));
             sensor.AddObservation(current >= 0 && _graph.IsDoor(current) ? 1f : 0f);
             sensor.AddObservation(Mathf.Clamp01(_rooms.CurrentRoomDoorCount / (float)DoorSlots));
 
             // ---- Ping (3) ----
             // Sem direção de propósito: a política descobre a saída lendo o quente/frio a cada troca de nó.
             bool pingActive = _ping.IsActive;
-            sensor.AddObservation(pingActive ? 1f : 0f);
+            // Força, não só "ativo": o ping do alvo esmaece (GraphPingSystem.Strength).
+            sensor.AddObservation(pingActive ? _ping.Strength : 0f);
             sensor.AddObservation(pingActive ? Mathf.Clamp01(_ping.Distance / _graph.PathDiameter) : 0f);
             sensor.AddObservation(pingActive ? _ping.HotCold : 0f);
 
@@ -190,7 +201,7 @@ namespace Assets.Scripts.Graph
             AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
 
             // ---- Calor da sala atual (1): quão perto do último ping, 0..1 (esfria com o tempo) ----
-            sensor.AddObservation(_rooms.CurrentRoomHeat);
+            sensor.AddObservation(Clue(_rooms.CurrentRoomHeat));
 
             // ---- Corpo (5): para onde o corpo está virado, velocidade do hider, velocidade do meu estado ----
             Vector3 forward = agent.forward;
@@ -218,7 +229,7 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(_locomotion.State == GraphLocomotion.Awareness.Chase ? 1f : 0f);
             sensor.AddObservation(_locomotion.State == GraphLocomotion.Awareness.Alert ? _locomotion.AlertRemaining : 0f);
             sensor.AddObservation(Mathf.Clamp01(elapsedFraction));
-            sensor.AddObservation(Mathf.Clamp01((float)_rooms.StepsSinceProgress / _stagnationSteps));
+            sensor.AddObservation(Explore(Mathf.Clamp01((float)_rooms.StepsSinceProgress / _stagnationSteps)));
 
             // ---- Vizinhos (FloatsPerNeighbor x _neighborSlots) ----
             FillNeighborBuffer(current);
@@ -236,18 +247,18 @@ namespace Assets.Scripts.Graph
 
                 int neighbor = _neighborBuffer[slot];
                 AddDirectionAndDistance(sensor, position, _graph.NodePosition(neighbor), true);
-                sensor.AddObservation(_memory.VisitedObservation(neighbor));
+                sensor.AddObservation(Explore(_memory.VisitedObservation(neighbor)));
 
                 // O que há ATRÁS desta saída, dentro da sala (para na porta).
-                sensor.AddObservation(_rooms.ExitRemainingScore(neighbor));
+                sensor.AddObservation(Explore(_rooms.ExitRemainingScore(neighbor)));
 
                 // Contra loop: de onde vim e quantas vezes passei.
-                sensor.AddObservation(neighbor == _memory.PreviousNodeIndex ? 1f : 0f);
-                sensor.AddObservation(Mathf.Clamp01((float)_memory.VisitCountOf(neighbor) / _revisitSaturation));
+                sensor.AddObservation(Explore(neighbor == _memory.PreviousNodeIndex ? 1f : 0f));
+                sensor.AddObservation(Explore(Mathf.Clamp01((float)_memory.VisitCountOf(neighbor) / _revisitSaturation)));
 
                 // Quão perto está o que falta por esta saída (1 = a mais perto). Campo de distância: seguir o 1 só
                 // diminui, ao contrário do "quanto resta" (soma com desconto); ajuda contra loop e beco.
-                sensor.AddObservation(_rooms.ExitProximityScore(neighbor));
+                sensor.AddObservation(Explore(_rooms.ExitProximityScore(neighbor)));
 
                 // Onde o hider provavelmente está, por esta saída (0 sem procura).
                 sensor.AddObservation(_suspicion.ExitScore(neighbor));
@@ -275,10 +286,10 @@ namespace Assets.Scripts.Graph
                 float path = _rooms.DoorPathDistance(door);
                 sensor.AddObservation(path >= 0f ? Mathf.Clamp01(path / _maxNodeDistance) : 1f);
 
-                sensor.AddObservation(_rooms.DoorNovelty(door));
-                sensor.AddObservation(door == _rooms.EntryDoor ? 1f : 0f);
-                sensor.AddObservation(_rooms.OtherSideCompleted(door) ? 1f : 0f);
-                sensor.AddObservation(_rooms.DoorHeat(door));
+                sensor.AddObservation(Explore(_rooms.DoorNovelty(door)));
+                sensor.AddObservation(Explore(door == _rooms.EntryDoor ? 1f : 0f));
+                sensor.AddObservation(Explore(_rooms.OtherSideCompleted(door) ? 1f : 0f));
+                sensor.AddObservation(Clue(_rooms.DoorHeat(door)));
                 sensor.AddObservation(1f);
             }
         }
@@ -303,15 +314,26 @@ namespace Assets.Scripts.Graph
                 _roomBuffer[1] = unit.y;
                 _roomBuffer[2] = Mathf.Clamp01(distance / diameter);
                 _roomBuffer[3] = hops >= 0 ? Mathf.Clamp01(hops / RoomHopsScale) : 1f;
-                _roomBuffer[4] = _rooms.RoomProgress(room);
-                _roomBuffer[5] = _rooms.IsRoomCompleted(room) ? 1f : 0f;
-                _roomBuffer[6] = _rooms.RoomHeat(room);
-                _roomBuffer[7] = _rooms.RoomSuspicion(room);
+                _roomBuffer[4] = Explore(_rooms.RoomProgress(room));
+                _roomBuffer[5] = Explore(_rooms.IsRoomCompleted(room) ? 1f : 0f);
+                _roomBuffer[6] = Clue(_rooms.RoomHeat(room));
+                _roomBuffer[7] = Clue(_rooms.RoomSuspicion(room));
                 _roomBuffer[8] = room == current ? 1f : 0f;
                 _roomBuffer[9] = Mathf.Clamp01(_graph.DoorsOfRoom(room).Length / (float)DoorSlots);
                 _roomSensor.AppendObservation(_roomBuffer);
             }
         }
+
+        // FOCO NO ALVO (cabeçalho). Vale para toda a decisão.
+        private enum FocusLevel { None, Search, Chase }
+
+        private FocusLevel _focus;
+
+        // Exploração: some vendo e procurando.
+        private float Explore(float value) => _focus == FocusLevel.None ? value : 0f;
+
+        // Pistas sobre o alvo (calor, suspeita): somem só vendo.
+        private float Clue(float value) => _focus == FocusLevel.Chase ? 0f : value;
 
         // Direção planar X/Z no referencial do MUNDO (o das ações) + distância normalizada; zeros se !valid.
         private void AddDirectionAndDistance(VectorSensor sensor, Vector3 from, Vector3 to, bool valid)

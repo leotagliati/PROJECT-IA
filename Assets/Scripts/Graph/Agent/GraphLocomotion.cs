@@ -47,6 +47,11 @@ namespace Assets.Scripts.Graph
         // Segundos em Alerta depois da última pista (perdeu de vista ou um ping começou).
         [SerializeField, Min(0f)] private float _alertSeconds = 10f;
 
+        // Segundos que a Perseguição SEGURA depois de perder o alvo de vista (06/10): o monstro corre até onde ele
+        // sumiu a 10 m/s, vermelho, antes de cair para o Alerta (8.5). Sem isso toda esquina era fuga garantida: o
+        // jogador a 10.2 abria ~1.7 m por segundo assim que saía do cone. O Alerta (_alertSeconds) conta depois disto.
+        [SerializeField, Min(0f)] private float _chaseHoldSeconds = 3f;
+
         [Header("-----Movimento-----")]
         // |andar| (0..1) abaixo disto = parado.
         [SerializeField, Range(0f, 0.5f)] private float _moveDeadzone = 0.1f;
@@ -84,6 +89,7 @@ namespace Assets.Scripts.Graph
         private Vector3 _bodyForward = Vector3.forward;
         private float _lastApplied;
         private float _alertLeft;
+        private float _chaseHoldLeft;
         private bool _heardThisStep;
 
         // Métricas do episódio (Movement/ChaseFraction, AlertFraction, MeanSpeed).
@@ -142,6 +148,7 @@ namespace Assets.Scripts.Graph
             Speed = 0f;
             _lastApplied = 0f;
             _alertLeft = 0f;
+            _chaseHoldLeft = 0f;
             _heardThisStep = false;
             _steps = 0;
             _chaseSteps = 0;
@@ -158,11 +165,25 @@ namespace Assets.Scripts.Graph
         /// Atualiza o estado sem mover (chamado no step de física, depois da visão e do ping), para a observação e a
         /// recompensa do mesmo step já lerem o estado certo.
         /// </summary>
+        /// <summary>
+        /// Pista forte sem ver (ouviu o alvo CORRENDO, GraphPingSystem.HeardRunning): Perseguição por
+        /// _chaseHoldSeconds, renovada enquanto continuar ouvindo. Chamar antes do UpdateAwareness.
+        /// </summary>
+        public void NotifyChaseCue() => _chaseHoldLeft = _chaseHoldSeconds;
+
         public void UpdateAwareness(bool seeingTarget)
         {
             float dt = Time.fixedDeltaTime;
             if (seeingTarget)
             {
+                State = Awareness.Chase;
+                _alertLeft = _alertSeconds;
+                _chaseHoldLeft = _chaseHoldSeconds;
+            }
+            else if (_chaseHoldLeft > 0f)
+            {
+                // Acabou de perder de vista: segue em Perseguição; o Alerta inteiro fica para depois.
+                _chaseHoldLeft = Mathf.Max(0f, _chaseHoldLeft - dt);
                 State = Awareness.Chase;
                 _alertLeft = _alertSeconds;
             }

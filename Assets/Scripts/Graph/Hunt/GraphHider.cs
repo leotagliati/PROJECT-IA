@@ -65,6 +65,23 @@ namespace Assets.Scripts.Graph
         // Dijkstra). 10 = 0.2 s.
         [SerializeField, Min(1)] private int _reverseCheckSteps = 10;
 
+        // Foge também ao VER o seeker (linha livre contra parede, em qualquer direção) até esta distância (m), não só
+        // dentro do _fleeRadius (06/10). Um jogador corre assim que vê o monstro; o hider esperava ele chegar a 12 m.
+        // 0 = só o raio.
+        [SerializeField, Min(0f)] private float _fleeSightDistance = 25f;
+
+        // Na escolha da fuga, vizinho FORA da vista do seeker vale como se estivesse estes metros mais longe (06/10):
+        // dobrar a esquina ou passar a porta ganha de seguir reto num corredor à vista. Antes ele só maximizava a
+        // distância pelo grafo e fugia em linha reta na frente do monstro.
+        [SerializeField, Min(0f)] private float _hiddenExitBonus = 10f;
+
+        // Altura (m) acima do pivô do seeker da linha de visão (a mesma de GraphHiderPerception._eyeHeight); a
+        // vista é testada nessa altura sobre o X/Z dos dois pontos, como a visão do monstro.
+        [SerializeField] private float _seekerEyeHeight = 1.67f;
+
+        // Até onde (m) o seeker vê, para "está à vista": além disso conta como escondido (GraphHiderPerception, 22).
+        [SerializeField, Min(1f)] private float _seekerViewDistance = 22f;
+
         [Header("-----Solto e escondido (hider_loose)-----")]
         // Margem (m) entre o ponto sorteado e a borda do retângulo do nó.
         [SerializeField, Min(0f)] private float _looseMargin = 0.6f;
@@ -386,7 +403,7 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            if (SeekerIsNear())
+            if (SeekerIsNear() || SeesSeeker())
                 _fleeMemoryLeft = Mathf.RoundToInt(_fleeMemorySeconds / Time.fixedDeltaTime);
             else if (_fleeMemoryLeft > 0)
                 _fleeMemoryLeft--;
@@ -414,6 +431,42 @@ namespace Assets.Scripts.Graph
             _targetNode = _currentNode;
             _reversedThisEdge = true;
             SetGoalForTarget();
+        }
+
+        // O hider vê o seeker: linha livre de parede até _fleeSightDistance, em qualquer direção (a presa está atenta).
+        private bool SeesSeeker()
+        {
+            if (_seeker == null || _fleeSightDistance <= 0f)
+                return false;
+
+            Vector3 toSeeker = _seeker.position - transform.position;
+            toSeeker.y = 0f;
+            return toSeeker.magnitude <= _fleeSightDistance && LineIsClear(transform.position, _seeker.position);
+        }
+
+        // O seeker veria este ponto se olhasse para ele (sem cone: a cabeça dele vira rápido)?
+        private bool SeekerCanSee(Vector3 point)
+        {
+            if (_seeker == null)
+                return false;
+
+            Vector3 toPoint = point - _seeker.position;
+            toPoint.y = 0f;
+            return toPoint.magnitude <= _seekerViewDistance && LineIsClear(point, _seeker.position);
+        }
+
+        // Linha livre de parede entre dois pontos, na altura do olho do seeker sobre o X/Z de cada um.
+        private bool LineIsClear(Vector3 a, Vector3 b)
+        {
+            LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+            if (walls.value == 0)
+                return true;
+
+            float eyeY = _seeker.position.y + _seekerEyeHeight;
+            Vector3 from = new Vector3(a.x, eyeY, a.z);
+            Vector3 ray = new Vector3(b.x, eyeY, b.z) - from;
+            float length = ray.magnitude;
+            return length < 1e-3f || !Physics.Raycast(from, ray / length, length, walls, QueryTriggerInteraction.Ignore);
         }
 
         private bool SeekerIsNear()
@@ -454,6 +507,9 @@ namespace Assets.Scripts.Graph
                             continue;
 
                         float distance = seekerNode >= 0 && _graph.TryFindPathTo(neighbor, seekerNode, out _, out float d) ? d : 0f;
+                        if (_hiddenExitBonus > 0f && !SeekerCanSee(_graph.NodePosition(neighbor)))
+                            distance += _hiddenExitBonus;
+
                         if (distance > bestDistance)
                         {
                             bestDistance = distance;

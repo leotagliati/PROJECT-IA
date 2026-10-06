@@ -17,6 +17,9 @@ namespace Assets.Scripts.Graph
 
         /// <summary>Nó de ping em que o alvo acabou de pisar fazendo barulho, ou -1; consome o evento.</summary>
         int ConsumeArrival();
+
+        /// <summary>Correndo agora: o barulho que o seeker ouve de longe (GraphPingSystem, audição).</summary>
+        bool IsRunning { get; }
     }
 
     public static class GraphTarget

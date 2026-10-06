@@ -349,7 +349,10 @@ namespace Assets.Scripts.Graph
                 _locomotion.NotifyHeard();
             }
 
-            // Estado de alerta logo depois da visão e do ping: vendo = Perseguição, pista recente = Alerta.
+            // Estado de alerta logo depois da visão e do ping: vendo ou ouvindo o alvo correr = Perseguição,
+            // pista recente = Alerta.
+            if (_ping.HeardRunning)
+                _locomotion.NotifyChaseCue();
             _locomotion.UpdateAwareness(_perception.IsSeeing);
             _suspicion.Tick(transform, _memory.CurrentNodeIndex);
         }
@@ -533,7 +536,10 @@ namespace Assets.Scripts.Graph
         ///   Ping/Started, Ping/Reached, Ping/Missed  pings no episódio: começaram / atendidos / expiraram
         ///   Ping/ReachedFraction         atendidos / (atendidos + expirados); com hider o rastro troca sem expirar
         ///   Ping/Silenced                pings apagados por o alvo estar à vista
+        ///   Ping/Heard                   vezes que ouviu o alvo correndo (início de cada trecho ouvido)
         ///   Hunt/Seen, Hunt/Caught       só com hider: viu alguma vez / pegou
+        ///   Hunt/Sightings, LostSight    vezes que passou a ver / perdeu de vista por >= 1 s
+        ///   Hunt/SightToCatchSeconds     da primeira vez que viu até pegar (só episódios com captura)
         ///   Search/Cleared               suspeita limpa que pagou (procura)
         /// </summary>
         private string[] _roomStatNames;
@@ -591,6 +597,7 @@ namespace Assets.Scripts.Graph
                 stats.Add("Ping/Reached", _ping.EpisodeReached);
                 stats.Add("Ping/Missed", _ping.EpisodeMissed);
                 stats.Add("Ping/Silenced", _ping.EpisodeSilenced);
+                stats.Add("Ping/Heard", _ping.EpisodeHeard);
                 int resolved = _ping.EpisodeReached + _ping.EpisodeMissed;
                 if (resolved > 0)
                     stats.Add("Ping/ReachedFraction", (float)_ping.EpisodeReached / resolved);
@@ -600,6 +607,10 @@ namespace Assets.Scripts.Graph
             {
                 stats.Add("Hunt/Seen", _perception.HasSeen ? 1f : 0f);
                 stats.Add("Hunt/Caught", _perception.Caught ? 1f : 0f);
+                stats.Add("Hunt/Sightings", _perception.EpisodeSightings);
+                stats.Add("Hunt/LostSight", _perception.EpisodeLostSight);
+                if (_perception.SightToCatchSeconds >= 0f)
+                    stats.Add("Hunt/SightToCatchSeconds", _perception.SightToCatchSeconds);
             }
 
             if (_suspicion.IsActive)

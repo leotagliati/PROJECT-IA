@@ -1080,6 +1080,10 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 #   e parede (layer Wall, custo cheio); vendo o hider a suspeita zera e o ping some; ao perder de vista a suspeita
 #   nasce onde ele sumiu, na direcao em que ia; a suspeita nao reabre sala; teto de 4x no valor da sala; exploracao
 #   x0.2 na caca (era 0.5) e x0 em HiderRapido/HiderJogador.
+# HIDER SOLTO NA RAPIDO (06/10, ~36.8M): no jogo o seeker ia ate o NO do jogador e parava no centro dele; o hider
+#   do treino sempre andou no centro dos nos. hider_loose passa a 1 ja na HiderRapido (era so na HiderJogador).
+#   Junto: perseguicao segura 3 s, visao do alvo mais firme (cone 160/20 m vendo, 4 m sem cone, 3 raios, 0.5 s de
+#   tolerancia) e audicao de corrida (30 m pelo grafo, ping segue o alvo, some 10 s depois).
 #
 #   #  Licao         salas sala% libera ping  hider  corre  folego barulho desc ping$ solto  criterio
 #   1  Inicio        1.0   0.8   0      0     -      -      -      -       1.0  1.0   0      reward 10.0 (80 ep.)
@@ -1090,7 +1094,7 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 #   6  HiderParado   1.1   1.0   0      0     parado -      10     1.0     0.2  0     0      progresso 0.42 (150)
 #   7  HiderAnda     1.1   1.0   0      0     anda   5.1    10     0.6     0.2  0     0      progresso 0.52 (150)
 #   8  HiderFoge     1.1   1.0   0      0     foge   7.0    10     0.4     0.2  0     0      progresso 0.64 (150)
-#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.0  0     0      progresso 0.78 (150)
+#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.0  0     1      progresso 0.78 (150)
 #  10  HiderJogador  1.1   1.0   0      0     foge   10.2   10     0.3     0.0  0     1      (final)
 #
 # THRESHOLDS (26 salas, 35 portas): mapa inteiro = salas 0.5 x (26 + 12.5) = ~19 + portas ~3.5 + saidas ~2.5
@@ -1138,8 +1142,8 @@ V5_1_PARAMS = [
      [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("vision_explores", "1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.",
      [1] * 10),
-    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde.",
-     [0] * 9 + [1]),
+    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde. Desde a HiderRapido (06/10): no centro do no o seeker aprendia ir ao no, nao ao alvo.",
+     [0] * 8 + [1, 1]),
 ]
 V5_1_STAGES = [
     ("graph_v5.1_zero", "v5.1_zero_01", "V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998",
