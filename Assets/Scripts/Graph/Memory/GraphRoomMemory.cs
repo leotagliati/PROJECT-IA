@@ -72,8 +72,15 @@ namespace Assets.Scripts.Graph
         // até aqui. Sem teto, o nó do ping valeria dezenas de salas.
         [SerializeField, Min(1f)] private float _rewardSuspicionScale = 8f;
 
-        // Sala concluída REABRE quando a suspeita dela passa deste múltiplo da média.
-        [SerializeField, Min(1f)] private float _suspicionReopenRatio = 2f;
+        // A suspeita NÃO reabre sala concluída (06/10; reabria a 2x a média). Ela segue valorizando VER a sala ainda
+        // aberta e aparece na observação, mas sala feita não volta a pagar: perder o hider de vista e varrer a
+        // vizinhança rendia mais que pegá-lo (v5.1_zero_01: Rooms/Completed 146 num mapa de 27 salas, reward ~495).
+
+        [Header("-----Teto do valor-----")]
+        // Teto do multiplicador TOTAL de uma sala (Scale): progresso x rara x base x suspeita x calor. 4 = progresso
+        // (2) x rara (2), o máximo da exploração pura, que fica igual; corta só o empilhamento da caça (suspeita até
+        // 8x e calor do ping até ~8.5x por cima, que davam centenas de vezes o valor de uma sala normal).
+        [SerializeField, Min(1f)] private float _maxValueScale = 4f;
 
         [Header("-----Mapa de calor do ping-----")]
         // Fator de calor por porta de distância da sala do ping (1, 0.65, 0.42, ... 0.03 a 8 portas):
@@ -442,8 +449,7 @@ namespace Assets.Scripts.Graph
             return progress;
         }
 
-        // Refaz o multiplicador da suspeita por sala e reabre sala concluída onde ela voltou a crescer.
-        // Sem hider, tudo fica em 1 e nada reabre.
+        // Refaz o multiplicador da suspeita por sala. Sem hider, tudo fica em 1.
         private void UpdateSuspicion()
         {
             bool active = _suspicion != null && _suspicion.IsActive;
@@ -456,10 +462,6 @@ namespace Assets.Scripts.Graph
                     _roomSuspicion[r] = scale;
                     _dirty = true;
                 }
-
-                // A sala atual não reabre: zerar o chão debaixo do agente seria renda de graça.
-                if (active && _roomCompleted[r] && r != CurrentRoom && ratio >= _suspicionReopenRatio)
-                    Reopen(r, 1f);
             }
         }
 
@@ -492,7 +494,7 @@ namespace Assets.Scripts.Graph
             float suspicion = 1f + (_roomSuspicion[room] - 1f) * stretch;
 
             float ping = Mathf.Lerp(1f, _pingQuietScale, _heatLevel) + _heatValueBoost * RoomHeat(room);
-            return _roomValueScale[room] * ProgressValue * RarityValue(room) * suspicion * ping;
+            return Mathf.Min(_maxValueScale, _roomValueScale[room] * ProgressValue * RarityValue(room) * suspicion * ping);
         }
 
         /// <summary>Calor da sala (0..1): 1 na sala do último ping, cai por porta de distância e com o tempo.</summary>

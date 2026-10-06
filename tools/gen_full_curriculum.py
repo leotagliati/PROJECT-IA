@@ -1056,6 +1056,30 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 # MAX_STEPS 40M (05/10, ~16M, mesma parada): as licoes 4+ passam por PROGRESSO, e com 25M o run ja estava em 64%;
 #   cada licao de caca teria so o minimo (~1M). Com 40M: HiderParado ~17-18M, Anda ~21M, Foge ~25.5M, Rapido ~31M,
 #   Jogador ~37M (3-5.5M cada). LR e beta sao recalculados pelo novo total (LR ~1.1e-4 -> ~1.8e-4).
+# VOLTA AO COMPLETO COM 100% (05/10, ~16.5M): ele passou do Completo com 25/26 salas (reward ~23 > 21) e nunca
+#   fechou o mapa (a S24 faltava). Pedido do Arthur: caca so depois de 100%. Completo agora passa com reward 27
+#   (25/26 salas = ~23; mapa inteiro = +S24 ~2, migalhas, +5 da cobertura = ~30). A licao foi voltada de 3 para 2
+#   no training_status.json do run. MAX_STEPS 50M: o Completo pode levar uns M passos e as licoes seguintes passam
+#   por PROGRESSO (HiderParado 21M, Anda 26M, Foge 32M, Rapido 39M, Jogador 39-50M). Se o Completo passar de 21M,
+#   Patrulha/Ping/HiderParado passam no minimo (150 episodios, ~1M cada) e a caca comeca logo em seguida.
+# ANEL S24 CORTADO + CRITERIO 28 (05/10, ~19M): o Completo passou de novo em 17.76M sem a S24 (taxa das salas
+#   recomecava em 0.5 a cada build: toda sala x1.5 por ~10 episodios, reward ~33). As migalhas nao fizeram ele ir
+#   aos cantos (S24 ~2% em 7M passos). Agora: Node (5) e (14) viraram porta, o anel virou S24 + S26 (9 nos cada),
+#   27 salas / 37 portas; migalhas a partir de 9 nos; taxa comeca em 1. Completo passa com 28 (estavel: 25-26
+#   salas ~25; mapa inteiro ~30). Licao voltada para 2 no training_status.json de novo.
+#   Resultado: com o anel cortado ele FECHOU o mapa (coverage 1.0 e Episode Length 2200-5300 em ~metade dos
+#   lotes; S24 0 -> 0.74, S26 0.96) e passou para a Patrulha em 19.47M.
+# RITMO DA CACA (05/10, ~20.3M): progresso recalculado a partir do Completo em 19.47M, para a caca nao comecar
+#   espremida: Patrulha ate ~20.5M (minimo), Ping 0.44 (22M), HiderParado 0.50 (25M), Anda 0.60 (30M),
+#   Foge 0.72 (36M), Rapido 0.84 (42M), Jogador ate 50M.
+# VELOCIDADES DO MONSTRO (05/10, ~21M, build novo): patrulha 7 (era 6), alerta 8.5 (era 8), perseguicao 10 (era
+#   10.2). O jogador segue 6 andando / 10.2 correndo: na licao HiderJogador o hider abre 0.2 m/s enquanto tem folego.
+# CACA SEM FARM (06/10, ~31M, HiderFoge, build novo): a reward da caca passava muito do teto (~495 na HiderParado,
+#   ~146 na Foge) com Rooms/Completed ate 146 num mapa de 27 salas: sala concluida reabria pela suspeita valendo
+#   ate 8x x calor do ping, e varrer em volta de onde o hider sumiu rendia mais que pega-lo. Mudou: porta (Door_Hole)
+#   e parede (layer Wall, custo cheio); vendo o hider a suspeita zera e o ping some; ao perder de vista a suspeita
+#   nasce onde ele sumiu, na direcao em que ia; a suspeita nao reabre sala; teto de 4x no valor da sala; exploracao
+#   x0.2 na caca (era 0.5) e x0 em HiderRapido/HiderJogador.
 #
 #   #  Licao         salas sala% libera ping  hider  corre  folego barulho desc ping$ solto  criterio
 #   1  Inicio        1.0   0.8   0      0     -      -      -      -       1.0  1.0   0      reward 10.0 (80 ep.)
@@ -1063,11 +1087,11 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 #   3  Completo      1.0   1.0   0      0     -      -      -      -       1.0  1.0   0      reward 21.0 (100)
 #   4  Patrulha      1.1   1.0   0.85   0     -      -      -      -       1.0  1.0   0      progresso 0.25 (150)
 #   5  Ping          1.1   1.0   0.85   4000  -      -      -      -       1.0  1.0   0      progresso 0.33 (150)
-#   6  HiderParado   1.1   1.0   0      0     parado -      10     1.0     0.5  0     0      progresso 0.42 (150)
-#   7  HiderAnda     1.1   1.0   0      0     anda   5.1    10     0.6     0.5  0     0      progresso 0.52 (150)
-#   8  HiderFoge     1.1   1.0   0      0     foge   7.0    10     0.4     0.5  0     0      progresso 0.64 (150)
-#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.5  0     0      progresso 0.78 (150)
-#  10  HiderJogador  1.1   1.0   0      0     foge   10.2   10     0.3     0.5  0     1      (final)
+#   6  HiderParado   1.1   1.0   0      0     parado -      10     1.0     0.2  0     0      progresso 0.42 (150)
+#   7  HiderAnda     1.1   1.0   0      0     anda   5.1    10     0.6     0.2  0     0      progresso 0.52 (150)
+#   8  HiderFoge     1.1   1.0   0      0     foge   7.0    10     0.4     0.2  0     0      progresso 0.64 (150)
+#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.0  0     0      progresso 0.78 (150)
+#  10  HiderJogador  1.1   1.0   0      0     foge   10.2   10     0.3     0.0  0     1      (final)
 #
 # THRESHOLDS (26 salas, 35 portas): mapa inteiro = salas 0.5 x (26 + 12.5) = ~19 + portas ~3.5 + saidas ~2.5
 #   + cobertura 5 - custos ~3 = ~27. Parando em ~16 salas (60%) ~10; em ~21 (80%) ~15. Inicio 10 = ~60% das
@@ -1080,13 +1104,13 @@ V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta
 V5_1_LESSONS = [
     ("Inicio", 10.0, 80),
     ("Meio", 15.0, 80),
-    ("Completo", 21.0, 100),
+    ("Completo", 28.0, 100),
     ("Patrulha", 0.25, 150, "progress"),
-    ("Ping", 0.33, 150, "progress"),
-    ("HiderParado", 0.42, 150, "progress"),
-    ("HiderAnda", 0.52, 150, "progress"),
-    ("HiderFoge", 0.64, 150, "progress"),
-    ("HiderRapido", 0.78, 150, "progress"),
+    ("Ping", 0.44, 150, "progress"),
+    ("HiderParado", 0.50, 150, "progress"),
+    ("HiderAnda", 0.60, 150, "progress"),
+    ("HiderFoge", 0.72, 150, "progress"),
+    ("HiderRapido", 0.84, 150, "progress"),
     ("HiderJogador", None, None),
 ]
 V5_1_PARAMS = [
@@ -1108,8 +1132,8 @@ V5_1_PARAMS = [
      [10.0] * 10),
     ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.",
      [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.6, 0.4, 0.3, 0.3]),
-    ("discovery_reward_scale", "Escala da exploracao. 0.5 na caca: continua valendo explorar (contra esquecer).",
-     [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    ("discovery_reward_scale", "Escala da exploracao. Caca: 0.2 (era 0.5), 0 nas duas ultimas: explorar so serve para achar.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2, 0.0, 0.0]),
     ("ping_reward_scale", "Escala do ping (chegar +5, expirar -0.5). 0 na caca: o rastro do hider so informa.",
      [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("vision_explores", "1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.",
@@ -1119,7 +1143,7 @@ V5_1_PARAMS = [
 ]
 V5_1_STAGES = [
     ("graph_v5.1_zero", "v5.1_zero_01", "V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998",
-     V5_1_BODY, 40000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
+     V5_1_BODY, 50000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
 ]
 
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)

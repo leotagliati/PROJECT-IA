@@ -56,6 +56,15 @@ namespace Assets.Scripts.Graph
         // Distância planar (m) a partir da qual o hider passa a fugir em vez de vaguear.
         [SerializeField] private float _fleeRadius = 12f;
 
+        // Segundos que ele CONTINUA fugindo depois que o seeker sai do _fleeRadius (06/10). Sem isso, na borda dos
+        // 12 m ele alternava fugir (correndo) e vaguear (andando, vizinho aleatório, às vezes de volta para o
+        // seeker), e parecia hesitar.
+        [SerializeField, Min(0f)] private float _fleeMemorySeconds = 3f;
+
+        // Steps de física entre as checagens de "estou correndo para o seeker" no meio de uma aresta (custa um
+        // Dijkstra). 10 = 0.2 s.
+        [SerializeField, Min(1)] private int _reverseCheckSteps = 10;
+
         [Header("-----Solto e escondido (hider_loose)-----")]
         // Margem (m) entre o ponto sorteado e a borda do retângulo do nó.
         [SerializeField, Min(0f)] private float _looseMargin = 0.6f;
@@ -90,6 +99,12 @@ namespace Assets.Scripts.Graph
         private int _targetNode = -1;
         private int _pauseLeft;
         private bool _loose;
+
+        // Fugindo neste step (seeker perto, ou saiu dele há menos de _fleeMemorySeconds). Atualizado uma vez por step.
+        private bool _fleeing;
+        private int _fleeMemoryLeft;
+        private bool _reversedThisEdge;
+        private int _moveSteps;
 
         // Destino atual (centro do nó ou ponto solto); no solto, _finalGoal vale depois de passar pelo centro do nó atual.
         private Vector3 _goal;
@@ -155,6 +170,10 @@ namespace Assets.Scripts.Graph
             _previousNode = -1;
             _targetNode = -1;
             _pauseLeft = 0;
+            _fleeing = false;
+            _fleeMemoryLeft = 0;
+            _reversedThisEdge = false;
+            _moveSteps = 0;
             if (_animationSystem != null)
                 _animationSystem.ResetEpisode();
 
@@ -207,14 +226,21 @@ namespace Assets.Scripts.Graph
         // Um step de física da navegação. Devolve se o corpo andou (para a animação: parado, pausado ou chegando = idle).
         private bool StepMovement()
         {
-            // Antes da pausa: parado também recupera estamina.
-            IsRunning = _stamina.Step(_mode == Mode.Flee && SeekerIsNear(), Time.fixedDeltaTime);
+            _moveSteps++;
+            UpdateFleeing();
 
-            if (_pauseLeft > 0)
+            // Antes da pausa: parado também recupera estamina.
+            IsRunning = _stamina.Step(_fleeing, Time.fixedDeltaTime);
+
+            // Fugindo não pausa: a pausa ao chegar no nó é do vaguear, e no meio de uma fuga era o seeker ganhando
+            // até 2 s de graça a cada nó.
+            if (_pauseLeft > 0 && !_fleeing)
             {
                 _pauseLeft--;
                 return false;
             }
+
+            _pauseLeft = 0;
 
             if (_targetNode < 0)
             {
@@ -222,6 +248,8 @@ namespace Assets.Scripts.Graph
                 SetGoalForTarget();
                 return false;
             }
+
+            ReverseIfRunningIntoSeeker();
 
             Vector3 goal = _goal + Vector3.up * _heightOffset;
             Vector3 delta = goal - transform.position;
@@ -255,10 +283,11 @@ namespace Assets.Scripts.Graph
             _previousNode = _currentNode;
             _currentNode = _targetNode;
             _targetNode = -1;
+            _reversedThisEdge = false;
 
             MakeNoiseAt(_currentNode);
 
-            _pauseLeft = _maxPauseSteps > 0 ? Random.Range(0, _maxPauseSteps + 1) : 0;
+            _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
             if (_goalIsHiding)
                 _pauseLeft = Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
         }
@@ -278,8 +307,7 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            bool fleeing = _mode == Mode.Flee && SeekerIsNear();
-            bool hide = !fleeing && Random.value < _hideChance;
+            bool hide = !_fleeing && Random.value < _hideChance;
             Vector3 here = transform.position - Vector3.up * _heightOffset;
             Vector3 point = PointInNode(_targetNode, hide, _graph.NodePosition(_targetNode));
             _goalIsHiding = hide;
@@ -348,6 +376,46 @@ namespace Assets.Scripts.Graph
             return best;
         }
 
+        // Fugir com memória: perto do seeker liga e recarrega _fleeMemorySeconds; longe, gasta a memória antes de
+        // voltar a vaguear.
+        private void UpdateFleeing()
+        {
+            if (_mode != Mode.Flee)
+            {
+                _fleeing = false;
+                return;
+            }
+
+            if (SeekerIsNear())
+                _fleeMemoryLeft = Mathf.RoundToInt(_fleeMemorySeconds / Time.fixedDeltaTime);
+            else if (_fleeMemoryLeft > 0)
+                _fleeMemoryLeft--;
+
+            _fleeing = _fleeMemoryLeft > 0;
+        }
+
+        // O destino é escolhido só ao chegar no nó: se o seeker aparece na frente no meio da aresta, ele seguia
+        // correndo para o seeker até o nó. Fugindo, se o nó de destino está mais perto do seeker (pelo grafo) que
+        // o nó de onde saiu, dá meia-volta, uma vez por aresta (sem isso, com o seeker parado entre os dois, ele
+        // ia e voltava no lugar).
+        private void ReverseIfRunningIntoSeeker()
+        {
+            if (!_fleeing || _reversedThisEdge || _seeker == null || _currentNode < 0 || _targetNode == _currentNode
+                || _moveSteps % _reverseCheckSteps != 0)
+                return;
+
+            int seekerNode = _graph.FindNearestReachableNode(_seeker.position);
+            if (seekerNode < 0
+                || !_graph.TryFindPathTo(_targetNode, seekerNode, out _, out float ahead)
+                || !_graph.TryFindPathTo(_currentNode, seekerNode, out _, out float behind)
+                || ahead >= behind - 0.5f)
+                return;
+
+            _targetNode = _currentNode;
+            _reversedThisEdge = true;
+            SetGoalForTarget();
+        }
+
         private bool SeekerIsNear()
         {
             if (_seeker == null)
@@ -374,7 +442,7 @@ namespace Assets.Scripts.Graph
 
             if (_mode == Mode.Flee && _seeker != null)
             {
-                if (SeekerIsNear())
+                if (_fleeing || SeekerIsNear())
                 {
                     int seekerNode = _graph.FindNearestReachableNode(_seeker.position);
                     int best = -1;
