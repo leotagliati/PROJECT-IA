@@ -44,6 +44,13 @@ namespace Assets.Scripts.Graph
         // raio só, o batente de uma porta ou a quina de um móvel na frente do centro escondia o jogador inteiro.
         [SerializeField, Min(0f)] private float _targetHalfWidth = 0.35f;
 
+        // Quanto abaixo do topo do collider do alvo fica a CABEÇA mirada (m). Os raios saem do olho e descem até o
+        // CORPO do alvo (cabeça e peito, 06/10), não mais até a altura do olho sobre o X/Z dele: daquele jeito a
+        // linha passava por cima de qualquer móvel mais baixo que o olho (2.78 m na arena) e o monstro via o jogador
+        // agachado atrás de um armário. Agora a mesa não esconde (a linha até a cabeça passa por cima), um armário
+        // alto entre os dois esconde. Sem collider no alvo, volta ao teste antigo na altura do olho.
+        [SerializeField, Min(0f)] private float _targetHeadOffset = 0.15f;
+
         // Steps de física que a visão do alvo aguenta sem linha livre antes de soltar (25 = 0.5 s): uma coluna ou um
         // batente cruzando a linha não apaga a perseguição. Durante isso a posição segue a real (o monstro "acompanha
         // a curva"); passou disso, perdeu de vista de verdade.
@@ -59,11 +66,6 @@ namespace Assets.Scripts.Graph
         // Distância planar (m) entre centros em que o hider conta como pego (com linha livre).
         // Não exige o cone nem trombar de frente.
         [SerializeField, Min(0.5f)] private float _captureDistance = 2.5f;
-
-        [Header("-----Avistar-----")]
-        // Steps de física sem ver (250 = 5 s) para uma nova aquisição pagar de novo; evita
-        // farmar bônus entrando e saindo do cone numa quina.
-        [SerializeField, Min(0)] private int _respotCooldownSteps = 250;
 
         [Header("-----Métricas-----")]
         // Steps de física sem ver para contar como "perdeu de vista" (Hunt/LostSight). 50 = 1 s: o raio até o centro
@@ -137,20 +139,33 @@ namespace Assets.Scripts.Graph
         public bool Caught { get; private set; }
 
         // Visão e distância no ClearStepFlags anterior (a decisão anterior, com TakeActionsBetweenDecisions).
-        private bool _wasSeeing;
-        private float _distanceBefore;
+        // APROXIMAÇÃO por RECORDE (06/10): paga só os metros que batem a menor distância já vista no episódio.
+        // Antes pagava todo metro encurtado vendo, sem descontar o que o hider abria fora da vista; com o hider que
+        // foge de verdade (~12 perdas de vista por episódio) cada nova perseguição pagava de novo e perseguir rendia
+        // mais que pegar (reward ~100 com a captura caindo de 0.95 para 0.86). Teto: distância da 1ª vista menos a
+        // captura (~20-30 m).
+        private float _closestSeenDistance = float.PositiveInfinity;
+        private float _approachThisStep;
 
-        /// <summary>Dá para medir aproximação: vendo agora E na decisão anterior (ganhar/perder visão salta a distância).</summary>
-        public bool HasApproach => IsSeeing && _wasSeeing;
+        /// <summary>Bateu o recorde de proximidade neste step (vendo).</summary>
+        public bool HasApproach => _approachThisStep > 0f;
 
-        /// <summary>Metros que encurtou até o hider desde a decisão anterior (positivo = aproximou); 0 sem <see cref="HasApproach"/>.</summary>
-        public float ApproachDelta => HasApproach ? _distanceBefore - CurrentDistance : 0f;
+        /// <summary>Metros abaixo do recorde de proximidade do episódio desde o último ClearStepFlags (>= 0).</summary>
+        public float ApproachDelta => _approachThisStep;
 
         public void Configure(NavGraph graph, IGraphTarget target)
         {
             _graph = graph;
             _target = target;
+
+            // O corpo do alvo (CapsuleCollider do hider, CharacterController do jogador) para mirar cabeça e peito.
+            _targetCollider = null;
+            if (target is Component component && component != null)
+                _targetCollider = component.GetComponentInChildren<Collider>();
         }
+
+        private Collider _targetCollider;
+        private bool _spottedThisEpisode;
 
         /// <summary>Para onde a cabeça olha (planar, no mundo); o cone passa a seguir isto, não o corpo.</summary>
         public void SetViewDirection(Vector3 forward)
@@ -173,6 +188,9 @@ namespace Assets.Scripts.Graph
             Caught = false;
             _lastSeenStep = int.MinValue;
             _lastVisibleStep = int.MinValue;
+            _closestSeenDistance = float.PositiveInfinity;
+            _approachThisStep = 0f;
+            _spottedThisEpisode = false;
             _step = 0;
             _unseenRun = 0;
             _firstSeenStep = 0;
@@ -185,8 +203,7 @@ namespace Assets.Scripts.Graph
         public void ClearStepFlags()
         {
             Spotted = false;
-            _wasSeeing = IsSeeing;
-            _distanceBefore = IsSeeing ? CurrentDistance : 0f;
+            _approachThisStep = 0f;
         }
 
         /// <summary>Desfaz a captura (modo de jogo: encostar no jogador antes de a partida começar).</summary>
@@ -229,8 +246,20 @@ namespace Assets.Scripts.Graph
                 _previousSeenPosition = LastSeenPosition;
                 _hasPreviousSeenPosition = true;
 
-                if (!IsSeeing && _step - _lastSeenStep > _respotCooldownSteps)
+                // Avistar paga só a PRIMEIRA vista do episódio (06/10): reencontrar depois de deixar escapar virava
+                // renda com o hider fugindo de verdade. Achar de novo vale pelo que leva à captura.
+                if (!_spottedThisEpisode)
+                {
                     Spotted = true;
+                    _spottedThisEpisode = true;
+                }
+
+                if (CurrentDistance < _closestSeenDistance)
+                {
+                    if (!float.IsPositiveInfinity(_closestSeenDistance))
+                        _approachThisStep += _closestSeenDistance - CurrentDistance;
+                    _closestSeenDistance = CurrentDistance;
+                }
 
                 _lastSeenStep = _step;
             }
@@ -320,14 +349,22 @@ namespace Assets.Scripts.Graph
             if (walls.value == 0)
                 return true;
 
-            if (IsClear(eye, target, walls))
-                return true;
-
-            if (_targetHalfWidth <= 0f)
-                return false;
-
             Vector3 side = Vector3.Cross(Vector3.up, planar / distance) * _targetHalfWidth;
-            return IsClear(eye, target + side, walls) || IsClear(eye, target - side, walls);
+
+            if (_targetCollider == null || !_targetCollider.enabled)
+            {
+                // Sem corpo para mirar: linha horizontal na altura do olho, como os nós.
+                return IsClear(eye, target, walls)
+                       || (_targetHalfWidth > 0f && (IsClear(eye, target + side, walls) || IsClear(eye, target - side, walls)));
+            }
+
+            // Cabeça e peito do alvo (mais os ombros na altura do peito); basta um raio livre.
+            Bounds body = _targetCollider.bounds;
+            Vector3 chest = new Vector3(point.x, body.center.y, point.z);
+            Vector3 head = new Vector3(point.x, Mathf.Max(body.center.y, body.max.y - _targetHeadOffset), point.z);
+            return IsClear(eye, head, walls)
+                   || IsClear(eye, chest, walls)
+                   || (_targetHalfWidth > 0f && (IsClear(eye, chest + side, walls) || IsClear(eye, chest - side, walls)));
         }
 
         private static bool IsClear(Vector3 eye, Vector3 target, LayerMask walls)
@@ -351,7 +388,8 @@ namespace Assets.Scripts.Graph
             return forward.sqrMagnitude > 1e-6f ? forward.normalized : Vector3.forward;
         }
 
-        // Gizmo (azul-claro): cone, linha até o hider enquanto vê e X na última posição vista quando não vê.
+        // Gizmo (azul-claro): cone; em Play, os raios até cabeça e peito do alvo (azul-claro = livre, cinza =
+        // bloqueado), um círculo no alvo enquanto vê e X na última posição vista quando não vê.
         private void OnDrawGizmosSelected()
         {
             Vector3 eye = transform.position + Vector3.up * _eyeHeight;
@@ -366,9 +404,28 @@ namespace Assets.Scripts.Graph
             if (!Application.isPlaying)
                 return;
 
+            // Os raios de verdade até o CORPO do alvo (cabeça e peito): azul-claro cheio = livre, cinza = bloqueado.
+            // Não diz se está no cone/alcance, só se a linha passa; para depurar "por que não me vê".
+            if (GraphTarget.IsLive(_target) && _targetCollider != null && _targetCollider.enabled)
+            {
+                LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+                Bounds body = _targetCollider.bounds;
+                Vector3 point = _target.Position;
+                Vector3 chest = new Vector3(point.x, body.center.y, point.z);
+                Vector3 head = new Vector3(point.x, Mathf.Max(body.center.y, body.max.y - _targetHeadOffset), point.z);
+                foreach (Vector3 aim in new[] { head, chest })
+                {
+                    bool clear = walls.value == 0 || IsClear(eye, aim, walls);
+                    Gizmos.color = clear ? new Color(0.4f, 0.7f, 1f, 1f) : new Color(0.5f, 0.5f, 0.5f, 0.9f);
+                    Gizmos.DrawLine(eye, aim);
+                }
+
+                Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
+            }
+
             if (IsSeeing && GraphTarget.IsLive(_target))
             {
-                Gizmos.DrawLine(eye, _target.Position + Vector3.up * _eyeHeight);
+                Gizmos.DrawWireSphere(_target.Position, 0.5f);
             }
             else if (HasSeen)
             {

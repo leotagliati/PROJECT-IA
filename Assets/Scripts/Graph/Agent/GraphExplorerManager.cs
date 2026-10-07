@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using Assets.Scripts.Seeker;
 using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
@@ -477,6 +478,32 @@ namespace Assets.Scripts.Graph
                 return;
 
             _body.MarkContact(door: (_doorLayer.value & layerBit) != 0);
+            if (IsDoorFrame(collision.collider))
+                _body.MarkDoorFrame();
+        }
+
+        // Batente = collider com "Door_Hole" no nome dele ou de um pai (as peças de porta do mapa). Só para a
+        // métrica Exploration/DoorHits; cache por collider, porque o OnCollisionStay roda todo step.
+        private readonly Dictionary<int, bool> _doorFrameCache = new Dictionary<int, bool>();
+
+        private bool IsDoorFrame(Collider collider)
+        {
+            int id = collider.GetInstanceID();
+            if (_doorFrameCache.TryGetValue(id, out bool isDoor))
+                return isDoor;
+
+            isDoor = false;
+            for (Transform t = collider.transform; t != null; t = t.parent)
+            {
+                if (t.name.Contains("Door_Hole"))
+                {
+                    isDoor = true;
+                    break;
+                }
+            }
+
+            _doorFrameCache[id] = isDoor;
+            return isDoor;
         }
 
         // Modo de jogo: com GameManager, é derrota do jogador (ele recarrega a cena) e o seeker para onde
@@ -529,6 +556,7 @@ namespace Assets.Scripts.Graph
         ///   Exploration/OffNodeFraction  fração dos steps fora de qualquer nó (alto = rode o NavGraphPlacer)
         ///   Exploration/EarlyRevisits    revisitas precoces (loop)
         ///   Exploration/AnchorFlicker    pisca-pisca de âncora (A-B-A em &lt; 2 s andando &lt; 1 m): borda de ladrilho
+        ///   Exploration/DoorContactFraction, DoorHits  batente (peça Door_Hole): fração encostado e batidas (só métrica)
         ///   Exploration/WallContactFraction, WallHits; Movement/IdleFraction, ActionJitter, LookJitter (GraphBodyTracker)
         ///   Movement/ChaseFraction       fração do episódio em Perseguição (vendo o alvo, 10 m/s)
         ///   Movement/AlertFraction       fração em Alerta (ouviu ping ou perdeu de vista há pouco, 8 m/s)

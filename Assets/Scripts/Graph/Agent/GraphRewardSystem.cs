@@ -31,7 +31,8 @@ namespace Assets.Scripts.Graph
     ///   cobertura (5, encerra)                     +5
     ///   ping atendido (5 x PingValue)              +20 (4 pings) x escala
     ///   avistar hider (2, cooldown 5 s)            ~+8 (4 avistamentos)
-    ///   aproximar vendo (1.0/m)                    +22 por 22 m em linha reta
+    ///   aproximar vendo (1.0/m, só batendo o RECORDE de proximidade do episódio)  teto ~+20-30
+    ///   avistar (2, só a 1ª vista do episódio)     +2
     ///   hider em vista (0.00086/step)              +30 o episódio todo
     ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
@@ -127,10 +128,10 @@ namespace Assets.Scripts.Graph
         // aquisições (GraphHiderPerception) para não render piscando numa quina.
         [SerializeField] private float _hiderSpottedReward = 2f;
 
-        // Por METRO de aproximação ENQUANTO VÊ. Só conta se via nas duas decisões, e afastar cobra
-        // o que aproximar pagou: ir e voltar dá zero, não é farmável. 1.0 (06/10; era 0.4): VER o alvo tem que
-        // mandar em tudo; com 0.4 os ~6 de uma aproximação inteira empatavam com limpar suspeita e varrer sala.
-        // Do limite da visão (22 m) até pegar: ~+20, mais a captura (20 + até 25).
+        // Por METRO de aproximação ENQUANTO VÊ, só os que batem o RECORDE de proximidade do episódio
+        // (GraphHiderPerception): deixar escapar e perseguir de novo não paga até chegar mais perto que antes. 1.0
+        // (06/10; era 0.4): ver o alvo tem que mandar em tudo. Teto: da 1ª vista (até 22 m) até pegar, ~+20, mais a
+        // captura (20 + até 25). O pago por decisão (sem recorde) virou farm com o hider esperto: reward ~100.
         [SerializeField] private float _hiderApproachReward = 1f;
 
         // Pegou o hider (GraphHiderPerception.Caught): paga e ENCERRA o episódio. Tem que valer mais

@@ -38,6 +38,13 @@ namespace Assets.Scripts.Graph
         // Métricas do episódio.
         private int _contactSteps;
         private int _doorContactSteps;
+
+        // Batente (peça Door_Hole, pelo NOME): só métrica, não muda custo. Desde 06/10 a porta é layer Wall e paga
+        // como parede, então o IsTouchingDoor (layer Door) não pega mais nada; isto mede quanto ele raspa a porta.
+        private bool _touchingDoorFrame;
+        private int _doorFrameSteps;
+        private int _doorFrameHits;
+        private int _stepsWithoutDoorFrame;
         private int _idleSteps;
         private int _episodeHits;
         private float _moveChangeSum;
@@ -82,6 +89,10 @@ namespace Assets.Scripts.Graph
             LookChangeSq = 0f;
             _contactSteps = 0;
             _doorContactSteps = 0;
+            _touchingDoorFrame = false;
+            _doorFrameSteps = 0;
+            _doorFrameHits = 0;
+            _stepsWithoutDoorFrame = HitDebounceSteps;
             _idleSteps = 0;
             _episodeHits = 0;
             _moveChangeSum = 0f;
@@ -100,6 +111,9 @@ namespace Assets.Scripts.Graph
             else
                 IsTouchingWall = true;
         }
+
+        /// <summary>Do OnCollisionStay, além do MarkContact: o collider é um batente (Door_Hole). Só métrica.</summary>
+        public void MarkDoorFrame() => _touchingDoorFrame = true;
 
         /// <summary>Início do step: batida (pelo contato do step de física que acabou) e mudança de ação.</summary>
         public void BeginStep(Vector2 move, Vector2 look)
@@ -129,6 +143,21 @@ namespace Assets.Scripts.Graph
                 _contactSteps++;
             else if (IsTouchingDoor)
                 _doorContactSteps++;
+
+            // Batente: steps encostado e batidas (início de contato, com o mesmo debounce das paredes).
+            if (_touchingDoorFrame)
+            {
+                _doorFrameSteps++;
+                if (_stepsWithoutDoorFrame >= HitDebounceSteps)
+                    _doorFrameHits++;
+                _stepsWithoutDoorFrame = 0;
+            }
+            else
+            {
+                _stepsWithoutDoorFrame++;
+            }
+
+            _touchingDoorFrame = false;
 
             if (body != null)
             {
@@ -171,11 +200,13 @@ namespace Assets.Scripts.Graph
             if (elapsedSteps > 0)
             {
                 stats.Add("Exploration/WallContactFraction", (float)_contactSteps / elapsedSteps);
-                stats.Add("Exploration/DoorContactFraction", (float)_doorContactSteps / elapsedSteps);
+                // Batente pelo nome (Door_Hole), não pela layer Door (vazia desde 06/10).
+                stats.Add("Exploration/DoorContactFraction", (float)_doorFrameSteps / elapsedSteps);
                 stats.Add("Movement/IdleFraction", (float)_idleSteps / elapsedSteps);
             }
 
             stats.Add("Exploration/WallHits", _episodeHits);
+            stats.Add("Exploration/DoorHits", _doorFrameHits);
 
             if (_decisionCount > 0)
             {
