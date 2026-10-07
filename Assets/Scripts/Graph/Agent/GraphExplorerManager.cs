@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using Assets.Scripts.Seeker;
 using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
@@ -16,7 +17,7 @@ namespace Assets.Scripts.Graph
     ///   GraphHiderPerception    visão, captura, aproximação               | idem
     ///   GraphPingSystem         barulho do hider / pings aleatórios        | idem
     ///   GraphSuspicionMap       crença de onde o hider está                | idem
-    ///   GraphLocomotion         estado de alerta -> velocidade (6 / 8 / 10.2), pescoço (+ SeekerMovementSystem)
+    ///   GraphLocomotion         estado de alerta -> velocidade (7 / 8.5 / 10), pescoço (+ SeekerMovementSystem)
     ///   GraphRewardSystem       recompensa (função pura do GraphStepContext)
     ///   GraphObservations       layout do vetor (188) e da planta de salas  | classe simples, criada aqui
     ///   GraphBodyTracker        parede, batidas, suavidade, parado          | classe simples, criada aqui
@@ -62,18 +63,19 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(0.1f)] private float _hiderVelocityScale = 5f;
 
         [Header("-----Settings-----")]
-        // Em steps de FÍSICA, não decisões: 20000 = 400 s a 0.02 s, ou 4000 decisões com Decision Period 5
-        // (o Episode Length do TensorBoard). v5: era 8000 (160 s) a 15 m/s; na velocidade do jogador (6 / 10.2)
-        // 400 s dão ~2800 m de caminho, contra ~1100 m de ligações no NodeTraining5: tempo de ver o mapa
-        // todo. Contato com parede e estagnação são cobrados por step: mudar isto muda o teto deles
-        // (tabela no cabeçalho do GraphRewardSystem).
-        [SerializeField] private int _maxEpisodeSteps = 20000;
+        // Em steps de FÍSICA, não decisões: 35000 = 700 s a 0.02 s, ou 7000 decisões com Decision Period 5
+        // (o Episode Length do TensorBoard). v5.0: 20000 (400 s); o v5.1_zero_01 fazia ~20 das 26 salas e o tempo
+        // acabava antes de ele descer para a parte de baixo do mapa, então 700 s (05/10). Contato com parede,
+        // estagnação e hider em vista são cobrados por step: mudar isto muda o teto deles (tabela no cabeçalho
+        // do GraphRewardSystem).
+        [SerializeField] private int _maxEpisodeSteps = 35000;
 
         [Header("-----Porta (custo reduzido)-----")]
         // Layer das PORTAS (as peças Door_Hole): parede para visão, grafo e observação [8], mas o contato custa só
         // GraphRewardSystem._doorPenaltyScale do de parede. O resto do Wall Layer do NavGraph (Wall, Obstacle) é
         // parede com custo cheio. Tem que estar TAMBÉM no Wall Layer do NavGraph (o ValidateSetup avisa).
-        // Padrão (Add Component / Reset): Door.
+        // Padrão (Add Component / Reset): Door. Desde 06/10 as Door_Hole do mapa estão em Wall (o monstro raspava o
+        // batente barato e ficava preso na porta), então nada usa esta layer e porta custa como parede.
         [SerializeField] private LayerMask _doorLayer;
 
         [Header("-----Diagnóstico-----")]
@@ -312,6 +314,7 @@ namespace Assets.Scripts.Graph
             _arenaController.ResetHider(transform);
 
             _memory.ResetEpisode(_settings);
+            Rooms.SetRoomCompletionRates(_arenaController.RoomCompletionRate);
             _body.ResetEpisode();
             _ping.ResetEpisode(_settings);
             _perception.ResetEpisode();
@@ -324,8 +327,9 @@ namespace Assets.Scripts.Graph
         }
 
         // Sentir: amostrado a cada step de FÍSICA, não por decisão (com Decision Period > 1 o agente pode
-        // cruzar um nó inteiro entre duas decisões). Ordem importa: memória (nós -> salas) -> ping -> visão ->
-        // procura; cada um lê o estado do anterior neste step.
+        // cruzar um nó inteiro entre duas decisões). Ordem importa: memória (nós -> salas) -> visão -> ping ->
+        // procura; cada um lê o estado do anterior neste step. A visão vem antes do ping (06/10): vendo o alvo, o
+        // ping não existe e o calor que ele deixou some (era renda: a sala quente reabria e pagava de novo).
         private void FixedUpdate()
         {
             if (_episodeEnding || _graph == null)
@@ -333,7 +337,12 @@ namespace Assets.Scripts.Graph
 
             _memory.Tick(transform);
 
-            _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps);
+            _perception.Tick(transform);
+
+            _ping.Tick(_memory.CurrentNodeIndex, _elapsedSteps, _perception.IsSeeing);
+            if (_perception.IsSeeing)
+                Rooms.ClearHeat();
+
             int started = _ping.ConsumeStarted();
             if (started >= 0)
             {
@@ -341,9 +350,10 @@ namespace Assets.Scripts.Graph
                 _locomotion.NotifyHeard();
             }
 
-            _perception.Tick(transform);
-
-            // Estado de alerta logo depois da visão e do ping: vendo = Perseguição, pista recente = Alerta.
+            // Estado de alerta logo depois da visão e do ping: vendo ou ouvindo o alvo correr = Perseguição,
+            // pista recente = Alerta.
+            if (_ping.HeardRunning)
+                _locomotion.NotifyChaseCue();
             _locomotion.UpdateAwareness(_perception.IsSeeing);
             _suspicion.Tick(transform, _memory.CurrentNodeIndex);
         }
@@ -424,6 +434,7 @@ namespace Assets.Scripts.Graph
 
             RoomNodeValue = Rooms.RoomNodeValue,
             RoomTailValue = Rooms.RoomTailValue,
+            RoomCrumbValue = Rooms.RoomCrumbValue,
             RoomCompletedValue = Rooms.RoomCompletedValue,
             DoorCrossValue = Rooms.DoorCrossValue,
             RoomExitValue = Rooms.RoomExitValue,
@@ -467,6 +478,32 @@ namespace Assets.Scripts.Graph
                 return;
 
             _body.MarkContact(door: (_doorLayer.value & layerBit) != 0);
+            if (IsDoorFrame(collision.collider))
+                _body.MarkDoorFrame();
+        }
+
+        // Batente = collider com "Door_Hole" no nome dele ou de um pai (as peças de porta do mapa). Só para a
+        // métrica Exploration/DoorHits; cache por collider, porque o OnCollisionStay roda todo step.
+        private readonly Dictionary<int, bool> _doorFrameCache = new Dictionary<int, bool>();
+
+        private bool IsDoorFrame(Collider collider)
+        {
+            int id = collider.GetInstanceID();
+            if (_doorFrameCache.TryGetValue(id, out bool isDoor))
+                return isDoor;
+
+            isDoor = false;
+            for (Transform t = collider.transform; t != null; t = t.parent)
+            {
+                if (t.name.Contains("Door_Hole"))
+                {
+                    isDoor = true;
+                    break;
+                }
+            }
+
+            _doorFrameCache[id] = isDoor;
+            return isDoor;
         }
 
         // Modo de jogo: com GameManager, é derrota do jogador (ele recarrega a cena) e o seeker para onde
@@ -512,24 +549,56 @@ namespace Assets.Scripts.Graph
         /// compare runs por elas.
         ///   Exploration/Coverage         fração das salas concluídas ao fim
         ///   Rooms/Completed              salas concluídas (inclui liberadas e refeitas)
+        ///   Rooms/S00..S26               fração dos episódios em que cada sala foi concluída
         ///   Doors/Crossings              travessias de porta
         ///   Doors/RepeatFraction         fração das travessias por porta já usada (novidade &lt; 1)
         ///   Doors/UsedFraction           fração das portas do mapa atravessadas ao menos uma vez
         ///   Exploration/OffNodeFraction  fração dos steps fora de qualquer nó (alto = rode o NavGraphPlacer)
         ///   Exploration/EarlyRevisits    revisitas precoces (loop)
         ///   Exploration/AnchorFlicker    pisca-pisca de âncora (A-B-A em &lt; 2 s andando &lt; 1 m): borda de ladrilho
+        ///   Exploration/DoorContactFraction, DoorHits  batente (peça Door_Hole): fração encostado e batidas (só métrica)
         ///   Exploration/WallContactFraction, WallHits; Movement/IdleFraction, ActionJitter, LookJitter (GraphBodyTracker)
-        ///   Movement/ChaseFraction       fração do episódio em Perseguição (vendo o alvo, 10.2 m/s)
+        ///   Movement/ChaseFraction       fração do episódio em Perseguição (vendo o alvo, 10 m/s)
         ///   Movement/AlertFraction       fração em Alerta (ouviu ping ou perdeu de vista há pouco, 8 m/s)
-        ///   Movement/MeanSpeed           velocidade média (m/s; patrulha 6, alerta 8, perseguição 10.2)
+        ///   Movement/MeanSpeed           velocidade média (m/s; patrulha 7, alerta 8.5, perseguição 10)
+        ///   Ping/Started, Ping/Reached, Ping/Missed  pings no episódio: começaram / atendidos / expiraram
+        ///   Ping/ReachedFraction         atendidos / (atendidos + expirados); com hider o rastro troca sem expirar
+        ///   Ping/Silenced                pings apagados por o alvo estar à vista
+        ///   Ping/Heard                   vezes que ouviu o alvo correndo (início de cada trecho ouvido)
         ///   Hunt/Seen, Hunt/Caught       só com hider: viu alguma vez / pegou
+        ///   Hunt/Sightings, LostSight    vezes que passou a ver / perdeu de vista por >= 1 s
+        ///   Hunt/SightToCatchSeconds     da primeira vez que viu até pegar (só episódios com captura)
         ///   Search/Cleared               suspeita limpa que pagou (procura)
         /// </summary>
+        private string[] _roomStatNames;
+
+        private void RecordRoomStats(StatsRecorder stats)
+        {
+            int rooms = _graph.RoomCount;
+            if (_roomStatNames == null || _roomStatNames.Length != rooms)
+            {
+                _roomStatNames = new string[rooms];
+                for (int r = 0; r < rooms; r++)
+                    _roomStatNames[r] = $"Rooms/S{r:00}";
+            }
+
+            for (int r = 0; r < rooms; r++)
+            {
+                if (!Rooms.IsRoomPrevisited(r))
+                    stats.Add(_roomStatNames[r], Rooms.IsRoomCompleted(r) ? 1f : 0f);
+            }
+        }
+
         private void RecordEpisodeStats()
         {
             StatsRecorder stats = Academy.Instance.StatsRecorder;
             stats.Add("Exploration/Coverage", Rooms.CompletedFraction);
             stats.Add("Rooms/Completed", Rooms.RoomsCompletedTotal);
+
+            // Por sala: média = fração dos episódios em que ela foi concluída (Rooms/S0..). Mostra QUAIS ficam
+            // de fora. Depois vai para a média móvel da arena (spawn e valor de sala rara).
+            RecordRoomStats(stats);
+            _arenaController.RecordRoomOutcome(Rooms);
             stats.Add("Doors/Crossings", Rooms.Crossings);
             if (Rooms.Crossings > 0)
                 stats.Add("Doors/RepeatFraction", (float)Rooms.RepeatCrossings / Rooms.Crossings);
@@ -550,10 +619,26 @@ namespace Assets.Scripts.Graph
                 stats.Add("Movement/MeanSpeed", _locomotion.MeanSpeed);
             }
 
+            if (_ping.EpisodeStarted > 0)
+            {
+                stats.Add("Ping/Started", _ping.EpisodeStarted);
+                stats.Add("Ping/Reached", _ping.EpisodeReached);
+                stats.Add("Ping/Missed", _ping.EpisodeMissed);
+                stats.Add("Ping/Silenced", _ping.EpisodeSilenced);
+                stats.Add("Ping/Heard", _ping.EpisodeHeard);
+                int resolved = _ping.EpisodeReached + _ping.EpisodeMissed;
+                if (resolved > 0)
+                    stats.Add("Ping/ReachedFraction", (float)_ping.EpisodeReached / resolved);
+            }
+
             if (_settings.HasHider)
             {
                 stats.Add("Hunt/Seen", _perception.HasSeen ? 1f : 0f);
                 stats.Add("Hunt/Caught", _perception.Caught ? 1f : 0f);
+                stats.Add("Hunt/Sightings", _perception.EpisodeSightings);
+                stats.Add("Hunt/LostSight", _perception.EpisodeLostSight);
+                if (_perception.SightToCatchSeconds >= 0f)
+                    stats.Add("Hunt/SightToCatchSeconds", _perception.SightToCatchSeconds);
             }
 
             if (_suspicion.IsActive)

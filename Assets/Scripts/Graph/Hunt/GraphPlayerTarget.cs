@@ -27,6 +27,10 @@ namespace Assets.Scripts.Graph
 
         public int CurrentNode => _currentNode;
 
+        // Pular conta como correr: a aterrissagem faz barulho.
+        public bool IsRunning => _movement != null
+            && (_movement.CurrentState == PlayerState.Running || _movement.CurrentState == PlayerState.Jumping);
+
         public int PendingArrival { get; private set; } = -1;
 
         public int ConsumeArrival()

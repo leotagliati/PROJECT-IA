@@ -542,7 +542,7 @@ MonoBehaviour:
   _animator: {fileID: 0}
   _moveThreshold: 0.1
   _blendDampTime: 0.1
-  _animateDuringTraining: 1
+  _animateDuringTraining: 0
 --- !u!1 &5954747103405744954
 GameObject:
   m_ObjectHideFlags: 0
@@ -815,7 +815,7 @@ MonoBehaviour:
   _patrolLightColor: {r: 0.09803921, g: 0.1683591, b: 1, a: 1}
   _chaseTint: {r: 0.9811321, g: 0.14346743, b: 0.16114138, a: 1}
   _chaseLightColor: {r: 1, g: 0.0990566, b: 0.13582978, a: 1}
-  _animateDuringTraining: 1
+  _animateDuringTraining: 0
 --- !u!114 &7926882954036430195
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -906,7 +906,7 @@ MonoBehaviour:
   m_RayLength: 20
   m_RayLayerMask:
     serializedVersion: 2
-    m_Bits: 4294967291
+    m_Bits: 648
   m_ObservationStacks: 1
   m_AlternatingRayOrder: 1
   m_UseBatchedRaycasts: 0

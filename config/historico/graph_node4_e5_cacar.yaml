@@ -1,24 +1,19 @@
 # ================================================================================================
-# GraphExplorer - Node_4 - E3 ACHAR O HIDER PARADO
+# GraphExplorer - Node_4 - E5 CACAR O HIDER QUE FOGE
 #
-#   mlagents-learn config/graph_node4_e3_achar.yaml --run-id=node4_e3_01 --initialize-from=node4_e2_06
+#   mlagents-learn config/historico/graph_node4_e5_cacar.yaml --run-id=node4_e5_01 --initialize-from=node4_e4_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
 # seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
 # Vetor 118, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
 #
-# Herda o E2 (node4_e2_06) e liga a PROCURA (GraphSuspicionMap) com o hider PARADO, barulho em
-# toda chegada (o spawn dele ja pinga). Uma licao so. Ping so informa (ping_reward_scale 0);
-# descoberta e navegacao a 30% (explorar agora e meio); captura = 10 + 15 x fracao que sobrava.
+# Herda o E4: o hider FOGE quando o seeker chega a 12 m. Assist 0.5 -> 0.3.
 #
-# A E2 foi FECHADA em cobertura ~0.42 (criterio era 0.6) por decisao: com previsited 0.5 isso e
-# ~70% do mapa, e o que trava e o gargalo (Node (119)) quando o que falta fica do outro lado. Aqui
-# a SUSPEITA faz o "reset aos poucos" que o Arthur queria: onde ele olhou zera e volta a crescer
-# na velocidade do hider - sem patrulha junto (seriam dois relogios de "volte ali").
+#   Licao       vel   barulho threshold  min. episodios
+#   Foge        2.2   0.3     11.0       300
+#   FogeRapido  3.2   0.25    (final)
 #
-# Assist 0.7 (onde a E2 parou; ela nunca chegou na licao MenosAssist). Desce na E4 (0.5) e E5 (0.3).
-#
-# PASSA QUANDO: Hunt/Caught > 0.5 e Episode Length caindo (capturar encerra). 3M steps.
+# 11 ~ 45% de captura. PASSA QUANDO (na FogeRapido): Hunt/Caught > 0.4. 5M steps.
 # ================================================================================================
 
 behaviors:
@@ -48,7 +43,7 @@ behaviors:
         strength: 1.0
     keep_checkpoints: 10
     checkpoint_interval: 500000
-    max_steps: 3000000
+    max_steps: 5000000
     time_horizon: 128
     summary_freq: 10000
 
@@ -64,9 +59,36 @@ environment_parameters:
   ping_interval: 0
   ping_reward_scale: 0.0
   discovery_reward_scale: 0.3
-  steer_assist: 0.7
-  hider_mode: 1
-  hider_speed: 0.0
-  hider_noise: 1.0
+  steer_assist: 0.3
+  hider_mode: 3
 
   # ---- Curriculo ----
+  # m/s do hider. O seeker anda a 6.
+  hider_speed:
+    curriculum:
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 2.2
+      - name: FogeRapido
+        value: 3.2
+
+  # Chance de cada chegada do hider virar ping.
+  hider_noise:
+    curriculum:
+      - name: Foge
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 11.0
+          require_reset: true
+        value: 0.3
+      - name: FogeRapido
+        value: 0.25

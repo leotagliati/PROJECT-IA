@@ -1,28 +1,20 @@
 # ================================================================================================
-# GraphExplorer - Node_4 - E2 EXPLORAR SEM SETA
+# GraphExplorer - Node_4 - E4 SEGUIR O HIDER QUE ANDA
 #
-#   mlagents-learn config/graph_node4_e2_semseta.yaml --run-id=node4_e2_01 --initialize-from=node4_e1_01
+#   mlagents-learn config/historico/graph_node4_e4_seguir.yaml --run-id=node4_e4_01 --initialize-from=node4_e3_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
 # seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
 # Vetor 118, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
 #
-# Herda o E1 e CORTA a seta de uma vez (pedido do Arthur): o node4_e1_01 chegou na licao Quase
-# em 190k steps com reward ~14.5 e cobertura 0.93-0.96. A exploracao fica na dificuldade final do
-# E1 (alvo 0.9, pre 0.5, jitter 0.5). Quem guia sem seta e o "quanto resta" por vizinho - a mesma
-# informacao que a seta realcava (_frontierFollowsExits), entao cortar e so parar de receber o
-# realce. Uma coisa por licao: primeiro so a seta sai (assist igual ao da Quase), depois o assist
-# desce ate o 0.3 que a caca usa.
+# Herda o E3: o hider ANDA e faz barulho cada vez menos (o seeker passa a deduzir pela suspeita).
+# Assist 0.7 -> 0.5.
 #
-#   Licao        seta  assist threshold  min. episodios
-#   SemSeta      0     0.7    8.0        100
-#   MenosAssist  0     0.3    (final)
+#   Licao        vel   barulho threshold  min. episodios
+#   AndaDevagar  1.0   0.6     13.0       300
+#   Anda         2.2   0.4     (final)
 #
-# THRESHOLD 8: o reward de 14.5 do E1 inclui o shaping da seta (0.02/m ate o proximo passo;
-# ~250-300 m andados na direcao certa = ~5-6). Sem ela, a mesma cobertura rende ~9-10.
-#
-# PASSA QUANDO (na MenosAssist): Exploration/Coverage > 0.6 e WallContactFraction < 0.25.
-# 3M steps; se passar antes, Ctrl+C e siga.
+# Reward ~ 3 + 17 x taxa de captura: 13 ~ 60%. PASSA QUANDO (na Anda): Hunt/Caught > 0.5. 4M steps.
 # ================================================================================================
 
 behaviors:
@@ -52,38 +44,52 @@ behaviors:
         strength: 1.0
     keep_checkpoints: 10
     checkpoint_interval: 500000
-    max_steps: 3000000
+    max_steps: 4000000
     time_horizon: 128
     summary_freq: 10000
 
 environment_parameters:
   # ---- Constantes ----
   frontier_hint: 0.0
-  coverage_target: 0.9
-  previsited_fraction: 0.5
+  frontier_hint_steps: 0
+  coverage_target: 1.1
+  previsited_fraction: 0.0
   weight_jitter: 0.5
-  hider_mode: 0
-  hider_speed: 0.0
-  hider_noise: 1.0
-  ping_interval: 0
   value_recovery_seconds: 0.0
   area_boredom: 0
-  ping_reward_scale: 1.0
-  discovery_reward_scale: 1.0
-  frontier_hint_steps: 0
+  ping_interval: 0
+  ping_reward_scale: 0.0
+  discovery_reward_scale: 0.3
+  steer_assist: 0.5
+  hider_mode: 2
 
   # ---- Curriculo ----
-  # Steering assistido (0..1).
-  steer_assist:
+  # m/s do hider. O seeker anda a 6.
+  hider_speed:
     curriculum:
-      - name: SemSeta
+      - name: AndaDevagar
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
-          min_lesson_length: 100
-          threshold: 8.0
+          min_lesson_length: 300
+          threshold: 13.0
           require_reset: true
-        value: 0.7
-      - name: MenosAssist
-        value: 0.3
+        value: 1.0
+      - name: Anda
+        value: 2.2
+
+  # Chance de cada chegada do hider virar ping.
+  hider_noise:
+    curriculum:
+      - name: AndaDevagar
+        completion_criteria:
+          measure: reward
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 300
+          threshold: 13.0
+          require_reset: true
+        value: 0.6
+      - name: Anda
+        value: 0.4

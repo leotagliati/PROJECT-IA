@@ -8,7 +8,7 @@ HEADER = """# ==================================================================
 # GraphExplorer - mapa da Node_4: TUDO NUM TREINO SO, do zero (28/09/2026)
 #   explorar -> patrulhar -> ping -> hider parado -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_full.yaml --run-id=node4_full_01
+#   mlagents-learn config/historico/graph_node4_full.yaml --run-id=node4_full_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui.
 # Junta o graph_node4_patrol.yaml e o graph_node4_hunt.yaml numa escada so, sem
@@ -103,12 +103,12 @@ BETA_BLOCK      epsilon: 0.2
       vis_encode_type: simple
     reward_signals:
       extrinsic:
-        gamma: 0.995
+        gamma: GAMMA
         strength: 1.0
     keep_checkpoints: KEEP_CHECKPOINTS
     checkpoint_interval: 500000
     max_steps: MAX_STEPS
-    time_horizon: 128
+    time_horizon: HORIZON
     summary_freq: 10000
 
 environment_parameters:
@@ -170,7 +170,7 @@ SEARCH_HEADER = """# ===========================================================
 # GraphExplorer - mapa da Node_4: PROCURA + PING, do zero (28/09/2026)
 #   hider parado -> anda devagar -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_search.yaml --run-id=node4_search_01
+#   mlagents-learn config/historico/graph_node4_search.yaml --run-id=node4_search_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/procura-e-ping.md.
 # Vetor 118, 4 acoes, rede 256 x 2.
@@ -279,15 +279,24 @@ BETA_NIGHT = """      # 0.006 (o dobro das etapas): mais exploracao, porque o ru
       # vezes. 0.015 ja se mostrou demais (a entropia nunca caia). Decai linear ate max_steps.
       beta: 0.006
 """
+# v5.1 (05/10, no meio do run): o dobro da noite. Entropia em 0.89 e caindo aos 9.7M, e ele preso na parte de
+# cima do mapa; mais variedade para tentar descer. Decai linear ate max_steps.
+BETA_V51 = """      # 0.012 (o dobro do 0.006 da noite): mais variedade para sair da parte de cima do mapa. Decai linear.
+      beta: 0.012
+"""
 BETA_STAGES = """      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1..e2_03 em 1.42-1.48 = desvio ~1, a
       # politica continuava aleatoria). Para acoes continuas o normal e 0.001-0.005.
       beta: 0.003
 """
 
 
-def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10):
+# folder: subpasta de config/. Os currículos fora de uso vão para config/historico/ (só registro); na raiz fica
+# só o que se treina hoje (a v5 e o seeker_curriculum.yaml, que não é gerado aqui).
+def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10, folder='historico',
+          gamma=0.995, horizon=128):
     behaviors = (BEHAVIORS.replace("MAX_STEPS", str(max_steps)).replace("BETA_BLOCK", beta)
-                 .replace("KEEP_CHECKPOINTS", str(keep)))
+                 .replace("KEEP_CHECKPOINTS", str(keep)).replace("GAMMA", str(gamma))
+                 .replace("HORIZON", str(horizon)))
     out = [header, behaviors, constants, "\n  # ---- Curriculo ----\n"]
     for name, comment, values in params:
         assert len(values) == len(lessons), name
@@ -311,7 +320,8 @@ def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD
             out.append(f"        value: {value}\n")
         out.append("\n")
 
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', filename)
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', folder, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     io.open(path, 'w', encoding='utf-8', newline='\n').write(''.join(out).rstrip('\n') + '\n')
     print(f'Gerado: {path}')
 
@@ -327,7 +337,7 @@ def stage_header(title, name, run, init, body):
     return f"""# ================================================================================================
 # GraphExplorer - Node_4 - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run}{init_arg}
+#   mlagents-learn config/historico/{name}.yaml --run-id={run}{init_arg}
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Etapas: E1 andar e explorar (com
 # seta) -> E2 sem seta -> E3 achar hider parado -> E4 seguir -> E5 cacar.
@@ -494,7 +504,7 @@ def v4_header(title, name, run, init, body):
     return f"""# ================================================================================================
 # GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run}{init_arg}
+#   mlagents-learn config/historico/{name}.yaml --run-id={run}{init_arg}
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
@@ -901,11 +911,11 @@ V4_STAGES = [
 
 # ---- V5 (04/10): DO ZERO, corpo na escala do JOGADOR, episodio longo, vetor 188 ----
 # Forma de treinar nova (vetor 188 = rede nova, prefab novo, corpo novo): nao herda nada.
-def v5_header(title, name, run, body):
+def v5_header(title, name, run, body, folder=''):
     return f"""# ================================================================================================
-# GraphExplorer - mapa v4 (prefab NodeTraining6, cena Node_6 com as 6 arenas ligadas) - {title}
+# GraphExplorer - mapa v4 (prefab NodeTraining - V5 training, cena Arthur/V5 - Training) - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run}
+#   mlagents-learn config/{folder}{name}.yaml --run-id={run}
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
 # Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.
@@ -936,9 +946,9 @@ V5_BODY = """# DO ZERO. O que mudou da v4.x:
 #
 #   #  Licao         salas sala% pre  libera ping  hider  corre  folego barulho desc ping$ solto  criterio
 #   1  Perto         0.2   0.8   0    0      0     -      -      -      -       1.0  1.0   0      reward 6.0  (80 ep.)
-#   2  Metade        0.5   0.9   0    0      0     -      -      -      -       1.0  1.0   0      reward 9.0  (80)
-#   3  Quase         0.8   1.0   0    0      0     -      -      -      -       1.0  1.0   0      reward 11.0 (100)
-#   4  Variado       0.8   1.0   0.3  0      0     -      -      -      -       1.0  1.0   0      reward 8.5  (100)
+#   2  Metade        1.0   0.9   0    0      0     -      -      -      -       1.0  1.0   0      reward 20.0 (80)
+#   3  Quase         1.0   1.0   0    0      0     -      -      -      -       1.0  1.0   0      reward 22.0 (100)
+#   4  Variado       1.0   1.0   0.3  0      0     -      -      -      -       1.0  1.0   0      reward 16.0 (100)
 #   (sala% = room_complete_threshold; 1.0 da licao 3 ate o fim)
 #   5  Patrulha      1.1   0    0.85   0     -      -      -      -       1.0  1.0   0      progresso 0.25 (150)
 #   6  Ping          1.1   0    0.85   4000  -      -      -      -       1.0  1.0   0      progresso 0.33 (150)
@@ -951,6 +961,11 @@ V5_BODY = """# DO ZERO. O que mudou da v4.x:
 #   Na licao 11 o hider e o jogador: corre 10.2 por 10 s; o seeker so chega a 10.2 vendo ele. So pega quem corta caminho.
 #
 # THRESHOLDS de reward: os da v4.1 (mesmas recompensas de sala/porta; ~70% de um episodio bom).
+#   Run 02 (3.1M): com 50%/80% de meta ele so fazia as salas baratas (1 no) e pulava as grandes e as do fundo.
+#   Desde a Metade a meta e TODAS as salas (1.0), e cada sala concluida valoriza as que faltam
+#   (GraphRoomMemory._progressValueGain 1: a primeira vale 1, a ultima ~2). Mapa inteiro: salas 0.5 x (26 + 12.5)
+#   = ~19, portas ~4, saidas ~3, +5, custos ~-3 = ~28 completo; ~17 parando em ~22 salas. Metade 20 / Quase 22 =
+#   maioria completando. Variado (30% pre-concluidas nao pagam) ~20 completo -> 16.
 # PROGRESSO: 15M steps; a Patrulha sai aos 3.75M, o Ping aos ~5M ... HiderJogador fica com os ultimos
 # ~3.3M. Um episodio longo tem ate 4000 decisoes: 150 episodios = ate 600k steps por licao.
 #
@@ -961,9 +976,9 @@ V5_BODY = """# DO ZERO. O que mudou da v4.x:
 """
 V5_LESSONS = [
     ("Perto", 6.0, 80),
-    ("Metade", 9.0, 80),
-    ("Quase", 11.0, 100),
-    ("Variado", 8.5, 100),
+    ("Metade", 20.0, 80),
+    ("Quase", 22.0, 100),
+    ("Variado", 16.0, 100),
     ("Patrulha", 0.25, 150, "progress"),
     ("Ping", 0.33, 150, "progress"),
     ("HiderParado", 0.42, 150, "progress"),
@@ -976,7 +991,7 @@ V5_PARAMS = [
     ("room_complete_threshold", "Fracao dos nos de uma sala que precisam ser VISTOS para concluir. 1.0 = a sala inteira.",
      [0.8, 0.9] + [1.0] * 9),
     ("coverage_target", "Fracao das SALAS concluidas que encerra o episodio (+5). Acima de 1 = sem fim por cobertura.",
-     [0.2, 0.5, 0.8, 0.8, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]),
+     [0.2, 1.0, 1.0, 1.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]),
     ("previsited_fraction", "Fracao das SALAS que ja nasce concluida (anti-decoreba).",
      [0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("release_fraction", "Patrulha: com esta fracao usada, a porta e a sala mais antigas voltam. 0 = off.",
@@ -1008,6 +1023,133 @@ V5_STAGES = [
      V5_BODY, 15000000, V5_CONSTANTS, V5_LESSONS, V5_PARAMS),
 ]
 
+# ---- V5.1 (04/10, noite): DO ZERO de novo, sala e porta pagam UMA vez, meta = TODAS as salas ----
+# v5.0_zero_02 (ate 3.1M): decorou um loop de salas baratas (1 no) perto do spawn e pulava as grandes e as do
+# fundo (S7 S8 S9 S14 S17 S18 S23 S24 S25). Com meta 50%/80% isso era o otimo. Run novo porque gamma e as
+# recompensas mudam o valor de tudo que o critico aprendeu.
+V5_1_BODY = """# DO ZERO (v5.1). Mesma v5.0 (corpo do jogador, estados de alerta, episodio de 400 s, vetor 188), mudando:
+#   - SALA PAGA UMA VEZ: so ao concluir (0.5 x valor crescente), sem fatias por no nem cauda. Porta paga so a
+#     1a travessia (beco: a volta paga igual). Repetir caminho nao rende nada.
+#   - VALOR CRESCENTE: cada sala concluida valoriza as que faltam (1 na primeira, ~2 na ultima). As que sobram
+#     sao as caras (grandes, no fundo do mapa), e ele ve a fracao concluida [7].
+#   - META = TODAS AS SALAS (coverage_target 1.0) desde a licao 1; as 3 primeiras licoes so apertam a conclusao
+#     da sala (0.8 -> 0.9 -> 1.0 dos nos vistos). Sem salas pre-concluidas (a licao Variado saiu).
+#   - GAMMA 0.998 (era 0.995): horizonte ~500 decisoes = 50 s em vez de ~20 s; sala a 30 s de distancia vale
+#     ~0.55 em vez de ~0.22 de uma sala ao lado. time_horizon 256 acompanha.
+#   - PLANTA: portas ate a sala / 16 (era 10, que saturava S9 <-> S18 em "inalcancavel").
+#   Sem bussola (nada diz qual porta leva ao que falta): ele tem que ler a planta. Pedido do Arthur.
+#
+# AJUSTE NO MEIO DO RUN (05/10, ~9.7M, retomado com --resume): ele fazia ~20 salas, sempre a parte de cima do
+#   mapa (salas interligadas), e nunca descia. Mudou, sem mexer na rede:
+#   - SPAWN NAS SALAS ESQUECIDAS: a arena guarda a taxa de conclusao de cada sala (media movel ~10 episodios) e
+#     sorteia o spawn com peso 0.2 + (1 - taxa). Ele passa a treinar onde nao ia.
+#   - SALA RARA VALE MAIS: x (1 + (1 - taxa)), alem do valor crescente. Sempre concluida x1, nunca x2.
+#   - EPISODIO de 700 s (35000 steps; era 400 s): tempo de fazer a parte de cima E descer. Custos por step
+#     x 20000/35000 (mesmo teto).
+#   - BETA 0.012 (era 0.006) e max_steps 25M (era 15M): mais variedade (entropia em 0.89 e caindo) e espaco para
+#     as licoes de caca depois do Completo. Com 25M o learning rate e o beta voltam a ~40% do inicial.
+#   - METRICA Rooms/S00..S25: fracao dos episodios em que cada sala foi concluida.
+#   Resultado: em ~15.5M ele fechava 25/26 salas (a ala S14/S17/S18/S23/S25 foi de ~0 a ~1) e passou para a
+#   Patrulha (15.93M). Ficou so a S24: anel de 20 nos em volta da S25, cantos a ~18 m das portas (visao 15 m).
+# MIGALHAS (05/10, ~16M, --resume): sala com >= 10 nos (S12, S16, S24) paga tambem por no novo antes de concluir,
+#   0.5 x valor da sala espalhado nos nos (GraphRewardSystem._bigRoomCrumbReward, GraphRoomMemory._crumbMinNodes).
+# MAX_STEPS 40M (05/10, ~16M, mesma parada): as licoes 4+ passam por PROGRESSO, e com 25M o run ja estava em 64%;
+#   cada licao de caca teria so o minimo (~1M). Com 40M: HiderParado ~17-18M, Anda ~21M, Foge ~25.5M, Rapido ~31M,
+#   Jogador ~37M (3-5.5M cada). LR e beta sao recalculados pelo novo total (LR ~1.1e-4 -> ~1.8e-4).
+# VOLTA AO COMPLETO COM 100% (05/10, ~16.5M): ele passou do Completo com 25/26 salas (reward ~23 > 21) e nunca
+#   fechou o mapa (a S24 faltava). Pedido do Arthur: caca so depois de 100%. Completo agora passa com reward 27
+#   (25/26 salas = ~23; mapa inteiro = +S24 ~2, migalhas, +5 da cobertura = ~30). A licao foi voltada de 3 para 2
+#   no training_status.json do run. MAX_STEPS 50M: o Completo pode levar uns M passos e as licoes seguintes passam
+#   por PROGRESSO (HiderParado 21M, Anda 26M, Foge 32M, Rapido 39M, Jogador 39-50M). Se o Completo passar de 21M,
+#   Patrulha/Ping/HiderParado passam no minimo (150 episodios, ~1M cada) e a caca comeca logo em seguida.
+# ANEL S24 CORTADO + CRITERIO 28 (05/10, ~19M): o Completo passou de novo em 17.76M sem a S24 (taxa das salas
+#   recomecava em 0.5 a cada build: toda sala x1.5 por ~10 episodios, reward ~33). As migalhas nao fizeram ele ir
+#   aos cantos (S24 ~2% em 7M passos). Agora: Node (5) e (14) viraram porta, o anel virou S24 + S26 (9 nos cada),
+#   27 salas / 37 portas; migalhas a partir de 9 nos; taxa comeca em 1. Completo passa com 28 (estavel: 25-26
+#   salas ~25; mapa inteiro ~30). Licao voltada para 2 no training_status.json de novo.
+#   Resultado: com o anel cortado ele FECHOU o mapa (coverage 1.0 e Episode Length 2200-5300 em ~metade dos
+#   lotes; S24 0 -> 0.74, S26 0.96) e passou para a Patrulha em 19.47M.
+# RITMO DA CACA (05/10, ~20.3M): progresso recalculado a partir do Completo em 19.47M, para a caca nao comecar
+#   espremida: Patrulha ate ~20.5M (minimo), Ping 0.44 (22M), HiderParado 0.50 (25M), Anda 0.60 (30M),
+#   Foge 0.72 (36M), Rapido 0.84 (42M), Jogador ate 50M.
+# VELOCIDADES DO MONSTRO (05/10, ~21M, build novo): patrulha 7 (era 6), alerta 8.5 (era 8), perseguicao 10 (era
+#   10.2). O jogador segue 6 andando / 10.2 correndo: na licao HiderJogador o hider abre 0.2 m/s enquanto tem folego.
+# CACA SEM FARM (06/10, ~31M, HiderFoge, build novo): a reward da caca passava muito do teto (~495 na HiderParado,
+#   ~146 na Foge) com Rooms/Completed ate 146 num mapa de 27 salas: sala concluida reabria pela suspeita valendo
+#   ate 8x x calor do ping, e varrer em volta de onde o hider sumiu rendia mais que pega-lo. Mudou: porta (Door_Hole)
+#   e parede (layer Wall, custo cheio); vendo o hider a suspeita zera e o ping some; ao perder de vista a suspeita
+#   nasce onde ele sumiu, na direcao em que ia; a suspeita nao reabre sala; teto de 4x no valor da sala; exploracao
+#   x0.2 na caca (era 0.5) e x0 em HiderRapido/HiderJogador.
+# HIDER SOLTO NA RAPIDO (06/10, ~36.8M): no jogo o seeker ia ate o NO do jogador e parava no centro dele; o hider
+#   do treino sempre andou no centro dos nos. hider_loose passa a 1 ja na HiderRapido (era so na HiderJogador).
+#   Junto: perseguicao segura 3 s, visao do alvo mais firme (cone 160/20 m vendo, 4 m sem cone, 3 raios, 0.5 s de
+#   tolerancia) e audicao de corrida (30 m pelo grafo, ping segue o alvo, some 10 s depois).
+#
+#   #  Licao         salas sala% libera ping  hider  corre  folego barulho desc ping$ solto  criterio
+#   1  Inicio        1.0   0.8   0      0     -      -      -      -       1.0  1.0   0      reward 10.0 (80 ep.)
+#   2  Meio          1.0   0.9   0      0     -      -      -      -       1.0  1.0   0      reward 15.0 (80)
+#   3  Completo      1.0   1.0   0      0     -      -      -      -       1.0  1.0   0      reward 21.0 (100)
+#   4  Patrulha      1.1   1.0   0.85   0     -      -      -      -       1.0  1.0   0      progresso 0.25 (150)
+#   5  Ping          1.1   1.0   0.85   4000  -      -      -      -       1.0  1.0   0      progresso 0.33 (150)
+#   6  HiderParado   1.1   1.0   0      0     parado -      10     1.0     0.2  0     0      progresso 0.42 (150)
+#   7  HiderAnda     1.1   1.0   0      0     anda   5.1    10     0.6     0.2  0     0      progresso 0.52 (150)
+#   8  HiderFoge     1.1   1.0   0      0     foge   7.0    10     0.4     0.2  0     0      progresso 0.64 (150)
+#   9  HiderRapido   1.1   1.0   0      0     foge   8.5    10     0.3     0.0  0     1      progresso 0.78 (150)
+#  10  HiderJogador  1.1   1.0   0      0     foge   10.2   10     0.3     0.0  0     1      (final)
+#
+# THRESHOLDS (26 salas, 35 portas): mapa inteiro = salas 0.5 x (26 + 12.5) = ~19 + portas ~3.5 + saidas ~2.5
+#   + cobertura 5 - custos ~3 = ~27. Parando em ~16 salas (60%) ~10; em ~21 (80%) ~15. Inicio 10 = ~60% das
+#   salas; Meio 15 = ~80%; Completo 21 = a maioria dos episodios fechando o mapa.
+#
+# PASSA QUANDO: Exploration/Coverage > 0.8 no Completo e subindo; Movement/MeanSpeed > ~5; WallContactFraction
+#   < 0.15. Se Coverage travar em ~0.5 depois de ~3M: LSTM (memoria do episodio) num run novo, nao bussola.
+# Checkpoint a cada 500k, todos guardados. ~1M steps/h no build com 3 envs: uma noite (~10 h) = ~9-10M.
+"""
+V5_1_LESSONS = [
+    ("Inicio", 10.0, 80),
+    ("Meio", 15.0, 80),
+    ("Completo", 28.0, 100),
+    ("Patrulha", 0.25, 150, "progress"),
+    ("Ping", 0.44, 150, "progress"),
+    ("HiderParado", 0.50, 150, "progress"),
+    ("HiderAnda", 0.60, 150, "progress"),
+    ("HiderFoge", 0.72, 150, "progress"),
+    ("HiderRapido", 0.84, 150, "progress"),
+    ("HiderJogador", None, None),
+]
+V5_1_PARAMS = [
+    ("room_complete_threshold", "Fracao dos nos de uma sala que precisam ser VISTOS para concluir. 1.0 = a sala inteira.",
+     [0.8, 0.9] + [1.0] * 8),
+    ("coverage_target", "Fracao das SALAS concluidas que encerra o episodio (+5). Acima de 1 = sem fim por cobertura.",
+     [1.0, 1.0, 1.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]),
+    ("previsited_fraction", "Fracao das SALAS que ja nasce concluida. 0 na v5.1 (pedido do Arthur).",
+     [0.0] * 10),
+    ("release_fraction", "Patrulha: com esta fracao usada, a porta e a sala mais antigas voltam. 0 = off.",
+     [0.0, 0.0, 0.0, 0.85, 0.85, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("ping_interval", "Steps de fisica entre pings aleatorios (x U[0.5,1.5]; 4000 = 80 s). Com hider, os pings vem dos passos dele.",
+     [0, 0, 0, 0, 4000, 0, 0, 0, 0, 0]),
+    ("hider_mode", "0 nenhum / 1 parado / 2 anda / 3 foge.",
+     [0, 0, 0, 0, 0, 1, 2, 3, 3, 3]),
+    ("hider_speed", "m/s do hider CORRENDO (anda a 0.588 x). 10.2 = o jogador (e o seeker em perseguicao).",
+     [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.1, 7.0, 8.5, 10.2]),
+    ("hider_stamina", "Segundos de corrida do hider (10 = o jogador).",
+     [10.0] * 10),
+    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.6, 0.4, 0.3, 0.3]),
+    ("discovery_reward_scale", "Escala da exploracao. Caca: 0.2 (era 0.5), 0 nas duas ultimas: explorar so serve para achar.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2, 0.0, 0.0]),
+    ("ping_reward_scale", "Escala do ping (chegar +5, expirar -0.5). 0 na caca: o rastro do hider so informa.",
+     [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("vision_explores", "1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.",
+     [1] * 10),
+    ("hider_loose", "1 = hider anda fora do centro dos nos e se esconde. Desde a HiderRapido (06/10): no centro do no o seeker aprendia ir ao no, nao ao alvo.",
+     [0] * 8 + [1, 1]),
+]
+V5_1_STAGES = [
+    ("graph_v5.1_zero", "v5.1_zero_01", "V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998",
+     V5_1_BODY, 50000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
+]
+
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)
 write('graph_node4_search.yaml', SEARCH_HEADER, 15000000, SEARCH_CONSTANTS, SEARCH_LESSONS, SEARCH_PARAMS)
 
@@ -1022,5 +1164,9 @@ for name, run, init, title, body, steps, constants, lessons, params in V4_STAGES
           beta=BETA_NIGHT if name in ('graph_v4_noite', 'graph_v4.1_noite', 'graph_v4.2_noite') else BETA_STAGES, keep=max(10, steps // 500000))
 
 for name, run, title, body, steps, constants, lessons, params in V5_STAGES:
-    write(name + '.yaml', v5_header(title, name, run, body), steps, constants, lessons, params,
+    write(name + '.yaml', v5_header(title, name, run, body, folder='historico/'), steps, constants, lessons, params,
           beta=BETA_NIGHT, keep=max(10, steps // 500000))
+
+for name, run, title, body, steps, constants, lessons, params in V5_1_STAGES:
+    write(name + '.yaml', v5_header(title, name, run, body), steps, constants, lessons, params,
+          beta=BETA_V51, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256)

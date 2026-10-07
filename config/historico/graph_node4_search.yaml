@@ -2,7 +2,7 @@
 # GraphExplorer - mapa da Node_4: PROCURA + PING, do zero (28/09/2026)
 #   hider parado -> anda devagar -> anda -> foge -> foge rapido
 #
-#   mlagents-learn config/graph_node4_search.yaml --run-id=node4_search_01
+#   mlagents-learn config/historico/graph_node4_search.yaml --run-id=node4_search_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/procura-e-ping.md.
 # Vetor 118, 4 acoes, rede 256 x 2.

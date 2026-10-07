@@ -11,30 +11,32 @@ namespace Assets.Scripts.Graph
     /// Nenhum termo paga aproximar-se de alvo escolhido por algoritmo: só eventos que o agente causa (a
     /// aproximação do hider só conta com ele em vista).
     ///
-    /// ORÇAMENTO por episódio (v5: 20000 steps de física = 400 s = 4000 decisões; "x escala" =
-    /// discovery_reward_scale ou ping_reward_scale). Custos POR STEP foram divididos por 2.5 quando o
-    /// episódio passou de 8000 para 20000 steps, para o TETO de cada um ficar igual ao da v4:
+    /// ORÇAMENTO por episódio (v5.1: 35000 steps de física = 700 s = 7000 decisões; "x escala" =
+    /// discovery_reward_scale ou ping_reward_scale). Custos POR STEP divididos por 2.5 (8000 -> 20000 steps)
+    /// e depois x 20000/35000 (400 s -> 700 s), para o TETO de cada um ficar igual ao da v4:
     ///   Termo (valor)                              Teto / total
     ///   existencial (2 / steps do episódio)        -2.0
-    ///   contato com parede (0.0006/step)           -12.0 encostado o tempo todo (paredes e móveis; porta x0.25)
+    ///   contato com parede (0.00034/step)          -12.0 encostado o tempo todo (paredes e móveis; porta x0.25)
     ///   batida (0.06 x batidas x até 5)            -1.8 (30 isoladas) a -9.0 (rajada)
     ///   suavidade do andar (0.0002 x |Δ|²)         -0.2 típico; -6.4 patológico
     ///   suavidade do olhar (0.0001 x |Δ|²)         -0.1 típico; -3.2 patológico
-    ///   estagnação (0.0002/step após 2500 steps)   -3.5
+    ///   estagnação (0.00011/step após 2500 steps)  -3.6
     ///   revisita precoce (0.05, após 3 seguidas)   ~-2.0 (40 chegadas)
     ///   ping perdido (0.5)                         -2.0 (4 pings)
-    ///   sala explorada (0.25/sala, cauda x0.2)     +6.5 (26 salas) x escala
-    ///   sala concluída (0.25/sala)                 +6.5 x escala
-    ///   porta (0.1 x novidade)                     +3.5 (35 portas; vai-e-vem até 2x) x escala
-    ///   saída de sala concluída (0.15 x novidade)  ~+3.9 x escala
+    ///   sala explorada (fatias, 0 na v5.1)         0 (a sala paga UMA vez, ao concluir)
+    ///   sala concluída (0.5 x crescente x rara)    ~+19 a ~+30 (26 salas; rara = 1..2) x escala
+    ///   migalhas (0.5/sala grande, >= 9 nós)        ~+3 (S12, S16 e as metades do anel x valor) x escala
+    ///   porta (0.1, só a 1ª travessia)             +3.5 (35 portas) x escala
+    ///   saída de sala concluída (0.15, 1ª vez)     ~+2.5 x escala
     ///   cobertura (5, encerra)                     +5
     ///   ping atendido (5 x PingValue)              +20 (4 pings) x escala
     ///   avistar hider (2, cooldown 5 s)            ~+8 (4 avistamentos)
-    ///   aproximar vendo (0.4/m)                    +6 por 15 m em linha reta
-    ///   hider em vista (0.0015/step)               +30 o episódio todo
+    ///   aproximar vendo (1.0/m, só batendo o RECORDE de proximidade do episódio)  teto ~+20-30
+    ///   avistar (2, só a 1ª vista do episódio)     +2
+    ///   hider em vista (0.00086/step)              +30 o episódio todo
     ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
-    /// NodeTraining5 (26 salas, 35 portas) coberto por inteiro: ~25 de exploração.
+    /// NodeTraining5 (27 salas, 37 portas desde o corte do anel S24) coberto por inteiro: ~25 de exploração + 5 da cobertura.
     /// </summary>
     public class GraphRewardSystem : MonoBehaviour
     {
@@ -45,13 +47,15 @@ namespace Assets.Scripts.Graph
 
         // Por STEP em contato, não por evento (o Unity re-dispara a colisão ao deslizar). Ao mudar
         // _maxEpisodeSteps, reescale pelo teto (valor x steps), não pelo valor por step.
-        // 0.0006 na v5 = 0.0015 da v4.4 x 8000 / 20000 (mesmo teto, -12). Vale para paredes e móveis; a porta
+        // 0.00034 na v5.1 = 0.0015 da v4.4 x 8000 / 35000 (mesmo teto, -12). Vale para paredes e móveis; a porta
         // (layer Door, GraphExplorerManager._doorLayer) paga x _doorPenaltyScale.
-        [SerializeField] private float _wallContactPenalty = 0.0006f;
+        [SerializeField] private float _wallContactPenalty = 0.00034f;
 
         // Fração do custo de parede (contato e batida) que a PORTA paga. 0.25: o vão tem 2 m e o corpo 1.38, então
         // raspar o batente passando é quase inevitável; custo cheio ensinou a evitar portas na v4.2, e zero deixava
         // a parede inteira da peça Door_Hole grátis. Ainda custa, então mirar o meio do vão compensa. 1 = igual à parede.
+        // Desde 06/10 as Door_Hole estão na layer Wall (barato demais: raspava o batente e ficava preso), então isto
+        // só vale para o que estiver na layer Door, e no mapa atual nada está.
         [SerializeField, Min(0f)] private float _doorPenaltyScale = 0.25f;
 
         // Por BATIDA (início de contato, GraphBodyTracker) x batidas nos últimos ~5 s (até
@@ -69,8 +73,8 @@ namespace Assets.Scripts.Graph
 
         // Contra entalar numa quina ou orbitar sala já vista. Só entra após _stagnationSteps sem
         // PROGRESSO DE SALA (nó novo, sala concluída ou porta com novidade >= 0.25), não sem movimento.
-        // 0.0002 na v5 (era 0.0005): teto -3.5 com o episódio de 20000 steps.
-        [SerializeField] private float _stagnationPenalty = 0.0002f;
+        // 0.00011 na v5.1 (0.0002 com 400 s): teto ~-3.6 com o episódio de 35000 steps.
+        [SerializeField] private float _stagnationPenalty = 0.00011f;
 
         // Em steps de FÍSICA (2500 = 50 s; era 25 s a 15 m/s, agora anda a 6). Tem que passar da travessia
         // normal entre duas salas, senão pune a viagem legítima e cancela o prêmio da chegada.
@@ -82,17 +86,26 @@ namespace Assets.Scripts.Graph
         [SerializeField, Min(0)] private int _earlyRevisitGrace = 3;
 
         [Header("-----Salas e portas-----")]
-        // A sala inteira (fatias por nó até 80% dela) vale isto, qualquer que seja o tamanho.
-        [SerializeField] private float _roomExploreReward = 0.25f;
+        // Fatias por nó da sala (a sala inteira vale isto). 0 na v5.1: a sala paga UMA vez, ao concluir (pedido do
+        // Arthur); com fatias, as salas de 1 nó e o começo das grandes rendiam sem concluir nada.
+        [SerializeField] private float _roomExploreReward = 0f;
 
         // Fração do valor de um nó que a CAUDA paga (nós não pisados de sala já concluída). Baixo
         // para varrer o último canto perder para ir à próxima sala.
         [SerializeField, Range(0f, 1f)] private float _completedRoomNodeFraction = 0.2f;
 
         // Concluir a sala (room_complete_threshold dos nós). Uma vez por sala, de novo (valendo menos) se liberada.
-        [SerializeField] private float _roomCompletedReward = 0.25f;
+        // 0.5 na v5.1 = as fatias (0.25) + a conclusão (0.25) de antes, agora tudo no evento de concluir; x o valor
+        // crescente da GraphRoomMemory (1 na primeira sala, ~2 na última).
+        [SerializeField] private float _roomCompletedReward = 0.5f;
 
-        // Atravessar uma porta x novidade (1, 0.5, 0.25...). Pequeno: porta é meio, não fim.
+        // Migalhas: por nó novo de sala GRANDE (GraphRoomMemory._crumbMinNodes) antes de concluir; a sala inteira
+        // soma isto x o valor dela. 0.5 = metade do que a conclusão já paga, espalhado nos nós: na S24 (20 nós),
+        // 0.025 x valor (1..4) por nó, ~0.05-0.1 por canto. É evento (ver um nó), não seta, e não farma: cada nó
+        // paga uma vez por episódio (de novo só se a sala for liberada, como a conclusão).
+        [SerializeField] private float _bigRoomCrumbReward = 0.5f;
+
+        // Atravessar uma porta x novidade (só a 1ª travessia paga: GraphRoomMemory._doorPaidCrossings). Pequeno: porta é meio, não fim.
         [SerializeField] private float _doorCrossReward = 0.1f;
 
         // Sair de sala concluída x novidade da porta: faz "sair por outra porta" valer mais que voltar.
@@ -115,18 +128,20 @@ namespace Assets.Scripts.Graph
         // aquisições (GraphHiderPerception) para não render piscando numa quina.
         [SerializeField] private float _hiderSpottedReward = 2f;
 
-        // Por METRO de aproximação ENQUANTO VÊ. Só conta se via nas duas decisões, e afastar cobra
-        // o que aproximar pagou: ir e voltar dá zero, não é farmável.
-        [SerializeField] private float _hiderApproachReward = 0.4f;
+        // Por METRO de aproximação ENQUANTO VÊ, só os que batem o RECORDE de proximidade do episódio
+        // (GraphHiderPerception): deixar escapar e perseguir de novo não paga até chegar mais perto que antes. 1.0
+        // (06/10; era 0.4): ver o alvo tem que mandar em tudo. Teto: da 1ª vista (até 22 m) até pegar, ~+20, mais a
+        // captura (20 + até 25). O pago por decisão (sem recorde) virou farm com o hider esperto: reward ~100.
+        [SerializeField] private float _hiderApproachReward = 1f;
 
         // Pegou o hider (GraphHiderPerception.Caught): paga e ENCERRA o episódio. Tem que valer mais
         // que o resto do mapa que ele deixa de explorar ao encerrar.
         [SerializeField] private float _hiderCaughtReward = 20f;
 
         // Por STEP DE FÍSICA com o hider no cone e linha livre: faz o seeker seguir o alvo em vez de
-        // só avistar. 0.0015 x 20000 = 30 tem que ficar abaixo de pegar cedo (45), senão perseguir para
-        // sempre pagaria mais que capturar (era 0.004 com o episódio de 8000).
-        [SerializeField, Min(0f)] private float _hiderInViewReward = 0.0015f;
+        // só avistar. 0.00086 x 35000 = 30 tem que ficar abaixo de pegar cedo (45), senão perseguir para
+        // sempre pagaria mais que capturar (0.0015 com 400 s, 0.004 com 160 s).
+        [SerializeField, Min(0f)] private float _hiderInViewReward = 0.00086f;
 
         // Paga a massa de crença zerada (fração de 1) ao ver ou pisar onde o hider poderia estar
         // (GraphSuspicionMap.ClearedMass). A carência de 10 s por nó (_reclearCooldownSteps) segue
@@ -171,6 +186,7 @@ namespace Assets.Scripts.Graph
             float discovery = context.DiscoveryRewardScale;
             reward += _roomExploreReward * (context.RoomNodeValue + _completedRoomNodeFraction * context.RoomTailValue) * discovery;
             reward += _roomCompletedReward * context.RoomCompletedValue * discovery;
+            reward += _bigRoomCrumbReward * context.RoomCrumbValue * discovery;
             reward += _doorCrossReward * context.DoorCrossValue * discovery;
             reward += _roomExitReward * context.RoomExitValue * discovery;
 

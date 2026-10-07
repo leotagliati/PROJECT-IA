@@ -1,42 +1,50 @@
 # ================================================================================================
-# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.2 (ABANDONADA): DO ZERO - CACA RAPIDA, CALOR DO PING, RAIOS DUPLOS
+# GraphExplorer - mapa v4 (NodeTraining5, cena Node_5) - V4.0 NOITE: S1 -> S6 NUM RUN SO (~8 h)
 #
-#   mlagents-learn config/graph_v4.2_noite.yaml --run-id=v4.2_noite_01
+#   mlagents-learn config/historico/graph_v4_noite.yaml --run-id=v4_noite_01 --initialize-from=v4_s1_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Plano: docs/graph/salas-e-portas.md.
 # Etapas: S1 salas (sem seta) -> S2 menos assist -> S3 liberacao -> S4 ping -> S5 hider -> S6 hider solto.
 # Vetor 182, 4 acoes. Nao rode a proxima etapa sem conferir o criterio desta no TensorBoard.
 #
-# V4.2 DO ZERO (03/10, ABANDONADA aos 3.72M - ver historico). O que mudou da v4.1 (v4.1_noite_01):
-#   - PERCEPCAO: 2 sensores de raios de parede (RaysHigh/RaysLow, 13 raios cada, alcance 15 m, alturas
-#     ajustaveis em WorldAlignedSensor._heightOffset) no lugar de 1 de 9 raios a 20 m. Sensor novo =
-#     rede nova (por isso do zero).
-#   - MOVIMENTO: seeker 20 m/s (era 40) com aceleracao 7 (era 15), freio 30 e atrito 1 (corpo nao e mais
-#     sem atrito): ele deslizava e se jogava na parede, e o steering assist cobria o erro.
-#   - STEERING MENOR: 0.6 -> 0.1 (era 1.0 -> 0.3); parede custa o dobro: contato 0.0015/step e batida 0.1.
-#   - CALOR DO PING NO MAPA INTEIRO (GraphRoomMemory): 1 na sala do barulho, x0.65 por porta, meia-vida
-#     25 s; observacao continua (sala atual, portas, planta). Explorar no frio vale 0.25x enquanto ha
-#     calor; a sala quente vale ~8x. Ping chegado paga 5 (era 2). Suspeita zerada volta a pagar (1.0).
-#   - CACA MUITO MAIS VALIOSA: captura 20 + ate 25 por pegar cedo, avistar 2, aproximar 0.4 por metro
-#     (so com visao livre = linha reta), manter em visao 0.004/step; exploracao 0.5x na caca.
-#   - HIDER: 10 m/s, sem pausa, foge do seeker a menos de 18 m, vagueia fora disso.
+# Tudo num run de ~8 h, herdando o cerebro do v4_s1_01 (o vetor 182 nao mudou). As licoes de
+# exploracao promovem por REWARD (contas abaixo); as de patrulha/ping/caca por PROGRESSO (fracao do
+# max_steps), porque o reward delas e dificil de prever e uma licao nao pode prender a noite.
 #
 #   #  Licao        salas assist pre  libera ping  hider  vel  barulho desc ping$ visao solto  criterio
-#   1  Perto        0.2   0.6    0    0      0     -      -    -       1.0  1.0   1     0      reward 5.0  (80 ep.)
-#   2  Metade       0.5   0.5    0    0      0     -      -    -       1.0  1.0   1     0      reward 8.0  (80)
-#   3  Quase        0.8   0.3    0    0      0     -      -    -       1.0  1.0   1     0      reward 10.0 (150)
-#   4  MenosAssist  0.8   0.15   0.3  0      0     -      -    -       1.0  1.0   1     0      reward 7.5  (150)
-#   5  Patrulha     1.1   0.1    0    0.85   0     -      -    -       1.0  1.0   1     0      progresso 0.30 (300)
-#   6  Ping         1.1   0.1    0    0.85   2000  -      -    -       1.0  1.0   1     0      progresso 0.40 (300)
-#   7  HiderParado  1.1   0.1    0    0      0     parado -    1.0     0.5  1.0   1     0      progresso 0.52 (300)
-#   8  HiderAnda    1.1   0.1    0    0      0     anda   5.0  0.8     0.5  1.0   1     0      progresso 0.64 (300)
-#   9  HiderFoge    1.1   0.1    0    0      0     foge   8.0  0.7     0.5  1.0   1     0      progresso 0.78 (300)
-#  10  HiderSolto   1.1   0.1    0    0      0     foge  10.0  0.7     0.5  1.0   1     1      (final)
+#   1  Perto        0.2   1.0    0    0      0     -      -    -       1.0  1.0   0     0      reward 6.0  (80 ep.)
+#   2  Metade       0.5   1.0    0    0      0     -      -    -       1.0  1.0   0     0      reward 9.0  (80)
+#   3  Quase        0.8   0.7    0    0      0     -      -    -       1.0  1.0   0     0      reward 11.0 (150)
+#   4  MenosAssist  0.8   0.3    0.3  0      0     -      -    -       1.0  1.0   0     0      reward 8.5  (150)
+#   5  Patrulha     1.1   0.3    0    0.85   0     -      -    -       1.0  1.0   0     0      progresso 0.30 (300)
+#   6  Ping         1.1   0.3    0    0.85   2000  -      -    -       1.0  1.0   0     0      progresso 0.40 (300)
+#   7  HiderParado  1.1   0.3    0    0      0     parado -    1.0     0.5  0     1     0      progresso 0.52 (300)
+#   8  HiderAnda    1.1   0.3    0    0      0     anda   1.0  0.6     0.5  0     1     0      progresso 0.64 (300)
+#   9  HiderFoge    1.1   0.3    0    0      0     foge   2.2  0.4     0.5  0     1     0      progresso 0.78 (300)
+#  10  HiderSolto   1.1   0.3    0    0      0     foge   2.2  0.3     0.5  0     1     1      (final)
 #
-# THRESHOLDS: os da v4.1 menos ~1 (a parede custa o dobro; v4.1: Quase 10.9, MenosAssist 10.0 de media).
-# ATENCAO: ping$ 1.0 na caca e o que virou renda no night_04. Se Exploration/Coverage cair enquanto o
-# reward sobe, baixe ping_reward_scale para ~0.3. Compare tambem a captura x reward.
-# O que olhar: Hunt/Caught e Hunt/Seen, Exploration/Coverage, WallContactFraction, Movement/IdleFraction.
+# THRESHOLDS de reward (~70% de um episodio bom; 26 salas):
+#   Quase       = 21 salas x 0.5 + ~2.5 portas + ~3 saidas + 5 - ~3.5 = ~17.5 -> 11.0;
+#   MenosAssist = 30% das salas ja nascem concluidas: ~14.5 x 0.5 + ~2 + ~2 + 5 - ~3.5 = ~13 -> 8.5.
+# PROGRESSO: com 10M steps, Patrulha sai aos 3M, Ping aos 4M, ... HiderSolto fica com os ultimos
+# ~2.2M. Se a exploracao demorar, a licao de progresso ja vencido sai depois do minimo de 300
+# episodios (~480k steps) - nenhuma licao fica sem treino nem prende o run.
+#
+# CONTRA OVERTRAINING (decorar o mapa / esquecer o que ja sabia):
+#   - tudo varia por episodio: spawn em no aleatorio, salas pre-concluidas, nos de ping sorteados por
+#     sala, hider nasce longe e (no fim) em pontos aleatorios e escondido;
+#   - nas licoes de caca a exploracao continua pagando (discovery_reward_scale 0.5, nao 0): sem isso a
+#     rede "esquece" de explorar enquanto aprende a cacar;
+#   - checkpoint a cada 500k e os 20 guardados (a noite inteira): se o fim piorar, volte a um anterior
+#     (tools/best_onnx.py) em vez de usar o ultimo;
+#   - learning rate e entropia descem linearmente ate max_steps: o run termina refinando, nao pulando.
+#
+# PING: so paga chegar (+2) e cobra expirar (-0.5) na licao Ping; nas de caca o ping so INFORMA
+# (ping_reward_scale 0, o rastro do hider nao vira renda - night_04). A sala do ping fica QUENTE
+# (explorar vale 2x) e as portas dela mostram o calor. Nada paga por metro de aproximacao.
+#
+# O QUE OLHAR DE MANHA: Environment/Lesson Number (ate onde chegou), Exploration/Coverage (salas),
+# Doors/RepeatFraction, Hunt/Seen e Hunt/Caught (nas licoes 7-10), WallContactFraction.
 # ================================================================================================
 
 behaviors:
@@ -85,7 +93,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0.2
       - name: Metade
@@ -94,7 +102,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0.5
       - name: Quase
@@ -103,7 +111,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0.8
       - name: MenosAssist
@@ -112,7 +120,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0.8
       - name: Patrulha
@@ -163,7 +171,7 @@ environment_parameters:
       - name: HiderSolto
         value: 1.1
 
-  # Steering assistido (0..1). Menor que na v4.1: ele aprendia a se jogar na parede e deslizar.
+  # Steering assistido (0..1). 1 = desliza na parede.
   steer_assist:
     curriculum:
       - name: Perto
@@ -172,36 +180,36 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
-        value: 0.6
+        value: 1.0
       - name: Metade
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
-        value: 0.5
+        value: 1.0
       - name: Quase
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
-        value: 0.3
+        value: 0.7
       - name: MenosAssist
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
-        value: 0.15
+        value: 0.3
       - name: Patrulha
         completion_criteria:
           measure: progress
@@ -210,7 +218,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.3
           require_reset: true
-        value: 0.1
+        value: 0.3
       - name: Ping
         completion_criteria:
           measure: progress
@@ -219,7 +227,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.4
           require_reset: true
-        value: 0.1
+        value: 0.3
       - name: HiderParado
         completion_criteria:
           measure: progress
@@ -228,7 +236,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.52
           require_reset: true
-        value: 0.1
+        value: 0.3
       - name: HiderAnda
         completion_criteria:
           measure: progress
@@ -237,7 +245,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.64
           require_reset: true
-        value: 0.1
+        value: 0.3
       - name: HiderFoge
         completion_criteria:
           measure: progress
@@ -246,9 +254,9 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.78
           require_reset: true
-        value: 0.1
+        value: 0.3
       - name: HiderSolto
-        value: 0.1
+        value: 0.3
 
   # Fracao das SALAS que ja nasce concluida (anti-decoreba).
   previsited_fraction:
@@ -259,7 +267,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0.0
       - name: Metade
@@ -268,7 +276,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0.0
       - name: Quase
@@ -277,7 +285,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0.0
       - name: MenosAssist
@@ -286,7 +294,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0.3
       - name: Patrulha
@@ -346,7 +354,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0.0
       - name: Metade
@@ -355,7 +363,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0.0
       - name: Quase
@@ -364,7 +372,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0.0
       - name: MenosAssist
@@ -373,7 +381,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0.0
       - name: Patrulha
@@ -433,7 +441,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0
       - name: Metade
@@ -442,7 +450,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0
       - name: Quase
@@ -451,7 +459,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0
       - name: MenosAssist
@@ -460,7 +468,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0
       - name: Patrulha
@@ -520,7 +528,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0
       - name: Metade
@@ -529,7 +537,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0
       - name: Quase
@@ -538,7 +546,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0
       - name: MenosAssist
@@ -547,7 +555,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0
       - name: Patrulha
@@ -598,7 +606,7 @@ environment_parameters:
       - name: HiderSolto
         value: 3
 
-  # m/s do hider. 10 no fim (sem pausa, foge a menos de 18 m).
+  # m/s do hider (o seeker anda a 6).
   hider_speed:
     curriculum:
       - name: Perto
@@ -607,7 +615,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0.0
       - name: Metade
@@ -616,7 +624,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0.0
       - name: Quase
@@ -625,7 +633,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0.0
       - name: MenosAssist
@@ -634,7 +642,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0.0
       - name: Patrulha
@@ -672,7 +680,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.64
           require_reset: true
-        value: 5.0
+        value: 1.0
       - name: HiderFoge
         completion_criteria:
           measure: progress
@@ -681,9 +689,9 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.78
           require_reset: true
-        value: 8.0
+        value: 2.2
       - name: HiderSolto
-        value: 10.0
+        value: 2.2
 
   # Chance de cada chegada do hider num no de ping virar ping.
   hider_noise:
@@ -694,7 +702,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 1.0
       - name: Metade
@@ -703,7 +711,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 1.0
       - name: Quase
@@ -712,7 +720,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 1.0
       - name: MenosAssist
@@ -721,7 +729,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -759,7 +767,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.64
           require_reset: true
-        value: 0.8
+        value: 0.6
       - name: HiderFoge
         completion_criteria:
           measure: progress
@@ -768,11 +776,11 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.78
           require_reset: true
-        value: 0.7
+        value: 0.4
       - name: HiderSolto
-        value: 0.7
+        value: 0.3
 
-  # Escala da exploracao. 0.5 na caca: o objetivo e pegar.
+  # Escala da exploracao. 0.5 na caca: continua valendo explorar (contra esquecer).
   discovery_reward_scale:
     curriculum:
       - name: Perto
@@ -781,7 +789,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 1.0
       - name: Metade
@@ -790,7 +798,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 1.0
       - name: Quase
@@ -799,7 +807,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 1.0
       - name: MenosAssist
@@ -808,7 +816,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -859,7 +867,7 @@ environment_parameters:
       - name: HiderSolto
         value: 0.5
 
-  # Ping valendo tambem na caca (chegar +5). Cuidado: night_04.
+  # Escala do ping (chegar +2, expirar -0.5). 0 na caca: o rastro do hider so informa.
   ping_reward_scale:
     curriculum:
       - name: Perto
@@ -868,7 +876,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 1.0
       - name: Metade
@@ -877,7 +885,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 1.0
       - name: Quase
@@ -886,7 +894,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 1.0
       - name: MenosAssist
@@ -895,7 +903,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 1.0
       - name: Patrulha
@@ -924,7 +932,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.52
           require_reset: true
-        value: 1.0
+        value: 0.0
       - name: HiderAnda
         completion_criteria:
           measure: progress
@@ -933,7 +941,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.64
           require_reset: true
-        value: 1.0
+        value: 0.0
       - name: HiderFoge
         completion_criteria:
           measure: progress
@@ -942,11 +950,11 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.78
           require_reset: true
-        value: 1.0
+        value: 0.0
       - name: HiderSolto
-        value: 1.0
+        value: 0.0
 
-  # 1 = o que ele VE (qualquer sala) conta como visto. Ligado o run inteiro.
+  # 1 = o que ele VE na sala atual conta como pisado.
   vision_explores:
     curriculum:
       - name: Perto
@@ -955,36 +963,36 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
-        value: 1
+        value: 0
       - name: Metade
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
-        value: 1
+        value: 0
       - name: Quase
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
-        value: 1
+        value: 0
       - name: MenosAssist
         completion_criteria:
           measure: reward
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
-        value: 1
+        value: 0
       - name: Patrulha
         completion_criteria:
           measure: progress
@@ -993,7 +1001,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.3
           require_reset: true
-        value: 1
+        value: 0
       - name: Ping
         completion_criteria:
           measure: progress
@@ -1002,7 +1010,7 @@ environment_parameters:
           min_lesson_length: 300
           threshold: 0.4
           require_reset: true
-        value: 1
+        value: 0
       - name: HiderParado
         completion_criteria:
           measure: progress
@@ -1042,7 +1050,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 5.0
+          threshold: 6.0
           require_reset: true
         value: 0
       - name: Metade
@@ -1051,7 +1059,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 80
-          threshold: 8.0
+          threshold: 9.0
           require_reset: true
         value: 0
       - name: Quase
@@ -1060,7 +1068,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 10.0
+          threshold: 11.0
           require_reset: true
         value: 0
       - name: MenosAssist
@@ -1069,7 +1077,7 @@ environment_parameters:
           behavior: GraphExplorer
           signal_smoothing: true
           min_lesson_length: 150
-          threshold: 7.5
+          threshold: 8.5
           require_reset: true
         value: 0
       - name: Patrulha

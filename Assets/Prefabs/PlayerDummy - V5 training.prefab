@@ -593,4 +593,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cbc7e57138e442b480ed50d9cd6569ae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _animateDuringTraining: 1
+  _animateDuringTraining: 0
