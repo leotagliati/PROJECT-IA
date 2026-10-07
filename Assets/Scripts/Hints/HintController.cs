@@ -117,6 +117,16 @@ public class HintController : MonoBehaviour
     private string highlightHex;
     private int currentScheme;
 
+    /// <summary>
+    /// Sprite asset do esquema ativo. Quem formata texto com <see cref="Format"/> num TMP
+    /// próprio (o prompt de interação) precisa pôr este asset no label, senão os
+    /// &lt;sprite&gt; saem vazios.
+    /// </summary>
+    public TMP_SpriteAsset Icons => schemes.Length > 0 ? schemes[currentScheme].icons : null;
+
+    /// <summary>Trocou teclado ↔ controle: texto já formatado ficou com os ícones errados.</summary>
+    public event Action SchemeChanged;
+
     private void Awake()
     {
         if (view == null)
@@ -241,15 +251,25 @@ public class HintController : MonoBehaviour
         currentScheme = index;
         view.Label.spriteAsset = schemes[index].icons;
         formatted.Clear();
+        SchemeChanged?.Invoke();
     }
 
-    private string Format(string text)
+    /// <summary>
+    /// Traduz a marcação ({Action}, [Tecla], *destaque*) para rich text no esquema ativo, sem
+    /// mostrar nada. Para UI que não é a linha de dica mas quer as mesmas teclas/ícones.
+    /// </summary>
+    public string Format(string text)
     {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
         if (formatted.TryGetValue(text, out string result))
             return result;
 
         // Destaque primeiro: as teclas geradas abaixo não têm asterisco, mas o texto do
         // usuário pode ter colchete dentro de um trecho destacado.
+        // Lazy: Format pode ser chamado por outro objeto antes do Awake deste.
+        highlightHex ??= ColorUtility.ToHtmlStringRGBA(highlightColor);
         result = Highlight.Replace(text, match => $"<color=#{highlightHex}>{match.Groups[1].Value}</color>");
         result = LiteralKey.Replace(result, match => Key(match.Groups[1].Value, match.Groups[1].Value));
         result = ActionToken.Replace(result, match => KeysFor(match.Groups[1].Value) ?? match.Value);
