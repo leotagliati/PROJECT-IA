@@ -676,7 +676,9 @@ namespace Assets.Scripts.Graph
             if (_rigidbody != null)
             {
                 _rigidbody.position = position;
-                _rigidbody.linearVelocity = Vector3.zero;
+                // Cinemático (o PlayerDummy de treino) não tem velocidade, e o Unity 6 avisa a cada reset se zerar.
+                if (!_rigidbody.isKinematic)
+                    _rigidbody.linearVelocity = Vector3.zero;
             }
 
             transform.position = position;
