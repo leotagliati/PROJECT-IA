@@ -456,6 +456,7 @@ namespace Assets.Scripts.Graph
 
             HiderSpotted = _perception.Spotted,
             HiderInView = _perception.IsSeeing,
+            HuntingTarget = _perception.IsSeeing || _perception.IsSearching,
             HasHiderApproach = _perception.HasApproach,
             HiderApproachDelta = _perception.ApproachDelta,
             SuspicionClearedMass = _suspicion.ClearedMass,

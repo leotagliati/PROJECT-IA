@@ -35,13 +35,15 @@ namespace Assets.Scripts.Graph
         // Um pouco acima do andar: o jogador andando é alcançado devagar; agachado (2.7) nem se fala.
         [SerializeField, Min(0f)] private float _patrolSpeed = 7f;
 
-        // Entre patrulhar e correr: sabe a região do alvo (ping, ou acabou de perdê-lo de vista). 8.5 (era 8).
-        [SerializeField, Min(0f)] private float _alertSpeed = 8.5f;
+        // Entre patrulhar e correr: sabe a região do alvo (ping, ou acabou de perdê-lo de vista). 9.5 (v5.2, 08/10;
+        // era 8.5): perdido de vista, o jogador correndo (10.2) abria 1.7 m/s; agora 0.7, e andando (6) é alcançado.
+        [SerializeField, Min(0f)] private float _alertSpeed = 9.5f;
 
-        // 10 (era 10.2 = moveSpeed x sprintMultiplier do PlayerDummy, 6 x 1.7): vendo o jogador, corre quase como
-        // ele, mas sem fôlego. O jogador correndo abre 0.2 m/s enquanto tem os 10 s de fôlego; depois, é alcançado.
-        // Mudou a velocidade do jogador: mude aqui e GraphHider._speed/_walkFraction (hider_speed no currículo).
-        [SerializeField, Min(0f)] private float _chaseSpeed = 10f;
+        // 11.5 (v5.2, 08/10; era 10): com 10 o jogador correndo (6 x 1.7 = 10.2, 10 s de fôlego) abria distância
+        // vendo o monstro, e o 50M quase nunca o pegava no jogo. Agora ganha ~1.3 m/s: uma corrida de 10 s fecha
+        // ~13 m, e quebrar a linha de visão vira a única fuga. Mudou a velocidade do jogador: mude aqui e
+        // GraphHider._speed/_walkFraction (hider_speed no currículo).
+        [SerializeField, Min(0f)] private float _chaseSpeed = 11.5f;
 
         [Header("-----Estado de alerta-----")]
         // Segundos em Alerta depois da última pista (perdeu de vista ou um ping começou).
@@ -66,8 +68,9 @@ namespace Assets.Scripts.Graph
         // Patrulha e Alerta: uma curva de 90 graus o leva ~0.3 m para fora (v / 2w).
         [SerializeField, Min(1f)] private float _turnSpeed = 540f;
 
-        // Perseguição: ~0.8 m para fora numa curva de 90 graus.
-        [SerializeField, Min(1f)] private float _chaseTurnSpeed = 360f;
+        // Perseguição: ~0.6 m para fora numa curva de 90 graus a 11.5 m/s. 540 (v5.2; era 360, ~0.8 m a 10 m/s): o
+        // jogador desviando de lado numa esquina tirava o monstro do rastro.
+        [SerializeField, Min(1f)] private float _chaseTurnSpeed = 540f;
 
         [Header("-----Corpo-----")]
         // Altura travada, sem gravidade (como o NodeTraining5): o corpo não sobe em rodapé nem quica em quina.

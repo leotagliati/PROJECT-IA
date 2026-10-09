@@ -293,10 +293,10 @@ BETA_STAGES = """      # 0.003 (era 0.015): com 0.015 a entropia nunca caiu (E1.
 # folder: subpasta de config/. Os currículos fora de uso vão para config/historico/ (só registro); na raiz fica
 # só o que se treina hoje (a v5 e o seeker_curriculum.yaml, que não é gerado aqui).
 def write(filename, header, max_steps, constants, lessons, params, beta=BETA_OLD, keep=10, folder='historico',
-          gamma=0.995, horizon=128):
+          gamma=0.995, horizon=128, lr=0.0003):
     behaviors = (BEHAVIORS.replace("MAX_STEPS", str(max_steps)).replace("BETA_BLOCK", beta)
                  .replace("KEEP_CHECKPOINTS", str(keep)).replace("GAMMA", str(gamma))
-                 .replace("HORIZON", str(horizon)))
+                 .replace("HORIZON", str(horizon)).replace("learning_rate: 0.0003", f"learning_rate: {lr}"))
     out = [header, behaviors, constants, "\n  # ---- Curriculo ----\n"]
     for name, comment, values in params:
         assert len(values) == len(lessons), name
@@ -1150,6 +1150,82 @@ V5_1_STAGES = [
      V5_1_BODY, 50000000, V5_CONSTANTS, V5_1_LESSONS, V5_1_PARAMS),
 ]
 
+# ---- V5.2 (08/10): CACA herdando o 50M da v5.1 (--initialize-from), mesmo vetor 188 ----
+# No jogo o v5.1 (50M) explorava bem e pegava o hider do treino em 99%, mas o jogador escapava: corria a 10.2 contra
+# 10 do monstro, e ao sumir de vista o monstro ia ate onde ele SUMIU. Run novo (nao --resume) porque a fisica e a
+# recompensa mudam; a rede e a mesma (vetor 188), entao herda os pesos.
+def v5_2_header(title, name, run, init, body):
+    return f"""# ================================================================================================
+# GraphExplorer - mapa v4 (prefab NodeTraining - V6 Training, cena Arthur/V6 - Training) - {title}
+#
+#   mlagents-learn config/{name}.yaml --run-id={run} --initialize-from={init} --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
+#   (build: perfil "V6 - Training" em Assets/Settings/Build Profiles, saida em Builds/V6/PROJECT-IA.exe)
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
+# Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.
+#
+{body}# ================================================================================================
+
+"""
+
+
+V5_2_BODY = """# HERDA o v5.1_zero_01 (50M). So caca, o hider sempre SOLTO e com os numeros do jogador. O que mudou no codigo:
+#   - VELOCIDADE: perseguicao 11.5 m/s (era 10), alerta 9.5 (era 8.5), giro na perseguicao 540/s (era 360).
+#     O jogador corre a 10.2 por 10 s: vendo, o monstro ganha ~1.3 m/s; so quebrar a linha de visao salva.
+#   - PREVISAO na observacao [18..20]: sem ver, aponta para a ultima vista projetada com a velocidade vista
+#     (ate 2 s, parando antes de parede), nao para onde ele sumiu. So o que o monstro viu; nada paga ir la.
+#   - PRESSA: -0.0008 por step cacando (vendo ou procurando ha < 20 s). Vendo, cancela o +0.00086 de "em vista":
+#     seguir de longe nao rende, encurtar (recorde de proximidade) e pegar sim. Caca de 80 s = -3.2.
+#   - HIDER NUNCA NO CENTRO DO NO (hider_loose 1 nas duas licoes): pontos a >= 0.6 m do centro, portas inclusive.
+#   - RASTRO (09/10): depois de ver, segue "vendo" (posicao real) por 3 s sem linha livre
+#     (GraphHiderPerception._trackMemorySeconds; era 0.5 s). Depois, previsao e audicao de corrida.
+#   - ROTA NAVMESH em [18..20] (09/10): direcao da proxima quina do caminho NavMesh ate o alvo (reta livre = o
+#     proprio alvo) e metros pelo caminho. PRECISA de NavMeshSurface assado no prefab de treino; sem ele, reta.
+#   - HIDER FORA DOS NOS (09/10): 40% dos esconderijos ficam fora da area de qualquer no (ate 4 m alem do no,
+#     cantos sem no, atras de movel; GraphHider._offNodeChance). O jogador se esconde ai.
+#
+#   #  Licao         hider  corre  folego barulho desc ping$ solto  criterio
+#   1  HiderFoge     foge   8.5    10     0.3     0.0  0     1      progresso 0.30 (150)
+#   2  HiderJogador  foge   10.2   10     0.3     0.0  0     1      (final)
+#   A Foge e o aquecimento com a fisica nova (o hider de 8.5 era a licao 9 da v5.1).
+#
+# HIPERPARAMETROS de ajuste fino: LR 1e-4 (era 3e-4) e beta 0.003 (era 0.012), lineares ate max_steps. Um run
+#   novo recomeca o schedule do zero: com 3e-4 o primeiro milhao desmontaria o que o 50M sabe.
+#
+# PASSA QUANDO: Hunt/Caught > 0.95 na HiderJogador; Hunt/LostSight por episodio e Hunt/SightToCatchSeconds
+#   menores que no fim da v5.1 (~5 e ~84); Movement/ChaseFraction sem subir (perseguir sem pegar);
+#   WallContactFraction < 0.05. No jogo (V5 - Test): o jogador correndo em linha reta e pego.
+# 8M steps ~ 8-9 h no build com 3 envs (~1M/h). Checkpoint a cada 500k, todos guardados.
+"""
+V5_2_LESSONS = [
+    ("HiderFoge", 0.30, 150, "progress"),
+    ("HiderJogador", None, None),
+]
+V5_2_PARAMS = [
+    ("room_complete_threshold", "Fracao dos nos de uma sala que precisam ser VISTOS para concluir.", [1.0, 1.0]),
+    ("coverage_target", "Acima de 1 = sem fim por cobertura (caca).", [1.1, 1.1]),
+    ("previsited_fraction", "Salas que ja nascem concluidas.", [0.0, 0.0]),
+    ("release_fraction", "0 = salas nao voltam (so a patrulha usava).", [0.0, 0.0]),
+    ("ping_interval", "0: com hider, os pings vem dos passos dele.", [0, 0]),
+    ("hider_mode", "3 = foge.", [3, 3]),
+    ("hider_speed", "m/s do hider CORRENDO (anda a 0.588 x). 10.2 = o jogador.", [8.5, 10.2]),
+    ("hider_stamina", "Segundos de corrida do hider (10 = PlayerStamina.sprintDuration do PlayerDummy).", [10.0, 10.0]),
+    ("hider_noise", "Chance de cada chegada do hider num no de ping virar ping.", [0.3, 0.3]),
+    ("discovery_reward_scale", "0: na caca explorar so serve para achar.", [0.0, 0.0]),
+    ("ping_reward_scale", "0: o rastro do hider so informa.", [0.0, 0.0]),
+    ("vision_explores", "1 = o que ele VE conta como visto.", [1, 1]),
+    ("hider_loose", "1 = hider fora do centro dos nos (nunca no centro desde 08/10) e se escondendo.", [1, 1]),
+]
+V5_2_STAGES = [
+    ("graph_v5.2_caca", "v5.2_caca_01", "v5.1_zero_01",
+     "V5.2: CACA HERDANDO O 50M - MAIS RAPIDO, PREVISAO AO PERDER DE VISTA, PRESSA, HIDER FORA DO CENTRO",
+     V5_2_BODY, 8000000, V5_CONSTANTS, V5_2_LESSONS, V5_2_PARAMS),
+]
+BETA_V52 = """      # 0.003: ajuste fino de uma politica pronta (o 50M ja tinha entropia ~-0.04); 0.012 a faria
+      # voltar a experimentar como no comeco. Decai linear ate max_steps.
+      beta: 0.003
+"""
+
 write('graph_node4_full.yaml', HEADER, 24000000, FULL_CONSTANTS, LESSONS, PARAMS)
 write('graph_node4_search.yaml', SEARCH_HEADER, 15000000, SEARCH_CONSTANTS, SEARCH_LESSONS, SEARCH_PARAMS)
 
@@ -1167,6 +1243,11 @@ for name, run, title, body, steps, constants, lessons, params in V5_STAGES:
     write(name + '.yaml', v5_header(title, name, run, body, folder='historico/'), steps, constants, lessons, params,
           beta=BETA_NIGHT, keep=max(10, steps // 500000))
 
+# A v5.1 terminou (50M, 07/10): vai para o historico; na raiz fica so a v5.2.
 for name, run, title, body, steps, constants, lessons, params in V5_1_STAGES:
-    write(name + '.yaml', v5_header(title, name, run, body), steps, constants, lessons, params,
-          beta=BETA_V51, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256)
+    write(name + '.yaml', v5_header(title, name, run, body, folder='historico/'), steps, constants, lessons, params,
+          beta=BETA_V51, keep=max(10, steps // 500000), folder='historico', gamma=0.998, horizon=256)
+
+for name, run, init, title, body, steps, constants, lessons, params in V5_2_STAGES:
+    write(name + '.yaml', v5_2_header(title, name, run, init, body), steps, constants, lessons, params,
+          beta=BETA_V52, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256, lr=0.0001)

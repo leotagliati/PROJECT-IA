@@ -38,7 +38,9 @@ namespace Assets.Scripts.Graph
         //   [11]     está num vão (a âncora é uma porta)
         //   [12]     nº de portas da sala atual / 8
         //   [13..15] PING: ativo, distância pelo grafo / diâmetro, quente/frio (-1/0/+1)
-        //   [16..20] VISÃO: vendo, já viu, direção X/Z + distância à última posição vista do hider
+        //   [16..20] VISÃO: vendo (inclui o rastro depois de ver), já viu, direção X/Z + distância até o hider: a
+        //            posição real vendo; sem ver, a PREVISÃO (última conhecida + velocidade vista, até 2 s; v5.2).
+        //            Direção = próxima quina do caminho NavMesh, distância = metros pelo caminho (09/10)
         //   [21]     CALOR: a sala atual é a do último ping (0..1)
         //   [22..23] para onde o CORPO está virado (X/Z no mundo; o corpo segue o movimento)
         //   [24..25] VELOCIDADE do hider enquanto vê (X/Z, / hiderVelocityScale)
@@ -193,12 +195,22 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(pingActive ? _ping.HotCold : 0f);
 
             // ---- Visão (5) ----
-            // Direção + distância à ÚLTIMA POSIÇÃO VISTA (a atual enquanto vê; congelada ao perder).
+            // Rumo + distância até o alvo (a posição real enquanto vê ou rastreia; sem ver, a previsão a partir da
+            // última conhecida): direção da próxima quina do caminho NavMesh e metros pelo caminho
+            // (GraphHiderPerception.ChaseAim, 09/10).
             bool seeing = _perception.IsSeeing;
             bool hasSeen = _perception.HasSeen;
             sensor.AddObservation(seeing ? 1f : 0f);
             sensor.AddObservation(hasSeen ? 1f : 0f);
-            AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
+            if (hasSeen)
+            {
+                Vector3 aim = _perception.ChaseAim(position, out float routeDistance);
+                AddDirectionAndDistance(sensor, position, aim, routeDistance);
+            }
+            else
+            {
+                AddDirectionAndDistance(sensor, position, position, false);
+            }
 
             // ---- Calor da sala atual (1): quão perto do último ping, 0..1 (esfria com o tempo) ----
             sensor.AddObservation(Clue(_rooms.CurrentRoomHeat));
@@ -350,6 +362,18 @@ namespace Assets.Scripts.Graph
             Vector2 planar = new(delta.x, delta.z);
             float distance = planar.magnitude;
             Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+
+            sensor.AddObservation(unit.x);
+            sensor.AddObservation(unit.y);
+            sensor.AddObservation(Mathf.Clamp01(distance / _maxNodeDistance));
+        }
+
+        // Direção até aim (uma quina do caminho) e a distância do caminho inteiro, não a da quina.
+        private void AddDirectionAndDistance(VectorSensor sensor, Vector3 from, Vector3 aim, float distance)
+        {
+            Vector2 planar = new(aim.x - from.x, aim.z - from.z);
+            float length = planar.magnitude;
+            Vector2 unit = length > 1e-4f ? planar / length : Vector2.zero;
 
             sensor.AddObservation(unit.x);
             sensor.AddObservation(unit.y);
