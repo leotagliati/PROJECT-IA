@@ -115306,6 +115306,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &782040683
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 782040677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!1001 &782057809
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -146308,8 +146325,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   controller: {fileID: 0}
+  hints: {fileID: 0}
   label: {fileID: 0}
-  format: '[{0}] {1}'
+  promptMarkup: '{Interact} {0}'
   bindingGroup: Keyboard&Mouse
   failureDuration: 1.5
   failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
