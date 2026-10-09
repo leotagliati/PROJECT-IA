@@ -307,8 +307,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   controller: {fileID: 0}
+  hints: {fileID: 0}
   label: {fileID: 0}
-  format: '[{0}] {1}'
+  promptMarkup: '{Interact} {0}'
   bindingGroup: Keyboard&Mouse
   failureDuration: 1.5
   failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
@@ -661,7 +662,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 178711452889118095, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_LocalPosition.x
@@ -1137,7 +1138,7 @@ PrefabInstance:
     - target: {fileID: 1376189020565061233, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 5022602860645237092, guid: 92079ae795ce4ce46948abd5124d1aac, type: 3}
+      objectReference: {fileID: 5022602860645237092, guid: 67304f1a8a1a69f47bf8dca516ef2da8, type: 3}
     - target: {fileID: 1376189020565061233, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: m_BehaviorType
       value: 2
@@ -1168,7 +1169,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5922177458060243548, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6880996314692672322, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: m_Name
@@ -1180,7 +1181,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7885477933281133506, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: _gameMode
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8230359509517846991, guid: 88bd5f84e4eb4482a7f8efb1830a3c71, type: 3}
       propertyPath: m_LocalPosition.x
