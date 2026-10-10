@@ -1,0 +1,177 @@
+# ================================================================================================
+# FreeExplorer - v8.0: DO ZERO - EXPLORADOR LIVRE (ganha por VER pontos e por PORTA NOVA, depois caca)
+#
+#   mlagents-learn config/free_v8.0_zero.yaml --run-id=v8.0_zero_02 --env="Builds/V8/PROJECT-IA.exe" --no-graphics --num-envs=2 --base-port=5010
+#   (--base-port 5010: a v7 usa 5005+ quando roda junto nesta maquina. Build: menu PROJECT-IA > "v8: montar cena de
+#   treino e build", ou Unity -batchmode -executeMethod FreeV8Setup.Run)
+#
+# Escrito a mao (nao vem do tools/gen_full_curriculum.py). Codigo em Assets/Scripts/Free/, plano em
+# docs/graph/plano-v8-livre.md. Vetor 126 + planta "Rooms" (BufferSensor 32 x 8) + raios do RaysWorld, 4 acoes
+# continuas (andar X/Z, olhar X/Z), Decision Period 5. Tamanho do vetor e das acoes sai do codigo.
+#
+# O QUE MUDA EM RELACAO A TUDO ANTES (por isso do zero; nenhum .onnx anterior serve):
+#   - SEM NOS PARA ANDAR: os "nos" sao pontos gerados pelo NavMesh (grade de 3 m) que a IA so precisa VER. Ela nao
+#     ve vizinho, ligacao, ancora nem "no atual" (o defeito da v5: andava de centro em centro de no).
+#   - O CORPO E O DA V5 (pedido do Arthur): fisica, estado de alerta (patrulha 7 / alerta 9.5 / perseguicao 11.5),
+#     inercia, olhar com pescoco, raios de parede. O NavMesh so gera o mapa (pontos e portas), nao move nada.
+#   - RECOMPENSA: andar nao paga. Ver ponto novo paga (8 no total do mapa, dividido pelos pontos); porta nova paga
+#     0.15 (~11 pontos); ver 95% dos pontos paga +5 e encerra. Parede: contato (teto -12), batida, e PRESA na parede
+#     (encostada, pedindo para andar e parada > 0.5 s: -0.0006/step). Existencial -2, estagnacao apos 30 s.
+#   - CACA (licoes 2-4, a mesma presa da v5): avistar +2 (so a 1a vez), recorde de proximidade 1.0/m, captura
+#     20 + 25 x fracao restante (encerra). Exploracao x 0.3 na caca.
+#   - FOCO NA PRESA: CACANDO (vendo, procurando ha < 20 s ou com pegada fresca) a exploracao paga ZERO, a estagnacao
+#     nao cobra e a exploracao some da observacao. PEGADAS: o hider deixa pegadas que esmaecem (correndo forte/12 s,
+#     andando media/6 s); o monstro so sabe da que VE, e ela vira observacao (onde e para onde ia) + ALERTA. Nada paga
+#     seguir pegada: so a captura.
+#   v8.0_zero_01 (10/10, 12:33) parado em ~200k para entrar foco e pegadas (vetor 120 -> 126): run novo, _02.
+#   - META = O MAPA QUASE INTEIRO desde o step 0 (coverage_target 0.95). Meta parcial deixou a v4.1 pular sempre
+#     as mesmas salas; aqui cada ponto que falta vale o mesmo que o primeiro.
+#   - SPAWN EM SALA RARA desde o step 0 (a correcao que levou a v5.1 ao mapa inteiro, so que no meio do run).
+#
+# HIPERPARAMETROS: os da v5.1 (o unico run que foi a todas as salas) com o meio-termo do plano v7:
+#   beta 0.008 (entre 0.006 da v4.1 e 0.012 da v5.1), gamma 0.997 (0.998 nos 700 s da v5.1; horizonte ~330
+#   decisoes = 33 s, uma porta a 30 s de distancia ainda vale ~0.4 do que vale ao lado).
+#   max_steps 30M FIXO desde o inicio: learning rate e beta decaem certo (a v5.1 mudou o total 3 vezes no meio).
+#   A v5.1 levou ~19.5M para o mapa inteiro, com as correcoes entrando no meio; aqui elas estao desde o step 0.
+#   Uma noite (~9 h, 2 envs, dividindo a maquina com a v7) deve dar ~4-6M: a licao Explorar, provavelmente sem caca.
+#
+# LICOES: Explorar -> HiderParado -> HiderAnda -> HiderFoge. Todo parametro tem o MESMO criterio (o ML-Agents avalia
+#   cada um sozinho). Explorar passa por REWARD 12, que so se alcanca vendo 95% do mapa em boa parte dos episodios:
+#   sem o +5 da cobertura o teto e ~8 + ~5 de portas - custos (~10-11); com ele, ~14-16. As de caca passam por
+#   reward 22 (captura = 20 a 45; sem pegar, ~2-4).
+#
+# CRITERIO (no TensorBoard, nao pela reward): Exploration/Coverage e Exploration/Completed subindo; Rooms/S00..
+#   todas saindo de 0 (sala que fica em 0 por milhoes de steps = o defeito da v4.1/v5.1); Doors/UsedFraction
+#   subindo; Movement/StuckFraction e Exploration/WallContactFraction caindo; Hunt/Caught na caca.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.008
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # As features ja saem em [-1, 1] / [0, 1]; foi assim nos dois runs bons (v4.1 e v5.1).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.997
+        strength: 1.0
+    keep_checkpoints: 60
+    checkpoint_interval: 500000
+    max_steps: 30000000
+    time_horizon: 256
+    summary_freq: 10000
+
+environment_parameters:
+  # Presa (GraphArenaController): 0 nenhuma, 1 parada, 2 anda, 3 foge.
+  hider_mode:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 0
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 2
+      - name: HiderFoge
+        value: 3
+
+  # Fracao dos PONTOS que encerra com +5; > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 0.95
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1.1
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1.1
+      - name: HiderFoge
+        value: 1.1
+
+  # Multiplica pontos e portas: 0.3 na caca, para pegar mandar em tudo e ainda valer procurar.
+  discovery_reward_scale:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 1.0
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.3
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.3
+      - name: HiderFoge
+        value: 0.3
+
