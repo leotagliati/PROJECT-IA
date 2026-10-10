@@ -78,6 +78,16 @@ namespace Assets.Scripts.Graph
         // batente barato e ficava preso na porta), então nada usa esta layer e porta custa como parede.
         [SerializeField] private LayerMask _doorLayer;
 
+        [Header("-----Puxão de perto (só modo de jogo)-----")]
+        // Com o jogador a até _closePullDistance e o CORPO passando livre até ele (NavGraph.IsSegmentClear: a mesma
+        // cápsula das ligações do grafo, contra parede e móvel), o monstro ignora a política e vai reto nele, olhando
+        // para ele, em Perseguição (10/10). Vale esteja o jogador onde estiver, dentro ou fora de nó: no jogo a
+        // política freava a uns metros e ficava rondando (no treino o hider sempre fugia), e a captura (2.5 m) não
+        // saía. Desligue para ver a política pura. No treino nunca liga: a política aprenderia a depender dele, e
+        // pagar/guiar até um alvo escolhido por código é o que o projeto evita.
+        [SerializeField] private bool _closePull = true;
+        [SerializeField, Min(0f)] private float _closePullDistance = 6f;
+
         [Header("-----Diagnóstico-----")]
         // Loga no fim do episódio os 3 nós com mais loop/pisca-pisca. Desligado no treino (várias arenas
         // enchem o Console); ligue ao assistir um .onnx no Play.
@@ -387,6 +397,13 @@ namespace Assets.Scripts.Graph
             // o olhar só vira a cabeça (o cone de visão), até o limite do pescoço.
             Vector3 move = _hunting ? new Vector3(continuous[0], 0f, continuous[1]) : Vector3.zero;
             Vector3 look = _hunting ? new Vector3(continuous[2], 0f, continuous[3]) : Vector3.zero;
+            if (_hunting && TryClosePull(out Vector3 toTarget))
+            {
+                move = toTarget;
+                look = toTarget;
+                _locomotion.NotifyChaseCue();
+            }
+
             _locomotion.Drive(move, look);
             if (_animationSystem != null)
                 _animationSystem.Tick(move, _locomotion.State);
@@ -505,6 +522,31 @@ namespace Assets.Scripts.Graph
 
             _doorFrameCache[id] = isDoor;
             return isDoor;
+        }
+
+        // Puxão de perto (ver _closePull): direção planar até o jogador, se ele está ao alcance e o corpo passa livre.
+        private bool TryClosePull(out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (!_closePull || !IsGameMode)
+                return false;
+
+            IGraphTarget target = _arenaController.Target;
+            if (!GraphTarget.IsLive(target))
+                return false;
+
+            Vector3 from = transform.position;
+            Vector3 to = new Vector3(target.Position.x, from.y, target.Position.z);
+            Vector3 delta = to - from;
+            float distance = delta.magnitude;
+            if (distance > _closePullDistance || distance < 1e-3f)
+                return false;
+
+            if (!_graph.IsSegmentClear(from, to))
+                return false;
+
+            direction = delta / distance;
+            return true;
         }
 
         // Modo de jogo: com GameManager, é derrota do jogador (ele recarrega a cena) e o seeker para onde
@@ -709,8 +751,13 @@ namespace Assets.Scripts.Graph
 
             if (_arenaController.GameMode)
             {
-                if (_arenaController.PlayerTarget == null)
+                GraphPlayerTarget player = _arenaController.PlayerTarget;
+                if (player == null)
                     Debug.LogError($"{name}: modo de jogo sem jogador — nenhum objeto com a tag do jogador (GraphArenaController).", this);
+                else if ((_graph.WallLayer.value & (1 << player.gameObject.layer)) != 0)
+                    // Em layer de parede o corpo do jogador bloqueia os raios até ele mesmo: não é visto, não é puxado.
+                    Debug.LogError($"{name}: o jogador ({player.name}) está na layer {LayerMask.LayerToName(player.gameObject.layer)}, " +
+                                   "que é parede para o monstro — ele nunca vai ver nem pegar o jogador. Ponha o jogador em Default.", player);
                 if (GameManager.Current == null)
                     Debug.LogWarning($"{name}: modo de jogo sem GameManager — pegar o jogador só faz o seeker renascer.", this);
             }
