@@ -48,7 +48,8 @@ repetir o mesmo run.
 | 7e · v4.4 | 03/10 | Node_5 (v4) | **Corrida**: sem aceleração nem steer assist, corpo segue o movimento (pescoço até 60°), corre com estamina, 15/18/20 m/s (patrulha/alerta/perseguição); hider anda e corre fugindo, 4→10 m/s; parede ×2 (Door grátis); suspeita ×2 | `v4.4_corrida_01` planejado (substitui o plano de movimento com aceleração 35, que não rodou) |
 | 7f · v4.5 | 03/10 | Node_5 (v4) | **Fuga**: hider corre 10→14 m/s com 6→10 s de estamina (o seeker tem 5) | não rodou (substituída pela v5.0) |
 | 8 · v5.0 | 04/10 | prefab novo (mapa v4) | **Do zero, escala do jogador**: velocidade pelo estado de alerta (patrulha 6, alerta 8, perseguição 10,2 m/s vendo o jogador), inércia, episódio de 400 s, vetor 188, hider na mesma escala | `v5.0_zero_02` (3.15M): passou a Perto em ~1.47M, Metade em ~3.1M, parado na Quase com cobertura ~44%. **Decorou um loop de salas baratas** (1 nó) perto do spawn e ignorou as grandes (S7–S9, S14, S17–S18, S23–S25). Abandonado. |
-| 9 · v5.1 | 04/10 | prefab novo (mapa v4) | **Economia de salas**: sala paga UMA VEZ ao completar (0.5), porta paga só a 1ª vez (0.1), valor cresce com tamanho. Sem salas pré-concluídas. Meta = 100% dos nós vistos. Planta com hops/16. | `v5.1_zero_01` (a rodar): critério cobertura > 0.8 na lição Completo; se travar em ~50% após ~3M, próximo é LSTM. |
+| 9 · v5.1 | 04/10 | prefab novo (mapa v4) | **Economia de salas**: sala paga UMA VEZ ao completar (0.5), porta paga só a 1ª vez (0.1), valor cresce com tamanho. Sem salas pré-concluídas. Meta = 100% dos nós vistos. Planta com hops/16. | `v5.1_zero_01` (04–07/10, 50M, um run só do zero até a HiderJogador): explora ~24 de 26 salas na lição Completo; na caça pega 97–99% do hider, ~84 s da 1ª vista à captura. Modelo `GraphExplorer_05_50M.onnx`. No jogo, o jogador ainda escapava. |
+| 10 · v5.2 | 09–10/10 | prefab V6 (mapa v4 + NavMesh) | **Caça herdando o 50M**: perseguição 11.5 m/s, rastro de 3 s depois de ver, previsão ao perder de vista, rota NavMesh até o alvo na perseguição, pressa por step caçando, hider fora do centro e fora dos nós | `v5.2_caca_01` (8M, ~9 h): pega 99.8%, **~25 s** da 1ª vista à captura (era ~74 s), perde de vista 1.2× por episódio (era 4.7×), parede 0.019. Modelo `GraphExplorer_v5.2.onnx`; falta o teste no jogo. |
 
 ---
 
@@ -244,6 +245,23 @@ S1 a S6 seguidas** (`v4_noite_01`, 10M steps, 01→02/10), que chegou à última
     saturava). Sem "bússola por porta".
   - **Critério:** cobertura > 80% na lição Completo. Se travar em ~50% após ~3M steps, próximo será um run com
     **LSTM** para capturar sequências temporais.
+  - **Resultado (50M, 07/10):** não precisou de LSTM. Depois de um platô em ~0.75 de cobertura, saltou para ~24
+    salas em 15.4–15.9M e seguiu pelas lições de caça até a HiderJogador (desde 42M). No fim: pega 97–99%,
+    ~84 s da 1ª vista à captura, ~5 perdas de vista por episódio, parede ~0.02. Modelo `GraphExplorer_05_50M.onnx`.
+    No jogo, o jogador correndo (10.2 m/s contra 10) escapava, e ao perdê-lo de vista o monstro ia até onde ele sumiu.
+- **V5.2 (`v5.2_caca_01`, 09–10/10, herdando o 50M):** `config/graph_v5.2_caca.yaml`, 8M steps, duas lições
+  (HiderFoge → HiderJogador, troca em 2.4M), ajuste fino (LR 1e-4, beta 0.003). Prefab `NodeTraining - V6
+  Training` com NavMesh assado.
+  - **Mais rápido:** perseguição 11.5 m/s (era 10), alerta 9.5 (era 8.5), giro na perseguição 540°/s.
+  - **Não solta na hora:** depois de ver, segue o alvo por 3 s sem linha livre (era 0.5 s); depois disso, aponta
+    para a previsão (última posição + velocidade vista, até 2 s) em vez de onde ele sumiu.
+  - **Rota NavMesh** na direção até o alvo (só na perseguição, sem recompensa): o monstro não empaca mais em
+    móvel com o jogador do outro lado. Exceção combinada à regra "sem seta".
+  - **Pressa:** custo por step enquanto vê ou procura; seguir de longe deixa de render.
+  - **Hider mais parecido com o jogador:** nunca para no centro do nó, e 40% dos esconderijos ficam fora dos nós.
+  - **Resultado (8M):** pega 99.8%; **~25 s** da 1ª vista à captura (era ~74 s); 1.2 perdas de vista por episódio
+    (era 4.7); episódio pela metade; batidas em parede e porta ~4× menos. A cobertura caiu (0.58 → 0.48), o
+    esperado com a exploração valendo 0 na caça. Modelo `GraphExplorer_v5.2.onnx`; falta o teste no jogo.
 
 ## Fase 6 — Em etapas, 28/09 a 01/10
 
@@ -446,9 +464,8 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
 
 ## Próximos passos
 
-- **V5.1** (economia de salas, do zero): `v5.1_zero_01` a rodar. Critério: cobertura > 80% na lição
-  Completo; se travar em ~50% após ~3M steps, próximo será um run com **LSTM** para capturar
-  dependências temporais que a rede feedforward não vê.
-- Se a V5.1 passar: V5.2 com caça do hider (4 lições de velocidade crescente + solto).
+- **V5.2 no jogo** (`V5 - Test`, modelo `GraphExplorer_v5.2.onnx`): o jogador correndo em linha reta tem que
+  ser pego, e despistar só quebrando a linha de visão de verdade. Olhar também a patrulha quando o jogador se
+  esconde bem: a exploração valeu 0 nos 8M da caça e a cobertura caiu de 0.58 para 0.48.
 - A linha E4/E5 do Node_4 fica parada: os cérebros dela não servem no vetor novo.
 - Ideia não planejada: esconderijos embaixo de móveis.
