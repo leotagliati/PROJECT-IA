@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Assets.Scripts.Graph
@@ -7,6 +8,8 @@ namespace Assets.Scripts.Graph
     /// docs/graph/procura-e-ping.md). Espalha pelas arestas na velocidade suposta do hider, zera os
     /// nós que o seeker vê ou pisa e concentra no nó do ping (_pingConfidence); zerou tudo, volta a
     /// uniforme no que não está vendo. Só usa pistas legítimas (visão e ping).
+    /// "Ver o nó" = ver TODOS os pontos de amostra dele (centro, cantos e o entorno fora dos nós, 10/10): em nó
+    /// grande, ver só o centro zerava a suspeita com o hider escondido no canto.
     ///
     /// VENDO o hider a crença fica ZERADA: não há o que supor, nada paga e nenhuma sala reabre por
     /// suspeita (antes ela ficava 100% no nó dele e as salas vizinhas reabriam valendo até 8x, renda
@@ -42,6 +45,19 @@ namespace Assets.Scripts.Graph
         // limpeza em si acontece sempre. Sem carência, olhar parado para um corredor seria renda.
         [SerializeField, Min(0)] private int _reclearCooldownSteps = 500;
 
+        [Header("-----Ver o nó inteiro (10/10)-----")]
+        // O nó só conta como visto com TODOS os pontos de amostra à vista (ou a menos de _touchRadius): o centro, os 4
+        // cantos do retângulo (recuados _cornerInset) e 8 pontos a _offNodeProbe além da borda (cantos e meios dos
+        // lados) que não caem em nó nenhum e têm este nó como o mais próximo com linha livre: o entorno onde o hider
+        // se esconde fora dos nós (GraphHider._offNodeChance). Só entram pontos onde o corpo cabe e com reta livre do
+        // centro; amostra a menos de _minSampleSpacing do centro sai (nó pequeno = só o centro, como antes).
+        // Antes bastava o centro: o hider no canto de um nó grande ficava com suspeita zero. Pagar a limpeza agora
+        // exige olhar os cantos, o que também tira o monstro do centro dos nós (nada aponta para lá: é ele quem olha).
+        [SerializeField] private bool _checkNodeCorners = true;
+        [SerializeField, Min(0f)] private float _cornerInset = 0.5f;
+        [SerializeField, Min(0f)] private float _offNodeProbe = 2.5f;
+        [SerializeField, Min(0f)] private float _minSampleSpacing = 1.5f;
+
         [Header("-----Pistas-----")]
         // Fração da crença que vai para o nó do ping; com 1.0 um ping velho apagaria a dedução anterior.
         [SerializeField, Range(0f, 1f)] private float _pingConfidence = 0.9f;
@@ -75,6 +91,11 @@ namespace Assets.Scripts.Graph
         private int[] _lastSeenStep;
         private bool[] _seenThisUpdate;
         private float[] _exitValue;
+
+        // Pontos de amostra de todos os nós, em sequência: os do nó i vão de _sampleStart[i] a _sampleStart[i + 1]; o
+        // primeiro é sempre o centro.
+        private Vector3[] _samples;
+        private int[] _sampleStart;
 
         private int _step;
         private float _speed;
@@ -136,6 +157,71 @@ namespace Assets.Scripts.Graph
 
                 _meanEdgeLength[i] = neighbors.Length > 0 ? Mathf.Max(0.5f, sum / neighbors.Length) : 1f;
             }
+
+            BuildSamples();
+        }
+
+        // Uma vez por grafo (Configure): centro, cantos e entorno de cada nó (ver _checkNodeCorners).
+        private void BuildSamples()
+        {
+            int count = _graph.NodeCount;
+            var samples = new List<Vector3>(count * 5);
+            _sampleStart = new int[count + 1];
+            float radius = _graph.LinkClearance;
+
+            for (int i = 0; i < count; i++)
+            {
+                _sampleStart[i] = samples.Count;
+                Vector3 center = _graph.NodePosition(i);
+                samples.Add(center);
+                if (!_checkNodeCorners)
+                    continue;
+
+                NavNode node = _graph.GetNode(i);
+                Vector3 area = _graph.AreaCenterOf(node);
+                Vector2 half = _graph.HalfExtentsOf(node);
+                Vector2 inner = new(Mathf.Max(0f, half.x - _cornerInset), Mathf.Max(0f, half.y - _cornerInset));
+                Vector2 outer = half + Vector2.one * _offNodeProbe;
+
+                for (int sx = -1; sx <= 1; sx += 2)
+                {
+                    for (int sz = -1; sz <= 1; sz += 2)
+                        TryAddSample(samples, i, center, new Vector3(area.x + sx * inner.x, center.y, area.z + sz * inner.y), radius, inside: true);
+                }
+
+                if (_offNodeProbe <= 0f)
+                    continue;
+
+                for (int sx = -1; sx <= 1; sx++)
+                {
+                    for (int sz = -1; sz <= 1; sz++)
+                    {
+                        if (sx != 0 || sz != 0)
+                            TryAddSample(samples, i, center, new Vector3(area.x + sx * outer.x, center.y, area.z + sz * outer.y), radius, inside: false);
+                    }
+                }
+            }
+
+            _sampleStart[count] = samples.Count;
+            _samples = samples.ToArray();
+        }
+
+        // Dentro: o ponto tem que cair na área deste nó. Fora: em nó nenhum, e este é o centro mais próximo com
+        // linha livre (o entorno de um nó não é amostrado de novo pelo vizinho).
+        private void TryAddSample(List<Vector3> samples, int node, Vector3 center, Vector3 point, float radius, bool inside)
+        {
+            if (PlanarDistance(point, center) < _minSampleSpacing)
+                return;
+
+            if (!_graph.IsBodyClear(point, radius) || !_graph.IsSegmentClear(center, point))
+                return;
+
+            int areaNode = _graph.FindNodeAt(point);
+            int owner = inside ? areaNode : areaNode >= 0 ? -1 : _graph.FindNearestReachableNode(point);
+            if (owner != node)
+                return;
+
+            samples.Add(point);
         }
 
         /// <summary>Ligada só com hider; a velocidade suposta vem da lição (&lt; 0 = _defaultHiderSpeed, 0 = parado).</summary>
@@ -320,11 +406,24 @@ namespace Assets.Scripts.Graph
             UpdateCertainty();
         }
 
-        // Nó que o seeker vê, pisa ou tem a menos de _touchRadius: se o hider estivesse ali, seria visto.
-        private bool IsVisible(Transform seeker, int currentNode, int node) =>
-            node == currentNode
-            || PlanarDistance(seeker.position, _graph.NodePosition(node)) <= _touchRadius
-            || (_perception != null && _perception.CanSeePoint(seeker, _graph.NodePosition(node)));
+        // Nó INTEIRO à vista: cada ponto de amostra visto ou a menos de _touchRadius (o centro também conta pisando
+        // no nó). Se o hider estivesse ali, seria visto. Para no primeiro ponto escondido (economiza raycast).
+        private bool IsVisible(Transform seeker, int currentNode, int node)
+        {
+            int start = _sampleStart[node];
+            int end = _sampleStart[node + 1];
+            for (int s = start; s < end; s++)
+            {
+                Vector3 point = _samples[s];
+                bool seen = (s == start && node == currentNode)
+                    || PlanarDistance(seeker.position, point) <= _touchRadius
+                    || (_perception != null && _perception.CanSeePoint(seeker, point));
+                if (!seen)
+                    return false;
+            }
+
+            return true;
+        }
 
         // Cada nó manda aos vizinhos a fração da suspeita que o hider andaria em dt; conserva a soma.
         private void Spread(float dt)
@@ -519,6 +618,13 @@ namespace Assets.Scripts.Graph
                 float height = 3f * _belief[i] / Certainty;
                 Gizmos.DrawLine(p, p + Vector3.up * height);
                 Gizmos.DrawWireCube(p + Vector3.up * height, Vector3.one * 0.25f);
+
+                // Pontos que ainda precisam ser vistos para zerar este nó (cantos e entorno).
+                if (_samples != null)
+                {
+                    for (int s = _sampleStart[i] + 1; s < _sampleStart[i + 1]; s++)
+                        Gizmos.DrawWireCube(_samples[s] + Vector3.up * 0.2f, Vector3.one * 0.15f);
+                }
             }
         }
     }

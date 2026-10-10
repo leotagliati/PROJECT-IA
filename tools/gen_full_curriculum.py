@@ -1154,11 +1154,11 @@ V5_1_STAGES = [
 # No jogo o v5.1 (50M) explorava bem e pegava o hider do treino em 99%, mas o jogador escapava: corria a 10.2 contra
 # 10 do monstro, e ao sumir de vista o monstro ia ate onde ele SUMIU. Run novo (nao --resume) porque a fisica e a
 # recompensa mudam; a rede e a mesma (vetor 188), entao herda os pesos.
-def v5_2_header(title, name, run, init, body):
+def v5_2_header(title, name, run, init, body, folder=''):
     return f"""# ================================================================================================
 # GraphExplorer - mapa v4 (prefab NodeTraining - V6 Training, cena Arthur/V6 - Training) - {title}
 #
-#   mlagents-learn config/{name}.yaml --run-id={run} --initialize-from={init} --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
+#   mlagents-learn config/{folder}{name}.yaml --run-id={run} --initialize-from={init} --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
 #   (build: perfil "V6 - Training" em Assets/Settings/Build Profiles, saida em Builds/V6/PROJECT-IA.exe)
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
@@ -1221,6 +1221,45 @@ V5_2_STAGES = [
      "V5.2: CACA HERDANDO O 50M - MAIS RAPIDO, PREVISAO AO PERDER DE VISTA, PRESSA, HIDER FORA DO CENTRO",
      V5_2_BODY, 8000000, V5_CONSTANTS, V5_2_LESSONS, V5_2_PARAMS),
 ]
+# ---- V5.3 (10/10): caca herdando a v5.2, o hider se esconde LONGE de todo centro de no ----
+V5_3_BODY = """# HERDA o v5.2_caca_01 (8M; pega 99.8%, ~25 s da 1a vista a captura). No jogo ele ainda anda de centro em
+# centro de no: a captura e a 2.5 m e o hider de treino ficava a < 2.5 m de algum centro, entao parar no
+# centro bastava. O que mudou no codigo:
+#   - HIDER LONGE DE TODO CENTRO (GraphHider._centerClearance 3.5 m = captura + 1 m): esconderijo fora dos nos
+#     so a >= 3.5 m do centro de no mais proximo com linha livre; dentro do no, os pontos assim tem prioridade
+#     (cantos de no grande), andando ou se escondendo. Porta fica de fora (estreita, e passagem).
+#   - NASCE FORA DOS NOS (_spawnOffNode) e 70% dos esconderijos fora dos nos (_offNodeChance, era 40%).
+#   - PROCURA VE O NO INTEIRO (GraphSuspicionMap._checkNodeCorners): a suspeita de um no so zera com o centro,
+#     os 4 cantos e o entorno fora dos nos (8 pontos a 2.5 m da borda) a vista. Antes bastava o centro, e o
+#     hider no canto de um no grande ficava com suspeita zero. Limpar agora exige olhar os cantos.
+#   - VISAO MAIOR (GraphHiderPerception): cone 140 / 35 m para avistar (era 100 / 22), 200 / 45 m ja vendo
+#     (era 160 / 30). Tambem conclui salas de mais longe.
+#   - VIZINHO = AREA, NAO CENTRO (GraphObservations.NeighborAim): direcao/distancia de cada vizinho apontam para o
+#     ponto do retangulo dele mais perto do agente (recuado 1 m), nao para o centro; porta segue no centro. Era a
+#     unica geografia que a rede via, e ela andava de centro em centro. Mesmo vetor 188 (o comeco oscila).
+#
+#   #  Licao         hider  corre  folego barulho desc ping$ solto
+#   1  HiderJogador  foge   10.2   10     0.3     0.0  0     1      (unica)
+#
+# HIPERPARAMETROS: os da v5.2 (LR 1e-4, beta 0.003, lineares); o schedule recomeca do zero no run novo.
+#
+# PASSA QUANDO: Exploration/OffNodeFraction sobe (0.14 no fim da v5.2); Hunt/Caught volta a > 0.95 depois da
+#   queda do comeco (o hider fica mais dificil de alcancar); Hunt/SightToCatchSeconds sem explodir (~25 na
+#   v5.2); Hunt/Seen sem cair (se cair, a procura nao acha o canto). No jogo (V6 - Test): sai do centro do
+#   no para ir atras do jogador e olha os cantos.
+# 4M steps ~ 4-5 h no build com 3 envs (~1M/h). Checkpoint a cada 500k, todos guardados.
+"""
+V5_3_LESSONS = [
+    ("HiderJogador", None, None),
+]
+# Os valores da licao final da v5.2.
+V5_3_PARAMS = [(name, comment, values[-1:]) for name, comment, values in V5_2_PARAMS]
+V5_3_STAGES = [
+    ("graph_v5.3_caca", "v5.3_caca_01", "v5.2_caca_01",
+     "V5.3: CACA HERDANDO A V5.2 - HIDER LONGE DO CENTRO DOS NOS, PROCURA VE O NO INTEIRO, VIZINHO = AREA, VISAO MAIOR",
+     V5_3_BODY, 4000000, V5_CONSTANTS, V5_3_LESSONS, V5_3_PARAMS),
+]
+
 BETA_V52 = """      # 0.003: ajuste fino de uma politica pronta (o 50M ja tinha entropia ~-0.04); 0.012 a faria
       # voltar a experimentar como no comeco. Decai linear ate max_steps.
       beta: 0.003
@@ -1248,6 +1287,11 @@ for name, run, title, body, steps, constants, lessons, params in V5_1_STAGES:
     write(name + '.yaml', v5_header(title, name, run, body, folder='historico/'), steps, constants, lessons, params,
           beta=BETA_V51, keep=max(10, steps // 500000), folder='historico', gamma=0.998, horizon=256)
 
+# A v5.2 terminou (8M, 10/10): vai para o historico; na raiz fica so a v5.3.
 for name, run, init, title, body, steps, constants, lessons, params in V5_2_STAGES:
+    write(name + '.yaml', v5_2_header(title, name, run, init, body, folder='historico/'), steps, constants, lessons,
+          params, beta=BETA_V52, keep=max(10, steps // 500000), folder='historico', gamma=0.998, horizon=256, lr=0.0001)
+
+for name, run, init, title, body, steps, constants, lessons, params in V5_3_STAGES:
     write(name + '.yaml', v5_2_header(title, name, run, init, body), steps, constants, lessons, params,
           beta=BETA_V52, keep=max(10, steps // 500000), folder='', gamma=0.998, horizon=256, lr=0.0001)

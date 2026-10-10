@@ -49,7 +49,8 @@ repetir o mesmo run.
 | 7f · v4.5 | 03/10 | Node_5 (v4) | **Fuga**: hider corre 10→14 m/s com 6→10 s de estamina (o seeker tem 5) | não rodou (substituída pela v5.0) |
 | 8 · v5.0 | 04/10 | prefab novo (mapa v4) | **Do zero, escala do jogador**: velocidade pelo estado de alerta (patrulha 6, alerta 8, perseguição 10,2 m/s vendo o jogador), inércia, episódio de 400 s, vetor 188, hider na mesma escala | `v5.0_zero_02` (3.15M): passou a Perto em ~1.47M, Metade em ~3.1M, parado na Quase com cobertura ~44%. **Decorou um loop de salas baratas** (1 nó) perto do spawn e ignorou as grandes (S7–S9, S14, S17–S18, S23–S25). Abandonado. |
 | 9 · v5.1 | 04/10 | prefab novo (mapa v4) | **Economia de salas**: sala paga UMA VEZ ao completar (0.5), porta paga só a 1ª vez (0.1), valor cresce com tamanho. Sem salas pré-concluídas. Meta = 100% dos nós vistos. Planta com hops/16. | `v5.1_zero_01` (04–07/10, 50M, um run só do zero até a HiderJogador): explora ~24 de 26 salas na lição Completo; na caça pega 97–99% do hider, ~84 s da 1ª vista à captura. Modelo `GraphExplorer_05_50M.onnx`. No jogo, o jogador ainda escapava. |
-| 10 · v5.2 | 09–10/10 | prefab V6 (mapa v4 + NavMesh) | **Caça herdando o 50M**: perseguição 11.5 m/s, rastro de 3 s depois de ver, previsão ao perder de vista, rota NavMesh até o alvo na perseguição, pressa por step caçando, hider fora do centro e fora dos nós | `v5.2_caca_01` (8M, ~9 h): pega 99.8%, **~25 s** da 1ª vista à captura (era ~74 s), perde de vista 1.2× por episódio (era 4.7×), parede 0.019. Modelo `GraphExplorer_v5.2.onnx`; falta o teste no jogo. |
+| 10 · v5.2 | 09–10/10 | prefab V6 (mapa v4 + NavMesh) | **Caça herdando o 50M**: perseguição 11.5 m/s, rastro de 3 s depois de ver, previsão ao perder de vista, rota NavMesh até o alvo na perseguição, pressa por step caçando, hider fora do centro e fora dos nós | `v5.2_caca_01` (8M, ~9 h): pega 99.8%, **~25 s** da 1ª vista à captura (era ~74 s), perde de vista 1.2× por episódio (era 4.7×), parede 0.019. Modelo `GraphExplorer_v5.2.onnx`. No jogo: anda de centro em centro de nó. |
+| 11 · v5.3 | 10/10 | prefab V6 (mapa v4 + NavMesh) | **Sair do centro dos nós**, herdando a v5.2: o hider para sempre a ≥ 3.5 m de todo centro de nó (a captura é a 2.5 m) e nasce fora dos nós; a procura só descarta um nó vendo centro, cantos e entorno; a direção dos vizinhos aponta para a área, não para o centro; visão 140° / 35 m | `v5.3_caca_01` (4M, a rodar). Critério: `OffNodeFraction` sobe (0.14 na v5.2) e a captura volta a > 95%. |
 
 ---
 
@@ -464,8 +465,8 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
 
 ## Próximos passos
 
-- **V5.2 no jogo** (`V5 - Test`, modelo `GraphExplorer_v5.2.onnx`): o jogador correndo em linha reta tem que
-  ser pego, e despistar só quebrando a linha de visão de verdade. Olhar também a patrulha quando o jogador se
-  esconde bem: a exploração valeu 0 nos 8M da caça e a cobertura caiu de 0.58 para 0.48.
+- **V5.3** (`v5.3_caca_01`, 4M herdando a v5.2): tirar o monstro do centro dos nós. No jogo (`V6 - Test`), ir
+  atrás do jogador cortando caminho e olhar os cantos; o jogador correndo em linha reta tem que ser pego. Se ainda
+  andar de centro em centro, a próxima é a v6 do zero com a ação virando "um ponto no chão para onde ir".
 - A linha E4/E5 do Node_4 fica parada: os cérebros dela não servem no vetor novo.
 - Ideia não planejada: esconderijos embaixo de móveis.

@@ -1,7 +1,7 @@
 # ================================================================================================
 # GraphExplorer - mapa v4 (prefab NodeTraining - V6 Training, cena Arthur/V6 - Training) - V5.2: CACA HERDANDO O 50M - MAIS RAPIDO, PREVISAO AO PERDER DE VISTA, PRESSA, HIDER FORA DO CENTRO
 #
-#   mlagents-learn config/graph_v5.2_caca.yaml --run-id=v5.2_caca_01 --initialize-from=v5.1_zero_01 --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
+#   mlagents-learn config/historico/graph_v5.2_caca.yaml --run-id=v5.2_caca_01 --initialize-from=v5.1_zero_01 --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
 #   (build: perfil "V6 - Training" em Assets/Settings/Build Profiles, saida em Builds/V6/PROJECT-IA.exe)
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.

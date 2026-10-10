@@ -22,11 +22,13 @@ namespace Assets.Scripts.Graph
         [Header("-----Cone-----")]
         // Abertura TOTAL do cone, em graus, em torno de para onde a CABEÇA olha (GraphLocomotion: o
         // olhar [2..3] vira o pescoço em relação ao corpo, que segue o movimento).
-        [SerializeField, Range(10f, 360f)] private float _viewAngle = 100f;
+        // 140 (10/10; era 100): no jogo o jogador passava pelo lado do monstro sem ser visto.
+        [SerializeField, Range(10f, 360f)] private float _viewAngle = 140f;
 
-        // Alcance da visão, em metros. 22 (06/10; era 15): a 15 m o jogador sumia de vista no meio de uma sala
-        // grande (S24 ~32 x 36 m). Também é o alcance com que a visão conclui salas e limpa suspeita.
-        [SerializeField, Min(1f)] private float _viewDistance = 22f;
+        // Alcance da visão, em metros. 35 (10/10; era 22, e 15 até 06/10): a sala grande (S24 ~32 x 36 m) fica toda
+        // à vista da porta. Também é o alcance com que a visão conclui salas e limpa suspeita: a patrulha cobre o mapa
+        // mais rápido, e o v5.2 foi treinado com 22 (testar no jogo antes de treinar com isto).
+        [SerializeField, Min(1f)] private float _viewDistance = 35f;
 
         // Altura (m) dos olhos acima do pivô (o pé) do seeker; o ponto olhado fica nessa mesma altura (AtEyeLevel).
         // Mobília bloqueia a visão: baixo demais, qualquer mesa tapa o cone.
@@ -34,10 +36,11 @@ namespace Assets.Scripts.Graph
 
         [Header("-----Visão do ALVO (não vale para nós)-----")]
         // Já VENDO o alvo, o cone para ele abre e alcança mais (06/10): o monstro "trava" no jogador. Com o cone de
-        // 100° seguindo a cabeça, um passo de lado a 3 m já tirava o jogador da vista. 30 m vendo (o normal é 22). Só vale para manter, não para
-        // avistar: a primeira vista continua sendo o cone normal.
-        [SerializeField, Range(10f, 360f)] private float _lockedViewAngle = 160f;
-        [SerializeField, Min(1f)] private float _lockedViewDistance = 30f;
+        // 100° seguindo a cabeça, um passo de lado a 3 m já tirava o jogador da vista. 200° / 45 m (10/10; era 160° /
+        // 30 m), na mesma proporção do cone normal. Só vale para manter, não para avistar: a primeira vista continua
+        // sendo o cone normal.
+        [SerializeField, Range(10f, 360f)] private float _lockedViewAngle = 200f;
+        [SerializeField, Min(1f)] private float _lockedViewDistance = 45f;
 
         // Perto assim (m), vê o alvo em qualquer direção (com linha livre): ouve e sente quem está colado nele.
         [SerializeField, Min(0f)] private float _closeSenseDistance = 4f;

@@ -59,7 +59,7 @@ namespace Assets.Scripts.Graph
         // Depois: vizinhos (8 x 10) e portas (8 x 9). Total 36 + 80 + 72 = 188 (v5; até a v4.x eram 182).
         public const int GlobalObservations = 36;
 
-        // Por vizinho (10): [0..1] direção X/Z, [2] distância, [3] visitado, [4] quanto resta por essa saída
+        // Por vizinho (10): [0..1] direção X/Z e [2] distância até a ÁREA dele (NeighborAim; porta: o centro), [3] visitado, [4] quanto resta por essa saída
         // (dentro da sala), [5] vim daqui, [6] quantas vezes passei (satura em revisitSaturation), [7] quão
         // perto está o que falta por essa saída (dentro da sala), [8] suspeita por essa saída, [9] válido.
         public const int FloatsPerNeighbor = 10;
@@ -258,7 +258,7 @@ namespace Assets.Scripts.Graph
                 }
 
                 int neighbor = _neighborBuffer[slot];
-                AddDirectionAndDistance(sensor, position, _graph.NodePosition(neighbor), true);
+                AddDirectionAndDistance(sensor, position, NeighborAim(position, neighbor), true);
                 sensor.AddObservation(Explore(_memory.VisitedObservation(neighbor)));
 
                 // O que há ATRÁS desta saída, dentro da sala (para na porta).
@@ -348,6 +348,35 @@ namespace Assets.Scripts.Graph
         private float Clue(float value) => _focus == FocusLevel.Chase ? 0f : value;
 
         // Direção planar X/Z no referencial do MUNDO (o das ações) + distância normalizada; zeros se !valid.
+        // Recuo (m) do ponto mirado para dentro do retângulo do vizinho: na borda exata a direção gira em cima dela.
+        private const float NeighborAimInset = 1f;
+
+        /// <summary>
+        /// Para onde o vizinho "fica" (v5.3, 10/10): o ponto do retângulo dele mais perto do agente, recuado
+        /// NeighborAimInset para dentro. Era o CENTRO, e a política andava de centro em centro: com ladrilhos colados,
+        /// a direção agora é atravessar a borda comum, e o corpo flui pelo chão. Porta segue no centro (vão estreito, o
+        /// meio é o caminho). Com a reta até o ponto batendo em parede (vizinho depois de uma quina), o centro, cuja
+        /// ligação é garantida livre.
+        /// </summary>
+        private Vector3 NeighborAim(Vector3 from, int node)
+        {
+            Vector3 center = _graph.NodePosition(node);
+            if (_graph.IsDoor(node))
+                return center;
+
+            NavNode navNode = _graph.GetNode(node);
+            Vector3 area = _graph.AreaCenterOf(navNode);
+            Vector2 half = _graph.HalfExtentsOf(navNode);
+            float insetX = Mathf.Min(NeighborAimInset, half.x);
+            float insetZ = Mathf.Min(NeighborAimInset, half.y);
+            var aim = new Vector3(
+                Mathf.Clamp(from.x, area.x - half.x + insetX, area.x + half.x - insetX),
+                center.y,
+                Mathf.Clamp(from.z, area.z - half.y + insetZ, area.z + half.y - insetZ));
+
+            return _graph.IsSegmentClear(new Vector3(from.x, center.y, from.z), aim) ? aim : center;
+        }
+
         private void AddDirectionAndDistance(VectorSensor sensor, Vector3 from, Vector3 to, bool valid)
         {
             if (!valid)
