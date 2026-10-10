@@ -53,6 +53,10 @@ public class PlayerMovement : MonoBehaviour
              "salta de idle para corrida em um frame e a mistura de poses fica visível.")]
     [SerializeField] private float animBlendDampTime = 0.1f;
 
+    [Tooltip("Input para trás além disso toca a caminhada ao contrário. Folga para o lateral " +
+             "puro de stick, que oscila em volta de zero, não ficar trocando o sentido.")]
+    [SerializeField, Range(0f, 1f)] private float backwardThreshold = 0.2f;
+
     [Header("Footsteps")]
     [SerializeField] private string footstepSoundId = "footstep";
 
@@ -72,6 +76,10 @@ public class PlayerMovement : MonoBehaviour
     private const float AnimIdle = 0f;
     private const float AnimWalk = 1f;
     private const float AnimRun = 2f;
+
+    // Multiplicador de velocidade do estado Movement (Speed > Multiplier no PlayerAC): -1 toca
+    // o blend ao contrário. Default 1 no controller, senão o estado nasce congelado.
+    private static readonly int AnimDirectionHash = Animator.StringToHash("animDirection");
 
     private Vector2 moveInput;
     private bool sprintHeld;
@@ -108,6 +116,14 @@ public class PlayerMovement : MonoBehaviour
     /// </summary>
     public float CrouchAmount => crouchAmount;
 
+    /// <summary>
+    /// Andando de ré agora (input para trás além de <see cref="backwardThreshold"/>). Única
+    /// fonte de verdade: o Animator toca a caminhada ao contrário e o SpineLook espelha a
+    /// torção da bacia pelo mesmo critério — limiares diferentes deixariam a perna recuando
+    /// virada para o lado errado na faixa entre os dois.
+    /// </summary>
+    public bool IsMovingBackward => moveInput.y < -backwardThreshold;
+
     public PlayerState CurrentState { get; private set; } = PlayerState.Idle;
 
     public event Action<PlayerState> StateChanged;
@@ -140,7 +156,10 @@ public class PlayerMovement : MonoBehaviour
         PlayerInputProvider.Release();
 
         if (animator != null)
+        {
             animator.SetFloat(MoveSpeedHash, AnimIdle);
+            animator.SetFloat(AnimDirectionHash, 1f);
+        }
     }
 
     private void Update()
@@ -317,6 +336,12 @@ public class PlayerMovement : MonoBehaviour
         // Todo frame, e não só na troca de estado: o SetFloat com damp só converge ao alvo
         // se for chamado continuamente com deltaTime.
         animator.SetFloat(MoveSpeedHash, GetAnimMoveSpeed(), animBlendDampTime, Time.deltaTime);
+
+        // Sem damp: inverter o sentido de playback não salta de pose, e suavizar passaria
+        // por zero — a perna congelaria no meio da troca. No ar mantém o sentido que já
+        // estava, pelo mesmo motivo do moveSpeed.
+        if (CurrentState != PlayerState.Jumping)
+            animator.SetFloat(AnimDirectionHash, IsMovingBackward ? -1f : 1f);
     }
 
     /// <summary>Velocidade horizontal do estado atual.</summary>

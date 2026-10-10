@@ -282,10 +282,9 @@ public class SpineLook : MonoBehaviour
     }
 
     /// <summary>
-    /// Ângulo que põe as pernas no eixo do movimento. Para trás, o clipe continua sendo de
-    /// andar para frente: virar a bacia 180° seria absurdo, então o ângulo é dobrado para o
-    /// lado oposto — ré-direita vira frente-esquerda, a passada fica no plano certo, só que
-    /// com a animação no sentido contrário até existir um clipe de ré.
+    /// Ângulo que põe as pernas no eixo do movimento. Para trás, virar a bacia 180° seria
+    /// absurdo: o ângulo é dobrado para o lado oposto — ré-direita vira frente-esquerda — e o
+    /// PlayerMovement toca a caminhada ao contrário, então a perna recua no plano certo.
     /// </summary>
     private float ResolveStrafeTwistTarget()
     {
@@ -313,11 +312,11 @@ public class SpineLook : MonoBehaviour
         if (input.sqrMagnitude < 0.01f)
             return 0f;
 
-        // Folga no lado de trás: com stick, lateral puro oscila em volta de y = 0, e cada
-        // cruzamento trocaria +max por -max.
-        float radians = input.y > -0.2f
-            ? Mathf.Atan2(input.x, input.y)
-            : Mathf.Atan2(-input.x, -input.y);
+        // O critério de ré é o mesmo que inverte a animação no PlayerMovement: a dobra do
+        // ângulo só faz sentido com a perna recuando, e vice-versa.
+        float radians = movement.IsMovingBackward
+            ? Mathf.Atan2(-input.x, -input.y)
+            : Mathf.Atan2(input.x, input.y);
 
         return Mathf.Clamp(radians * Mathf.Rad2Deg, -maxStrafeTwist, maxStrafeTwist);
     }
