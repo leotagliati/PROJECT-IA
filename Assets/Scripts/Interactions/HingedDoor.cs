@@ -7,7 +7,7 @@ using UnityEngine;
 /// velocidade que tinha e para por atrito — dá para bater a porta.
 ///
 /// Vai num objeto vazio posicionado NA DOBRADIÇA, com a malha/colisão da porta como filha. A
-/// pose da cena é o ângulo 0 (fechada) e o giro é em torno do Y local. Rigidbody cinemático:
+/// pose da cena é o ângulo 0 (fechada) e o giro é em torno de hingeLocalAxis (Y por padrão). Rigidbody cinemático:
 /// a porta empurra o jogador em vez de ser empurrada, e o ângulo é sempre o que o script diz
 /// (nada de HingeJoint tremendo ou porta sendo arrastada pelo próprio jogador ao andar).
 /// </summary>
@@ -15,7 +15,12 @@ using UnityEngine;
 public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 {
     [Header("Dobradiça")]
-    [Tooltip("Limites em graus em torno do Y local, a partir da pose da cena. Negativo abre para o outro lado.")]
+    [Tooltip("Eixo de giro no espaço local da dobradiça. Modelo importado do Blender costuma " +
+             "chegar com a raiz deitada (rotação de 90° + escala 100/220), e aí o 'para cima' " +
+             "do mundo é o X ou Z local, não o Y — a porta abriria girando como alçapão.")]
+    [SerializeField] private Vector3 hingeLocalAxis = Vector3.up;
+
+    [Tooltip("Limites em graus em torno do eixo da dobradiça, a partir da pose da cena. Negativo abre para o outro lado.")]
     [SerializeField] private float minAngle = 0f;
 
     [SerializeField] private float maxAngle = 100f;
@@ -91,6 +96,11 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
     [Tooltip("Abaixo disto a porta só encosta, sem som nenhum.")]
     [SerializeField] private float latchMinSpeed = 5f;
 
+    [Header("Áudio — saindo do batente")]
+    [Tooltip("Porta desencaixando do batente (trinco soltando, vedação de geladeira descolando). " +
+             "Toca uma vez por abertura. Vazio = sem som.")]
+    [SerializeField] private string openSoundId = "";
+
     [Header("Áudio — abrindo até o fim")]
     [Tooltip("Porta escancarada batendo no limite de abertura. Vazio = sem som.")]
     [SerializeField] private string openStopSoundId = "";
@@ -139,7 +149,19 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 
     private float OpenAngle => Mathf.Abs(minAngle) <= Mathf.Abs(maxAngle) ? maxAngle : minAngle;
 
-    private Vector3 HingeAxis => transform.parent != null ? transform.parent.TransformDirection(Vector3.up) : Vector3.up;
+    // Tem que ser o MESMO eixo que o FixedUpdate gira (pai * pose fechada * eixo local). Antes
+    // era o up do pai, que só coincide quando a pose fechada é giro puro em Y: com a raiz
+    // deitada o arrasto media o mouse num eixo e a porta girava em outro.
+    private Vector3 HingeAxis
+    {
+        get
+        {
+            Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
+            return parentRotation * closedLocalRotation * LocalAxis;
+        }
+    }
+
+    private Vector3 LocalAxis => hingeLocalAxis.sqrMagnitude > 1e-6f ? hingeLocalAxis.normalized : Vector3.up;
 
     private void Awake()
     {
@@ -149,7 +171,7 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 
         closedLocalRotation = transform.localRotation;
         angle = Mathf.Clamp(startAngle, Mathf.Min(minAngle, maxAngle), Mathf.Max(minAngle, maxAngle));
-        transform.localRotation = closedLocalRotation * Quaternion.AngleAxis(angle, Vector3.up);
+        transform.localRotation = closedLocalRotation * Quaternion.AngleAxis(angle, LocalAxis);
 
         // Porta que nasce encostada num limite já está "em repouso" nele: forçá-la contra o
         // batente no primeiro agarrão não pode soar como se tivesse acabado de fechar.
@@ -339,7 +361,7 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
             autoMoving = false;
 
         Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
-        body.MoveRotation(parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, Vector3.up));
+        body.MoveRotation(parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, LocalAxis));
     }
 
     /// <param name="impactSpeed">
@@ -351,10 +373,19 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
         float low = Mathf.Min(minAngle, maxAngle);
         float high = Mathf.Max(minAngle, maxAngle);
 
+        bool closedIsLow = Mathf.Approximately(ClosedAngle, low);
+        bool wasRestingClosed = closedIsLow ? restingOnLow : restingOnHigh;
+
         // Rearma só com folga: o quique e o tremor da mão encostada no batente não podem
         // contar como chegadas novas.
         if (angle > low + contactRearmAngle) restingOnLow = false;
         if (angle < high - contactRearmAngle) restingOnHigh = false;
+
+        // Mesma folga vale para a saída: o som de abrir só toca quando a porta de fato largou
+        // o batente, não a cada tremida da mão segurando ela fechada.
+        bool restingClosed = closedIsLow ? restingOnLow : restingOnHigh;
+        if (wasRestingClosed && !restingClosed && !string.IsNullOrEmpty(openSoundId))
+            AudioProvider.PlayAt(openSoundId, GrabPoint);
 
         if (angle >= low && angle <= high)
             return;
