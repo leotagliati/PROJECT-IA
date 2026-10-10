@@ -44851,6 +44851,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 022c9d001e49bd143a48bd7c41954f07, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _focusTarget: {fileID: 439383680}
+  _stopDistance: 0.35
+  _duration: 4
+  _moveCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 2.5
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _fadeStart: 0.55
+  _fadeColor: {r: 0, g: 0, b: 0, a: 1}
+  _playSfxId: suspenseStart
+  _playSfxVolume: 1
+  _menuGroup: {fileID: 0}
+  _gameSceneIndex: 1
 --- !u!114 &947511566
 MonoBehaviour:
   m_ObjectHideFlags: 0
