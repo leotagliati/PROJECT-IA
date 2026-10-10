@@ -129582,6 +129582,34 @@ PrefabInstance:
       propertyPath: handOffset.z
       value: 0.67
       objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.9979193
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.06447622
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.0000003990173
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0.000000051545058
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -7.394
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3943597000807287578, guid: 97d293e2457059e49816e795df1a13db, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6337691064454773718, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: crouchHeight
       value: 0.2
