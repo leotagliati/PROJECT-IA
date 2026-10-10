@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Assets.Scripts.Graph
 {
@@ -8,7 +9,8 @@ namespace Assets.Scripts.Graph
     /// fora do cone ou atrás de parede o seeker não sabe onde o hider está.
     ///
     /// Observação [16..20]: vendo, já viu, direção X/Z e distância à última posição vista (congela
-    /// ao perder de vista). Paga, no GraphRewardSystem: avistar (com cooldown), metros de
+    /// ao perder de vista). "Vendo" inclui o RASTRO: depois de ver, segue com a posição real por um tempo
+    /// sem linha livre (_trackMemorySeconds). Paga, no GraphRewardSystem: avistar (com cooldown), metros de
     /// aproximação enquanto vê e capturar (terminal).
     ///
     /// Também é dona da APROXIMAÇÃO (distância na decisão anterior), que só vale vendo nas duas.
@@ -51,10 +53,29 @@ namespace Assets.Scripts.Graph
         // alto entre os dois esconde. Sem collider no alvo, volta ao teste antigo na altura do olho.
         [SerializeField, Min(0f)] private float _targetHeadOffset = 0.15f;
 
-        // Steps de física que a visão do alvo aguenta sem linha livre antes de soltar (25 = 0.5 s): uma coluna ou um
-        // batente cruzando a linha não apaga a perseguição. Durante isso a posição segue a real (o monstro "acompanha
-        // a curva"); passou disso, perdeu de vista de verdade.
-        [SerializeField, Min(0)] private int _trackGraceSteps = 25;
+        [Header("-----Rastro: depois de ver, não solta na hora-----")]
+        // Depois de VER o alvo, o seeker segue "vendo" (posição real, Perseguição, cone travado) por _trackMemorySeconds
+        // sem linha livre; recarrega a cada step com linha livre. 3 s (09/10; era 0.5 s, _trackGraceSteps 25): o jogador
+        // dobrava uma esquina e o monstro ia até onde ele SUMIU, já com ele 10-20 m adiante. 3 s = o _chaseHoldSeconds
+        // da locomoção; depois a previsão (2 s) e a audição de corrida (30 m pelo grafo) assumem. Para a rede é a mesma
+        // perseguição de sempre ([16] = 1, posição real), por isso o 50M usa sem treinar.
+        // Testado e recusado no mesmo dia: 5-15 s e "sentir" o alvo a < 6-15 m através de parede (exagero, disse o
+        // Arthur: esconder perto tem que funcionar).
+        [SerializeField, Min(0f)] private float _trackMemorySeconds = 3f;
+
+        [Header("-----Rota até o alvo (NavMesh)-----")]
+        // A observação [18..20] aponta para a próxima QUINA do caminho NavMesh até o alvo, não em linha reta (09/10):
+        // vendo o jogador por cima de uma mesa, ou com ele num canto sem nó, a reta mandava o monstro para dentro do
+        // móvel. O NavMesh cobre o chão livre todo, então a perseguição não fica presa aos nós. Com reta livre a quina
+        // é o próprio alvo (igual a antes, por isso o 50M usa sem treinar). Sem NavMesh assado na arena, volta à reta.
+        // Só a ROTA é calculada: o alvo é o que ele viu (ou rastreia), e nada paga seguir a rota.
+        [SerializeField] private bool _useNavMeshRoute = true;
+
+        // Raio (m) para achar o NavMesh sob o seeker e sob o alvo (pivô no pé; móvel encostado pode empurrar o ponto).
+        [SerializeField, Min(0.1f)] private float _navMeshSnap = 2f;
+
+        // Quina mais perto que isto (m) já foi alcançada: aponta para a seguinte, senão a direção gira em cima dela.
+        [SerializeField, Min(0f)] private float _cornerReached = 0.5f;
 
         [Header("-----Procura depois de perder de vista-----")]
         // Segundos depois de perder o alvo de vista em que o seeker fica em PROCURA: a observação de exploração
@@ -109,6 +130,50 @@ namespace Assets.Scripts.Graph
 
         private Vector3 _previousSeenPosition;
         private bool _hasPreviousSeenPosition;
+
+        // PREVISÃO (v5.2, 08/10): ao perder de vista (depois do rastro), a última posição é projetada com a velocidade
+        // que ele VIU, por até _predictSeconds e parando antes de parede. A observação [18..20] aponta para isso em vez
+        // da última posição parada: o 50M corria até onde o jogador sumiu e o procurava ali, com ele já 20 m adiante.
+        // Só usa o que o monstro viu ou rastreou (posição e velocidade), e nada paga ir até lá.
+        [Header("-----Previsão ao perder de vista-----")]
+        // Segundos de projeção (2 = ~20 m do jogador correndo). Depois disso o ponto para: chute longo erra mais.
+        [SerializeField, Min(0f)] private float _predictSeconds = 2f;
+
+        // Suavização (s) da velocidade vista: a medida por step pisca no meio de uma curva ou quina.
+        [SerializeField, Min(0.01f)] private float _velocitySmoothing = 0.3f;
+
+        // Folga (m) antes da parede onde a projeção para.
+        [SerializeField, Min(0f)] private float _predictWallMargin = 0.6f;
+
+        private Vector3 _smoothedVelocity;
+
+        /// <summary>
+        /// Onde o alvo deve estar: a posição atual enquanto vê (ou rastreia); sem ver, a última conhecida projetada
+        /// com a velocidade vista (até _predictSeconds, parando antes de parede). Válida só com HasSeen.
+        /// </summary>
+        public Vector3 PredictedPosition
+        {
+            get
+            {
+                if (IsSeeing || !HasSeen || _predictSeconds <= 0f)
+                    return LastSeenPosition;
+
+                float seconds = Mathf.Min((_step - _lastSeenStep) * Time.fixedDeltaTime, _predictSeconds);
+                Vector3 travel = _smoothedVelocity * seconds;
+                float length = travel.magnitude;
+                if (length < 1e-3f)
+                    return LastSeenPosition;
+
+                // Raio na altura do peito do alvo: a projeção não atravessa parede (a layer do grafo, a mesma da visão).
+                LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+                Vector3 direction = travel / length;
+                Vector3 origin = LastSeenPosition + Vector3.up;
+                if (walls.value != 0 && Physics.Raycast(origin, direction, out RaycastHit hit, length, walls, QueryTriggerInteraction.Ignore))
+                    length = Mathf.Max(0f, hit.distance - _predictWallMargin);
+
+                return LastSeenPosition + direction * length;
+            }
+        }
 
         // Só para o TensorBoard (Hunt/Sightings, Hunt/LostSight, Hunt/SightToCatchSeconds); nada disso entra na
         // observação nem na recompensa.
@@ -167,6 +232,70 @@ namespace Assets.Scripts.Graph
         private Collider _targetCollider;
         private bool _spottedThisEpisode;
 
+        // Criado na primeira consulta: o construtor do NavMeshPath é nativo e não deve rodar na serialização.
+        private NavMeshPath _route;
+        private readonly Vector3[] _routeCorners = new Vector3[32];
+        private bool _warnedNoNavMesh;
+
+        // Quinas da última rota calculada, só para o gizmo (0 = sem rota: reta ou sem NavMesh).
+        private int _routeCount;
+
+        /// <summary>
+        /// Para onde correr até a última posição conhecida do alvo (a real enquanto vê ou rastreia): a próxima quina
+        /// do caminho NavMesh, ou o próprio alvo com reta livre ou sem NavMesh. <paramref name="distance"/> = metros
+        /// pelo caminho (reta sem NavMesh). Válido só com HasSeen.
+        /// </summary>
+        public Vector3 ChaseAim(Vector3 from, out float distance)
+        {
+            // Vendo ou rastreando, a posição real; sem ver, a previsão a partir da última conhecida.
+            Vector3 goal = PredictedPosition;
+            distance = PlanarDistance(from, goal);
+            _routeCount = 0;
+            if (!_useNavMeshRoute)
+                return goal;
+
+            if (!NavMesh.SamplePosition(from, out NavMeshHit start, _navMeshSnap, NavMesh.AllAreas))
+            {
+                if (!_warnedNoNavMesh)
+                {
+                    _warnedNoNavMesh = true;
+                    Debug.LogWarning($"{name}: sem NavMesh sob o seeker; a rota até o alvo fica em linha reta. " +
+                                     "Asse um NavMeshSurface na arena (NodeTraining - V5 training).", this);
+                }
+
+                return goal;
+            }
+
+            if (!NavMesh.SamplePosition(goal, out NavMeshHit end, _navMeshSnap, NavMesh.AllAreas))
+                return goal;
+
+            if (_route == null)
+                _route = new NavMeshPath();
+
+            // Parcial (alvo numa ilha do NavMesh) ainda serve: leva o mais perto possível.
+            if (!NavMesh.CalculatePath(start.position, end.position, NavMesh.AllAreas, _route)
+                || _route.status == NavMeshPathStatus.PathInvalid)
+                return goal;
+
+            int count = _route.GetCornersNonAlloc(_routeCorners);
+            if (count < 3)
+                return goal; // reta livre: o próprio alvo, não o ponto projetado no NavMesh
+
+            _routeCount = count;
+
+            int next = 1;
+            if (PlanarDistance(from, _routeCorners[1]) < _cornerReached)
+                next = 2;
+
+            distance = PlanarDistance(from, _routeCorners[1]);
+            for (int i = 1; i < count - 1; i++)
+                distance += PlanarDistance(_routeCorners[i], _routeCorners[i + 1]);
+
+            return next >= count - 1 ? goal : _routeCorners[next];
+        }
+
+        private static float PlanarDistance(Vector3 a, Vector3 b) => new Vector2(b.x - a.x, b.z - a.z).magnitude;
+
         /// <summary>Para onde a cabeça olha (planar, no mundo); o cone passa a seguir isto, não o corpo.</summary>
         public void SetViewDirection(Vector3 forward)
         {
@@ -183,6 +312,7 @@ namespace Assets.Scripts.Graph
             LastSeenPosition = Vector3.zero;
             CurrentDistance = 0f;
             HiderVelocity = Vector3.zero;
+            _smoothedVelocity = Vector3.zero;
             _hasPreviousSeenPosition = false;
             _hasViewDirection = false;
             Caught = false;
@@ -218,7 +348,7 @@ namespace Assets.Scripts.Graph
             if (visible)
                 _lastVisibleStep = _step;
 
-            bool seeing = visible || (IsSeeing && GraphTarget.IsLive(_target) && _step - _lastVisibleStep <= _trackGraceSteps);
+            bool seeing = visible || (IsSeeing && GraphTarget.IsLive(_target) && KeepsTracking());
 
             if (seeing)
             {
@@ -244,6 +374,14 @@ namespace Assets.Scripts.Graph
                     ? new Vector3(moved.x, 0f, moved.z) / Time.fixedDeltaTime
                     : Vector3.zero;
                 _previousSeenPosition = LastSeenPosition;
+
+                // Primeiro step de uma vista nova: sem medida ainda, a média recomeça do zero (não herda a corrida
+                // de quando o perdeu da última vez).
+                if (!_hasPreviousSeenPosition)
+                    _smoothedVelocity = Vector3.zero;
+                else
+                    _smoothedVelocity = Vector3.Lerp(_smoothedVelocity, HiderVelocity, Mathf.Clamp01(Time.fixedDeltaTime / _velocitySmoothing));
+
                 _hasPreviousSeenPosition = true;
 
                 // Avistar paga só a PRIMEIRA vista do episódio (06/10): reencontrar depois de deixar escapar virava
@@ -279,6 +417,9 @@ namespace Assets.Scripts.Graph
             if (!Caught && GraphTarget.IsLive(_target) && IsWithinReach(seeker, _target.Position))
                 Caught = true;
         }
+
+        // Rastro sem linha livre (só chamado já vendo, então _lastVisibleStep é de verdade).
+        private bool KeepsTracking() => (_step - _lastVisibleStep) * Time.fixedDeltaTime <= _trackMemorySeconds;
 
         private bool IsWithinReach(Transform seeker, Vector3 hiderPosition)
         {
@@ -389,7 +530,8 @@ namespace Assets.Scripts.Graph
         }
 
         // Gizmo (azul-claro): cone; em Play, os raios até cabeça e peito do alvo (azul-claro = livre, cinza =
-        // bloqueado), um círculo no alvo enquanto vê e X na última posição vista quando não vê.
+        // bloqueado), um círculo no alvo enquanto vê e X na última posição vista quando não vê. Vermelho-vivo: a rota
+        // NavMesh que a observação [18..20] segue quando a reta até o alvo bate em parede ou móvel.
         private void OnDrawGizmosSelected()
         {
             Vector3 eye = transform.position + Vector3.up * _eyeHeight;
@@ -432,6 +574,15 @@ namespace Assets.Scripts.Graph
                 Vector3 p = LastSeenPosition + Vector3.up * _eyeHeight;
                 Gizmos.DrawLine(p + new Vector3(-0.4f, 0f, -0.4f), p + new Vector3(0.4f, 0f, 0.4f));
                 Gizmos.DrawLine(p + new Vector3(-0.4f, 0f, 0.4f), p + new Vector3(0.4f, 0f, -0.4f));
+            }
+
+            // Rota NavMesh até o alvo (vermelho-vivo, um pouco acima do chão), só quando a reta não passa.
+            if (HasSeen && _routeCount >= 3)
+            {
+                Gizmos.color = new Color(1f, 0.2f, 0.2f, 1f);
+                Vector3 lift = Vector3.up * 0.3f;
+                for (int i = 0; i < _routeCount - 1; i++)
+                    Gizmos.DrawLine(_routeCorners[i] + lift, _routeCorners[i + 1] + lift);
             }
         }
     }

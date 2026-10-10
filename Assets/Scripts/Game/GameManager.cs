@@ -23,6 +23,13 @@ public class GameManager : MonoBehaviour
     [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
     [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
 
+    // Desligado, a partida começa ao carregar a cena: o monstro (modo de jogo) já sai caçando e o jogador só
+    // nasce. Para a cena final enquanto não há porta nem gatilho de início ligado ao StartMainLoop; com o
+    // gatilho pronto, ligue de novo. Ligado (padrão), nada muda para as cenas que já usam o gatilho.
+    [Header("Início da partida")]
+    [Tooltip("Ligado: espera alguém chamar StartMainLoop (ex.: o DoorTrigger da entrada). Desligado: começa ao carregar a cena.")]
+    [SerializeField] private bool waitForStartTrigger = true;
+
     public static GameManager Current { get; private set; }
 
     public static event Action<GameState> StateChanged;
@@ -48,6 +55,11 @@ public class GameManager : MonoBehaviour
     void Start()
     {
         StateChanged?.Invoke(State);
+
+        // No Start, não no Awake: quem ouve StateChanged (o monstro assina no OnEnable) já está pronto.
+        // O gatilho que chegar depois não faz nada (StartMainLoop só sai de Preparing).
+        if (!waitForStartTrigger)
+            StartMainLoop();
     }
 
     void Update()

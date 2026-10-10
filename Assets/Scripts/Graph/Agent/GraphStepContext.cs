@@ -106,6 +106,9 @@ namespace Assets.Scripts.Graph
         /// <summary>O hider está no cone de visão agora (com linha livre de parede).</summary>
         public bool HiderInView;
 
+        /// <summary>Caçando: vendo o hider ou procurando ele depois de perdê-lo (GraphHiderPerception.IsSearching).</summary>
+        public bool HuntingTarget;
+
         /// <summary>Dá para medir aproximação (vendo nesta decisão e na anterior).</summary>
         public bool HasHiderApproach;
 

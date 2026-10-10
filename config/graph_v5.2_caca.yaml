@@ -1,0 +1,268 @@
+# ================================================================================================
+# GraphExplorer - mapa v4 (prefab NodeTraining - V6 Training, cena Arthur/V6 - Training) - V5.2: CACA HERDANDO O 50M - MAIS RAPIDO, PREVISAO AO PERDER DE VISTA, PRESSA, HIDER FORA DO CENTRO
+#
+#   mlagents-learn config/graph_v5.2_caca.yaml --run-id=v5.2_caca_01 --initialize-from=v5.1_zero_01 --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
+#   (build: perfil "V6 - Training" em Assets/Settings/Build Profiles, saida em Builds/V6/PROJECT-IA.exe)
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
+# Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.
+#
+# HERDA o v5.1_zero_01 (50M). So caca, o hider sempre SOLTO e com os numeros do jogador. O que mudou no codigo:
+#   - VELOCIDADE: perseguicao 11.5 m/s (era 10), alerta 9.5 (era 8.5), giro na perseguicao 540/s (era 360).
+#     O jogador corre a 10.2 por 10 s: vendo, o monstro ganha ~1.3 m/s; so quebrar a linha de visao salva.
+#   - PREVISAO na observacao [18..20]: sem ver, aponta para a ultima vista projetada com a velocidade vista
+#     (ate 2 s, parando antes de parede), nao para onde ele sumiu. So o que o monstro viu; nada paga ir la.
+#   - PRESSA: -0.0008 por step cacando (vendo ou procurando ha < 20 s). Vendo, cancela o +0.00086 de "em vista":
+#     seguir de longe nao rende, encurtar (recorde de proximidade) e pegar sim. Caca de 80 s = -3.2.
+#   - HIDER NUNCA NO CENTRO DO NO (hider_loose 1 nas duas licoes): pontos a >= 0.6 m do centro, portas inclusive.
+#   - RASTRO (09/10): depois de ver, segue "vendo" (posicao real) por 3 s sem linha livre
+#     (GraphHiderPerception._trackMemorySeconds; era 0.5 s). Depois, previsao e audicao de corrida.
+#   - ROTA NAVMESH em [18..20] (09/10): direcao da proxima quina do caminho NavMesh ate o alvo (reta livre = o
+#     proprio alvo) e metros pelo caminho. PRECISA de NavMeshSurface assado no prefab de treino; sem ele, reta.
+#   - HIDER FORA DOS NOS (09/10): 40% dos esconderijos ficam fora da area de qualquer no (ate 4 m alem do no,
+#     cantos sem no, atras de movel; GraphHider._offNodeChance). O jogador se esconde ai.
+#
+#   #  Licao         hider  corre  folego barulho desc ping$ solto  criterio
+#   1  HiderFoge     foge   8.5    10     0.3     0.0  0     1      progresso 0.30 (150)
+#   2  HiderJogador  foge   10.2   10     0.3     0.0  0     1      (final)
+#   A Foge e o aquecimento com a fisica nova (o hider de 8.5 era a licao 9 da v5.1).
+#
+# HIPERPARAMETROS de ajuste fino: LR 1e-4 (era 3e-4) e beta 0.003 (era 0.012), lineares ate max_steps. Um run
+#   novo recomeca o schedule do zero: com 3e-4 o primeiro milhao desmontaria o que o 50M sabe.
+#
+# PASSA QUANDO: Hunt/Caught > 0.95 na HiderJogador; Hunt/LostSight por episodio e Hunt/SightToCatchSeconds
+#   menores que no fim da v5.1 (~5 e ~84); Movement/ChaseFraction sem subir (perseguir sem pegar);
+#   WallContactFraction < 0.05. No jogo (V5 - Test): o jogador correndo em linha reta e pego.
+# 8M steps ~ 8-9 h no build com 3 envs (~1M/h). Checkpoint a cada 500k, todos guardados.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0001
+      # 0.003: ajuste fino de uma politica pronta (o 50M ja tinha entropia ~-0.04); 0.012 a faria
+      # voltar a experimentar como no comeco. Decai linear ate max_steps.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.998
+        strength: 1.0
+    keep_checkpoints: 16
+    checkpoint_interval: 500000
+    max_steps: 8000000
+    time_horizon: 256
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  ping_single_room_chance: 0.5
+
+  # ---- Curriculo ----
+  # Fracao dos nos de uma sala que precisam ser VISTOS para concluir.
+  room_complete_threshold:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 1.0
+      - name: HiderJogador
+        value: 1.0
+
+  # Acima de 1 = sem fim por cobertura (caca).
+  coverage_target:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 1.1
+      - name: HiderJogador
+        value: 1.1
+
+  # Salas que ja nascem concluidas.
+  previsited_fraction:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: HiderJogador
+        value: 0.0
+
+  # 0 = salas nao voltam (so a patrulha usava).
+  release_fraction:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: HiderJogador
+        value: 0.0
+
+  # 0: com hider, os pings vem dos passos dele.
+  ping_interval:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0
+      - name: HiderJogador
+        value: 0
+
+  # 3 = foge.
+  hider_mode:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 3
+      - name: HiderJogador
+        value: 3
+
+  # m/s do hider CORRENDO (anda a 0.588 x). 10.2 = o jogador.
+  hider_speed:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 8.5
+      - name: HiderJogador
+        value: 10.2
+
+  # Segundos de corrida do hider (10 = PlayerStamina.sprintDuration do PlayerDummy).
+  hider_stamina:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 10.0
+      - name: HiderJogador
+        value: 10.0
+
+  # Chance de cada chegada do hider num no de ping virar ping.
+  hider_noise:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0.3
+      - name: HiderJogador
+        value: 0.3
+
+  # 0: na caca explorar so serve para achar.
+  discovery_reward_scale:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: HiderJogador
+        value: 0.0
+
+  # 0: o rastro do hider so informa.
+  ping_reward_scale:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 0.0
+      - name: HiderJogador
+        value: 0.0
+
+  # 1 = o que ele VE conta como visto.
+  vision_explores:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 1
+      - name: HiderJogador
+        value: 1
+
+  # 1 = hider fora do centro dos nos (nunca no centro desde 08/10) e se escondendo.
+  hider_loose:
+    curriculum:
+      - name: HiderFoge
+        completion_criteria:
+          measure: progress
+          behavior: GraphExplorer
+          signal_smoothing: true
+          min_lesson_length: 150
+          threshold: 0.3
+          require_reset: true
+        value: 1
+      - name: HiderJogador
+        value: 1

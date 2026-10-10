@@ -135,7 +135,7 @@ namespace Assets.Scripts.Graph
         /// Até 06/10 as Door_Hole iam para a layer Door, com contato a 25% do da parede; o monstro aprendeu a raspar o
         /// batente e ficava preso na porta de vez em quando, então a porta voltou a ser parede como outra qualquer.
         /// Ficam de fora: chão e teto (pelo nome, ou placa fina e larga: na layer de parede o teste de corpo do
-        /// NavGraph encostaria neles e bloquearia tudo), o monstro, o hider, os nós e triggers. Com Undo; rode no
+        /// NavGraph encostaria neles e bloquearia tudo), o monstro, o hider, o jogador, os nós e triggers. Com Undo; rode no
         /// Prefab Mode da arena e depois "Validar ligações" no NavGraph (móvel que virou parede pode cortar ligação).
         /// </summary>
         [ContextMenu("Ajustar layers das paredes (Wall)")]
@@ -157,8 +157,11 @@ namespace Assets.Scripts.Graph
                 if (!done.Add(go) || collider.isTrigger)
                     continue;
 
+                // O jogador também fica de fora (10/10): na cena final ele é filho do mapa, e em Wall a visão e o
+                // puxão de perto batiam no corpo dele, ou seja, o monstro nunca o via nem o pegava.
                 if (go.GetComponentInParent<GraphExplorerManager>(true) != null || go.GetComponentInParent<GraphHider>(true) != null
-                    || go.GetComponentInParent<NavNode>(true) != null)
+                    || go.GetComponentInParent<NavNode>(true) != null || go.GetComponentInParent<CharacterController>(true) != null
+                    || go.GetComponentInParent<PlayerMovement>(true) != null)
                     continue;
 
                 if (IsFloorOrCeiling(collider))
