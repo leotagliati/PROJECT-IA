@@ -146,8 +146,10 @@ determinístico durante o treino.
   action map só liga quando o primeiro usuário aparece. Ao regerar o `.cs`, não edite o
   arquivo gerado.
 - **Ordem de execução da câmera** — vários componentes escrevem na mesma transform, e a
-  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, dobra o `spine.002`
-  com o pitch e **escreve posição e rotação da câmera** a partir do osso `Neck`) →
+  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, camadas procedurais
+  nos ossos — crouch, torção de strafe, arco do peek, pitch no `spine.002` — com um único
+  registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
+  `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
   `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
