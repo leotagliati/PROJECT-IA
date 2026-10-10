@@ -140,3 +140,9 @@ MonoBehaviour:
     Volume: 0.6
     PitchJitter: 0.04
     MaxDistance: 0
+  - Id: suspenseStart
+    Clips:
+    - {fileID: 8300000, guid: ccfac6ce2ee13aa4f92ef030d580fcc5, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
