@@ -686,6 +686,9 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 8
   triggerInteraction: 1
+  dragSensitivity: 0.003
+  dragReleaseDistance: 3
+  blockLookWhileDragging: 1
 --- !u!1 &7915046870921623097
 GameObject:
   m_ObjectHideFlags: 0
