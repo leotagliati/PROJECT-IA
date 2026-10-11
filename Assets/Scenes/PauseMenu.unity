@@ -121549,7 +121549,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &823337704
 Transform:
   m_ObjectHideFlags: 0
@@ -174438,6 +174438,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   controller: {fileID: 0}
   playOnStart: 1
+  voiceAnchor: {fileID: 0}
   rememberAcrossReloads: 1
   minVisibleTime: 1.5
   steps:
@@ -174451,6 +174452,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: mover
     text: Use {Move} para se mover e {Look} para olhar ao redor
     after: 
@@ -174461,6 +174463,7 @@ MonoBehaviour:
     amount: 1.5
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: agachar
     text: "{Crouch} para *agachar*. Agachado, seus passos quase n\xE3o fazem barulho"
     after: 
@@ -174471,6 +174474,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: interagir
     text: Aperte {Interact} para *interagir* com objetos
     after: 
@@ -174481,6 +174485,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: chave
     text: Procure pela *chave* para abrir a porta
     after: 
@@ -174491,6 +174496,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: espiar
     text: Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas
     after: porta_trancada_aberta
@@ -174501,6 +174507,7 @@ MonoBehaviour:
     amount: 0.5
     timeout: 12
     skipIfAlreadyDone: 1
+    voiceId: 
   - id: saida
     text: "\"Preciso encontrar a sa\xEDda desse lugar... deve haver uma porta.\""
     after: 
@@ -174511,6 +174518,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: voice_find_door
   - id: correr
     text: Segure {Sprint} para *correr*
     after: tremor_terminou
@@ -174521,6 +174529,7 @@ MonoBehaviour:
     amount: 1
     timeout: 0
     skipIfAlreadyDone: 1
+    voiceId: 
 --- !u!114 &1209857372
 MonoBehaviour:
   m_ObjectHideFlags: 0

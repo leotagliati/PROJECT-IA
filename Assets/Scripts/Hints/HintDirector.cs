@@ -51,6 +51,9 @@ public class HintStep
 
     [Tooltip("Se o jogador já fez isso sozinho antes do passo, o passo nem aparece.")]
     public bool skipIfAlreadyDone = true;
+
+    [Tooltip("Id da AudioLibrary tocado no mesmo instante do texto (fala do personagem). Vazio = sem som.")]
+    public string voiceId;
 }
 
 /// <summary>
@@ -73,6 +76,9 @@ public class HintDirector : MonoBehaviour
     [SerializeField] private HintController controller;
 
     [SerializeField] private bool playOnStart = true;
+
+    [Tooltip("De onde sai a voz dos passos com Voice Id. Vazio = câmera principal.")]
+    [SerializeField] private Transform voiceAnchor;
 
     [Tooltip("O GameManager recarrega a cena a cada morte. Ligado, passo cumprido não volta no " +
              "retry; desligado, o roteiro recomeça a cada tentativa.")]
@@ -118,7 +124,7 @@ public class HintDirector : MonoBehaviour
         new HintStep
         {
             id = "saida", text = "\"Preciso encontrar a saída desse lugar... deve haver uma porta.\"",
-            waitFor = HintWait.Signal, signal = "porta_principal", delay = 2f,
+            waitFor = HintWait.Signal, signal = "porta_principal", delay = 2f, voiceId = "voice_find_door",
         },
         new HintStep
         {
@@ -138,6 +144,7 @@ public class HintDirector : MonoBehaviour
     private InputAction[][] stepActions;
     private Coroutine running;
     private HintHandle currentHint;
+    private AudioHandle voice;
 
     public bool IsPlaying => running != null;
 
@@ -215,6 +222,11 @@ public class HintDirector : MonoBehaviour
         if (controller != null)
             controller.Hide(currentHint);
         currentHint = default;
+
+        // O AudioPool sobrevive ao reload de cena: sem isto a fala vazaria para a próxima
+        // tentativa. Ao cumprir um passo a fala não é cortada, só o texto some.
+        AudioProvider.Stop(voice);
+        voice = default;
     }
 
     private void Update()
@@ -253,6 +265,7 @@ public class HintDirector : MonoBehaviour
                 float baseline = Measure(step, i);
                 float shownAt = Time.time;
                 currentHint = controller.Show(step.text);
+                PlayVoice(step);
 
                 yield return new WaitUntil(() =>
                 {
@@ -272,6 +285,19 @@ public class HintDirector : MonoBehaviour
         }
 
         running = null;
+    }
+
+    // No mesmo frame do Show: o director é o único que sabe o instante em que o texto entra,
+    // e voz disparada por sinal à parte ficaria fora de sincronia com o delay e não seria
+    // pulada junto com o passo. Fonte 3D presa à câmera: em cima do listener, sem pan.
+    private void PlayVoice(HintStep step)
+    {
+        if (string.IsNullOrEmpty(step.voiceId))
+            return;
+
+        Transform anchor = voiceAnchor != null ? voiceAnchor : (Camera.main != null ? Camera.main.transform : null);
+        AudioProvider.Stop(voice);
+        voice = anchor != null ? AudioProvider.PlayFollowing(step.voiceId, anchor) : default;
     }
 
     // Duration conta o tempo de tela; Press/Use contam o input desde que a dica apareceu. Signal
