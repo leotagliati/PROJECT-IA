@@ -50,7 +50,7 @@ namespace Assets.Scripts.Free
     ///     [33]     distância até a pegada / DoorReach
     ///     [34..35] para onde o alvo ia ao deixar a pegada (X/Z): o "seguir o rastro"
     ///     [36]     CAÇANDO (o foco acima está ligado)
-    ///     [37]     reservado (0)
+    ///     [37]     ALARME de chave: 1 quando acaba de saber que uma chave foi levada, cai a 0 (FreeKeyField; 0 sem chaves)
     ///   Radar (8 setores x 3), setores de 45° presos ao mundo, o setor k centrado no ângulo k x 45° a partir de +X:
     ///     [0]      quanto dá para andar nessa direção (NavMesh.Raycast até RadarReach) / RadarReach
     ///     [1]      fração dos pontos NÃO VISTOS da sala atual que estão nesse setor
@@ -64,6 +64,11 @@ namespace Assets.Scripts.Free
     ///     [6]      fração vista da sala do outro lado
     ///     [7]      válida
     /// Total 38 + 24 + 64 = 126.
+    ///
+    /// CHAVES (BufferSensor "Keys", fora do vetor, só se o agente tiver o sensor ligado; vazio sem chaves), uma entrada
+    /// por chave, até MaxKeys, 7 floats: [0..1] direção X/Z, [2] distância reta / DoorReach, [3] distância pelo
+    /// NavMesh / DoorReach (1 = sem caminho), [4] sabe que foi levada, [5] tempo sem conferir / intervalo da ronda
+    /// (1 = nunca ou há muito), [6] levada há pouco (1 = acabou de saber, 0 depois do alarme).
     ///
     /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (32), 8 floats cada:
     ///   [0..1] direção X/Z ao centro, [2] distância reta / diâmetro do mapa, [3] portas até ela / 16 (1 = sem
@@ -81,6 +86,10 @@ namespace Assets.Scripts.Free
         public const int RoomFeatures = 8;
         public const int MaxRooms = 32;
         private const string RoomSensorName = "Rooms";
+
+        public const int KeyFeatures = 7;
+        public const int MaxKeys = 4;
+        private const string KeySensorName = "Keys";
         private const float RoomHopsScale = 16f;
 
         // Alcance do "quanto dá para andar" (m): da ordem de uma sala; acima disso tudo é "livre".
@@ -100,6 +109,9 @@ namespace Assets.Scripts.Free
         private readonly GraphHiderPerception _perception;
         private readonly FreeTrackSense _track;
         private readonly BufferSensorComponent _roomSensor;
+        private readonly FreeKeyField _keys;
+        private readonly BufferSensorComponent _keySensor;
+        private readonly float[] _keyBuffer = new float[KeyFeatures];
         private readonly int _stagnationSteps;
 
         private readonly float[] _roomBuffer = new float[RoomFeatures];
@@ -109,8 +121,11 @@ namespace Assets.Scripts.Free
 
         public FreeObservations(
             FreeMap map, FreeExplorationMemory memory, GraphLocomotion locomotion, GraphBodyTracker body, FreeStuckTracker stuck,
-            GraphHiderPerception perception, FreeTrackSense track, BufferSensorComponent roomSensor, int stagnationSteps)
+            GraphHiderPerception perception, FreeTrackSense track, BufferSensorComponent roomSensor, int stagnationSteps,
+            FreeKeyField keys = null, BufferSensorComponent keySensor = null)
         {
+            _keys = keys;
+            _keySensor = keySensor;
             _map = map;
             _memory = memory;
             _locomotion = locomotion;
@@ -142,6 +157,25 @@ namespace Assets.Scripts.Free
             roomSensor.ObservableSize = RoomFeatures;
             roomSensor.MaxNumObservables = MaxRooms;
             return roomSensor;
+        }
+
+        /// <summary>O sensor das chaves (lições finais). Chamar no Awake do Agent, antes do base.Awake.</summary>
+        public static BufferSensorComponent EnsureKeySensor(GameObject agent)
+        {
+            BufferSensorComponent keySensor = null;
+            foreach (BufferSensorComponent sensor in agent.GetComponents<BufferSensorComponent>())
+            {
+                if (sensor.SensorName == KeySensorName)
+                    keySensor = sensor;
+            }
+
+            if (keySensor == null)
+                keySensor = agent.AddComponent<BufferSensorComponent>();
+
+            keySensor.SensorName = KeySensorName;
+            keySensor.ObservableSize = KeyFeatures;
+            keySensor.MaxNumObservables = MaxKeys;
+            return keySensor;
         }
 
         /// <param name="agent">O corpo do agente.</param>
@@ -237,7 +271,7 @@ namespace Assets.Scripts.Free
             }
 
             sensor.AddObservation(hunting ? 1f : 0f);
-            sensor.AddObservation(0f);
+            sensor.AddObservation(_keys != null ? _keys.Alarm : 0f);
 
             // ---- Radar (8 x 3) ----
             WriteRadar(sensor, ground, room);
@@ -247,6 +281,34 @@ namespace Assets.Scripts.Free
 
             // ---- Planta ----
             WriteRoomPlan(ground, room);
+
+            // ---- Chaves ----
+            WriteKeys(ground);
+        }
+
+        private void WriteKeys(Vector3 ground)
+        {
+            if (_keySensor == null || _keys == null)
+                return;
+
+            float now = Time.time;
+            for (int k = 0; k < _keys.Count && k < MaxKeys; k++)
+            {
+                FreeKeyField.Key key = _keys.Get(k);
+                var planar = new Vector2(key.Position.x - ground.x, key.Position.z - ground.z);
+                float distance = planar.magnitude;
+                Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+                float sinceChecked = float.IsNegativeInfinity(key.LastChecked) ? 1f : Mathf.Clamp01((now - key.LastChecked) / _keys.CheckIntervalSeconds);
+
+                _keyBuffer[0] = unit.x;
+                _keyBuffer[1] = unit.y;
+                _keyBuffer[2] = Mathf.Clamp01(distance / DoorReach);
+                _keyBuffer[3] = Mathf.Clamp01(PathLength(ground, key.Position) / DoorReach);
+                _keyBuffer[4] = key.Known ? 1f : 0f;
+                _keyBuffer[5] = key.Known ? 0f : sinceChecked;
+                _keyBuffer[6] = key.Known ? Mathf.Clamp01(1f - (now - key.KnownTime) / _keys.AlarmSeconds) : 0f;
+                _keySensor.AppendObservation(_keyBuffer);
+            }
         }
 
         private void WriteRadar(VectorSensor sensor, Vector3 ground, int room)

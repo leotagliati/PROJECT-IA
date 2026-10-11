@@ -86,6 +86,10 @@ namespace Assets.Scripts.Free
 
         public float ViewDistance => _viewDistance;
 
+        /// <summary>Olho acima do piso (m) e cosseno da meia abertura do cone: a mesma visão serve à ronda das chaves.</summary>
+        public float EyeHeight => _eyeHeight;
+        public float CosHalfAngle => _cosHalfAngle;
+
         /// <summary>A posição do corpo projetada no NavMesh (no piso): sala, portas, radar e caminhos usam esta.</summary>
         public Vector3 Ground { get; private set; }
 

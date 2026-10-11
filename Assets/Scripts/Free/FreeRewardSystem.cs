@@ -27,6 +27,11 @@ namespace Assets.Scripts.Free
     ///   PRESA na parede (0.0006/step, após 0.5 s)     -21 presa o tempo todo; ~-0.03 por segundo preso
     ///   estagnação (0.0001/step após 1500 sem nada)   -3.5 parado o episódio todo; ~0 explorando
     ///   suavidade (0.0002 andar, 0.0001 olhar, x|Δ|²) -0.3 típico; patológico ~-8
+    ///   CHAVES (só nas lições finais, com o FreeKeyField):
+    ///   ronda (0.1 por chave conferida parada > 60 s)  ~+1 a +3 (3 chaves, uma volta por minuto)
+    ///   chave levada (-1 quando o monstro fica sabendo) -3 (as 3)
+    ///   presa escapou (-5, levou todas; encerra)       -5, e perde a captura (20-45)
+    ///   campar (0.0005/step perto da mesma chave > 15 s) ~-0.025 por segundo campando
     /// Na caça a exploração vale x 0.3 (discovery_reward_scale): ~4 no mapa todo, bem abaixo da captura (20-45),
     /// para pegar mandar em tudo, e ainda o bastante para procurar sala por sala. E CAÇANDO (vendo o alvo,
     /// procurando há < 20 s ou com pegada fresca) ela vale ZERO e a estagnação não cobra: com a presa à vista ou o
@@ -72,6 +77,21 @@ namespace Assets.Scripts.Free
         // dobro do contato, somado a ele: raspar a parede andando é tolerável, empacar contra ela (quina, batente)
         // não. ~-0.03/s preso, além do contato.
         [SerializeField, Min(0f)] private float _wallStuckPenalty = 0.0006f;
+
+        [Header("-----Chaves (lições finais)-----")]
+        // Conferir (ver) uma chave que ficou mais de 60 s sem ser vista (FreeKeyField): a GUARDA é passar por elas de
+        // tempos em tempos, não ficar em cima. Pequeno: ronda é caminho, a captura continua mandando.
+        [SerializeField, Min(0f)] private float _keyCheckReward = 0.1f;
+
+        // Quando o monstro fica sabendo (com atraso) que uma chave foi levada: não guardou.
+        [SerializeField, Min(0f)] private float _keyLostPenalty = 1f;
+
+        // A presa levou todas (escapou, encerra): o pior fim depois de não achar ninguém.
+        [SerializeField, Min(0f)] private float _escapePenalty = 5f;
+
+        // Por step de física CAMPANDO (perto da mesma chave há mais de 15 s): sentar na chave não é guardar. Contra
+        // ele está a captura: com a presa longe, campar não pega ninguém.
+        [SerializeField, Min(0f)] private float _campPenalty = 0.0005f;
 
         [Header("-----Outras penalidades-----")]
         // Diluída por step (custo total = este valor por episódio): pressa sem punir ação nenhuma.
@@ -121,11 +141,21 @@ namespace Assets.Scripts.Free
                 reward += _hiderSpottedReward;
             reward += _hiderApproachReward * context.HiderApproachDelta;
 
-            // Fim: a captura tem prioridade.
+            // Chaves.
+            reward += _keyCheckReward * context.KeyChecks;
+            reward -= _keyLostPenalty * context.KeysLost;
+            if (context.Camping)
+                reward -= _campPenalty;
+
+            // Fim: a captura tem prioridade; depois a fuga da presa.
             if (context.HiderCaught)
             {
                 float remaining = 1f - (float)context.ElapsedSteps / Mathf.Max(1, context.MaxEpisodeSteps);
                 reward += _hiderCaughtReward + _hiderCaughtEarlyBonus * Mathf.Clamp01(remaining);
+            }
+            else if (context.HiderEscaped)
+            {
+                reward -= _escapePenalty;
             }
             else if (context.CoverageReached)
             {

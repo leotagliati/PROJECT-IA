@@ -1,0 +1,332 @@
+# ================================================================================================
+# FreeExplorer - v8.1: DO ZERO, ARENA SO NAVMESH + PRESA NOVA + CHAVES NO FIM
+#
+#   mlagents-learn config/free_v8.1_chaves.yaml --run-id=v8.1_zero_01 --env="Builds/V8.1/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   (build: menu PROJECT-IA > "v8.1: montar cena com chaves e build", ou Unity -batchmode -executeMethod FreeV8Setup.RunKeys)
+#
+# Por que do zero: o sensor novo das chaves (BufferSensor "Keys") muda o cerebro, e o v8.0 foi treinado quase todo contra
+# a presa que andava de no em no (no jogo ele cacava "em linha de no" e nao achava quem ficava parado num canto).
+# Mesmo corpo, mesma recompensa e hiperparametros do v8.0 (batch 2048, threaded); o que muda:
+#   - ARENA "Arena - V8": sem NavGraph nem no; a presa (FreeHider) anda pelo NavMesh desde o step 0.
+#   - LICOES NOVAS depois da Foge: Escondido (presa agachada em esconderijos, parada 15-45 s, so foge achada), Rapida
+#     (presa a 12.5 m/s, o monstro persegue a 11.5) e Chaves (3 chaves; a presa vai busca-las; o monstro sabe onde estao
+#     e so fica sabendo que uma foi levada 3 s depois; levar todas = escapou, -5). A Final sorteia o tipo de presa e,
+#     em metade dos episodios, as chaves: o modelo serve com ou sem chaves no jogo.
+#   - RONDA x CAMPAR: conferir uma chave parada ha > 60 s paga 0.1; ficar > 15 s perto da mesma chave custa 0.0005/step.
+# Criterio de cada licao por reward (a Foge passa em 50 porque o v8.0 ja chegava a ~65). Metricas: Hunt/Caught*,
+# Keys/Taken, Keys/Escaped, Keys/Checks, Keys/CampFraction, alem das de exploracao do v8.0.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      # 2048 (11/10, em 9.66M; era 1024): o treino é limitado pela atualização da rede (~40 s por 10k steps com 5, 8
+      # ou 10 envs). Metade dos passos de otimização por atualização (15 em vez de 30). buffer 10240 = 5 lotes.
+      batch_size: 2048
+      buffer_size: 10240
+      learning_rate: 0.0003
+      beta: 0.008
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # As features ja saem em [-1, 1] / [0, 1]; foi assim nos dois runs bons (v4.1 e v5.1).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.997
+        strength: 1.0
+    # Os jogos seguem coletando enquanto a rede atualiza (11/10). Medido com 8 envs sem isto: o treinador em ~400% de
+    # CPU (4 threads do torch, o teto do ML-Agents) e os jogos parados em 0% esperando a atualização na maior parte
+    # do tempo. Custo: a coleta usa a política de uma atualização atrás (PPO tolera).
+    threaded: true
+    keep_checkpoints: 60
+    checkpoint_interval: 500000
+    # 25M: a v8.0 fez as 4 primeiras licoes em 7M; aqui sao 8, e a ultima (Final) e o polimento.
+    max_steps: 25000000
+    time_horizon: 256
+    summary_freq: 10000
+
+environment_parameters:
+  # Presa: 0 nenhuma, 1 parada, 2 anda, 3 foge, 4 escondida (agachada), 5 misto, 6 rapida (FreeArenaController).
+  hider_mode:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 0
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 2
+      - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 3
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 4
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 6
+      - name: Chaves
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 3
+      - name: Final
+        value: 5
+
+  # Fracao dos PONTOS que encerra com +5; > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 0.95
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1.1
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 1.1
+      - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 1.1
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 1.1
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 1.1
+      - name: Chaves
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 1.1
+      - name: Final
+        value: 1.1
+
+  # Multiplica pontos e portas: 0.3 na caca, para pegar mandar em tudo e ainda valer procurar.
+  discovery_reward_scale:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 1.0
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.3
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.3
+      - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 0.3
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 0.3
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 0.3
+      - name: Chaves
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 0.3
+      - name: Final
+        value: 0.3
+
+  # Chance de o episodio ter 3 chaves (FreeKeyField): a presa vai busca-las e escapa se levar todas.
+  key_chance:
+    curriculum:
+      - name: Explorar
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 12.0
+          require_reset: true
+        value: 0.0
+      - name: HiderParado
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.0
+      - name: HiderAnda
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 22.0
+          require_reset: true
+        value: 0.0
+      - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 0.0
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 0.0
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 0.0
+      - name: Chaves
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 1.0
+      - name: Final
+        value: 0.5

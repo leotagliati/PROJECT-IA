@@ -35,7 +35,12 @@
 #   A v5.1 levou ~19.5M para o mapa inteiro, com as correcoes entrando no meio; aqui elas estao desde o step 0.
 #   Uma noite (~9 h, 2 envs, dividindo a maquina com a v7) deve dar ~4-6M: a licao Explorar, provavelmente sem caca.
 #
-# LICOES: Explorar -> HiderParado -> HiderAnda -> HiderFoge. Todo parametro tem o MESMO criterio (o ML-Agents avalia
+# LICOES: Explorar -> HiderParado -> HiderAnda -> HiderFoge -> HiderEscondido -> HiderRapida -> HiderMisto (11/10: as
+#   tres ultimas; hider_mode 4 = presa escondida e AGACHADA, parada 15-45 s em cada esconderijo e so foge achada;
+#   6 = presa mais rapida que o monstro, 12.5 m/s contra 11.5, mesmos 10 s de folego; 5 = sorteio por episodio:
+#   40% escondida, 30% rapida, 30% foge normal). A Foge passa por reward 50 (ja pegava ~99% em ~13 s, reward ~65:
+#   nao ha motivo para segurar), a Escondido por 40 e a Rapida por 35 (captura frequente). Hunt/CaughtHidden,
+#   Hunt/CaughtFast e Hunt/CaughtFleeing separam a captura por tipo de presa. Todo parametro tem o MESMO criterio (o ML-Agents avalia
 #   cada um sozinho). Explorar passa por REWARD 12, que so se alcanca vendo 95% do mapa em boa parte dos episodios:
 #   sem o +5 da cobertura o teto e ~8 + ~5 de portas - custos (~10-11); com ele, ~14-16. As de caca passam por
 #   reward 22 (captura = 20 a 45; sem pegar, ~2-4).
@@ -49,7 +54,9 @@ behaviors:
   FreeExplorer:
     trainer_type: ppo
     hyperparameters:
-      batch_size: 1024
+      # 2048 (11/10, em 9.66M; era 1024): o treino é limitado pela atualização da rede (~40 s por 10k steps com 5, 8
+      # ou 10 envs). Metade dos passos de otimização por atualização (15 em vez de 30). buffer 10240 = 5 lotes.
+      batch_size: 2048
       buffer_size: 10240
       learning_rate: 0.0003
       beta: 0.008
@@ -69,9 +76,16 @@ behaviors:
       extrinsic:
         gamma: 0.997
         strength: 1.0
+    # Os jogos seguem coletando enquanto a rede atualiza (11/10). Medido com 8 envs sem isto: o treinador em ~400% de
+    # CPU (4 threads do torch, o teto do ML-Agents) e os jogos parados em 0% esperando a atualização na maior parte
+    # do tempo. Custo: a coleta usa a política de uma atualização atrás (PPO tolera).
+    threaded: true
     keep_checkpoints: 60
     checkpoint_interval: 500000
-    max_steps: 30000000
+    # 20M (11/10, em 9.66M; era 30M): o currículo chegou à última lição planejada em 7M, 3x antes do previsto. As
+    # lições Escondido e Misto entram depois da Foge; 10M a mais bastam e a taxa de aprendizado cai mais cedo (o
+    # lado seguro de mudar no meio do run).
+    max_steps: 20000000
     time_horizon: 256
     summary_freq: 10000
 
@@ -107,7 +121,34 @@ environment_parameters:
           require_reset: true
         value: 2
       - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
         value: 3
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 4
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 6
+      - name: HiderMisto
+        value: 5
 
   # Fracao dos PONTOS que encerra com +5; > 1 = sem fim por cobertura (na caca o episodio e da presa).
   coverage_target:
@@ -140,6 +181,33 @@ environment_parameters:
           require_reset: true
         value: 1.1
       - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 1.1
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 1.1
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 1.1
+      - name: HiderMisto
         value: 1.1
 
   # Multiplica pontos e portas: 0.3 na caca, para pegar mandar em tudo e ainda valer procurar.
@@ -173,5 +241,32 @@ environment_parameters:
           require_reset: true
         value: 0.3
       - name: HiderFoge
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 50.0
+          require_reset: true
+        value: 0.3
+      - name: HiderEscondido
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 40.0
+          require_reset: true
+        value: 0.3
+      - name: HiderRapida
+        completion_criteria:
+          measure: reward
+          behavior: FreeExplorer
+          signal_smoothing: true
+          min_lesson_length: 200
+          threshold: 35.0
+          require_reset: true
+        value: 0.3
+      - name: HiderMisto
         value: 0.3
 

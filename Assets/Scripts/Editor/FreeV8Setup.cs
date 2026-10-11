@@ -21,6 +21,9 @@ using Object = UnityEngine.Object;
 ///      grafo: NavNode, NavGraph, NavBlockedArea, GraphArenaController, o monstro da v5 desligado. Salva como
 ///      Assets/Prefabs/Arena - V8.prefab e põe uma instância dele no lugar de cada arena da cena.
 ///   2. "v8: montar cena de treino e build": o passo 1 (se ainda não feito) e o build em Builds/V8/PROJECT-IA.exe.
+///   2b. "v8.1: montar cena com chaves e build": copia a V8 - Training para "V8.1 - Training" com o sensor das chaves
+///      ligado nos monstros (o cérebro muda: os .onnx do v8.0 não rodam nela) e builda em Builds/V8.1/PROJECT-IA.exe,
+///      sem tocar no build da v8.0. Batchmode: -executeMethod FreeV8Setup.RunKeys.
 ///   3. "v8: montar cena de teste (jogador + modelo)": a "V8 - Test" com uma Arena - V8 em modo de jogo, o .onnx de
 ///      TestModelPath e o PlayerDummy (a versão antiga, com nós, fica em "V8 - Test (com nós)").
 /// Linha de comando (Unity fechado):
@@ -40,6 +43,8 @@ public static class FreeV8Setup
     private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V8.prefab";
     private const string ArenaName = "Arena - V8";
     private const string BuildPath = "Builds/V8/PROJECT-IA.exe";
+    private const string KeysScene = "Assets/Scenes/Arthur/V8.1 - Training.unity";
+    private const string KeysBuildPath = "Builds/V8.1/PROJECT-IA.exe";
     private const string WatchModelPath = "Assets/FreeExplorer_v8_watch.onnx";
 
     // O Python do ambiente conda mlagents nesta máquina; sem ele, o "python" do PATH.
@@ -61,6 +66,46 @@ public static class FreeV8Setup
         Debug.Log(ok ? "[FreeV8Setup] PRONTO." : "[FreeV8Setup] FALHOU (veja acima).");
         if (Application.isBatchMode)
             EditorApplication.Exit(ok ? 0 : 1);
+    }
+
+    [MenuItem("PROJECT-IA/v8.1: montar cena com chaves e build")]
+    public static void RunKeys()
+    {
+        bool ok = SetUpTrainingScene() && SetUpKeysScene() && Build(KeysScene, KeysBuildPath);
+        Debug.Log(ok ? "[FreeV8Setup] PRONTO (v8.1)." : "[FreeV8Setup] FALHOU (v8.1, veja acima).");
+        if (Application.isBatchMode)
+            EditorApplication.Exit(ok ? 0 : 1);
+    }
+
+    // A cena da v8.1 é a de treino da v8 com o sensor das chaves ligado em todo monstro (refeita a cada vez, para
+    // seguir a V8 - Training).
+    private static bool SetUpKeysScene()
+    {
+        if (File.Exists(KeysScene))
+            AssetDatabase.DeleteAsset(KeysScene);
+        if (!AssetDatabase.CopyAsset(TrainingScene, KeysScene))
+        {
+            Debug.LogError($"[FreeV8Setup] não consegui copiar {TrainingScene} para {KeysScene}.");
+            return false;
+        }
+
+        Scene scene = EditorSceneManager.OpenScene(KeysScene, OpenSceneMode.Single);
+        int agents = 0;
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            foreach (FreeExplorerManager agent in root.GetComponentsInChildren<FreeExplorerManager>(true))
+            {
+                var settings = new SerializedObject(agent);
+                settings.FindProperty("_keySensor").boolValue = true;
+                settings.ApplyModifiedPropertiesWithoutUndo();
+                agents++;
+            }
+        }
+
+        EditorSceneManager.MarkSceneDirty(scene);
+        bool saved = EditorSceneManager.SaveScene(scene);
+        Debug.Log($"[FreeV8Setup] {KeysScene}: sensor das chaves ligado em {agents} monstro(s).");
+        return saved && agents > 0;
     }
 
     [MenuItem("PROJECT-IA/v8: criar prefab sem nós e montar a cena de treino")]
@@ -312,12 +357,14 @@ public static class FreeV8Setup
         return removed;
     }
 
-    private static bool Build()
+    private static bool Build() => Build(TrainingScene, BuildPath);
+
+    private static bool Build(string scenePath, string buildPath)
     {
         var options = new BuildPlayerOptions
         {
-            scenes = new[] { TrainingScene },
-            locationPathName = BuildPath,
+            scenes = new[] { scenePath },
+            locationPathName = buildPath,
             target = BuildTarget.StandaloneWindows64,
             targetGroup = BuildTargetGroup.Standalone,
             options = BuildOptions.None,

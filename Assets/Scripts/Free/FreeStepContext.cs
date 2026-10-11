@@ -36,5 +36,12 @@ namespace Assets.Scripts.Free
         public bool HiderSpotted;
         public float HiderApproachDelta;
         public bool HiderCaught;
+
+        // Chaves (FreeKeyField; só nas lições finais). Conferidas de chave parada há muito tempo (ronda), chaves que o
+        // monstro acabou de saber levadas, a presa escapou (levou todas; encerra) e campando perto da mesma chave.
+        public int KeyChecks;
+        public int KeysLost;
+        public bool HiderEscaped;
+        public bool Camping;
     }
 }

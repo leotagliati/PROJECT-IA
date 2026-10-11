@@ -136,6 +136,10 @@ namespace Assets.Scripts.Free
                 }
             }
 
+            // A presa da v8 escondida anda agachada: pegada fraca, como o jogador.
+            if (_target is FreeHider hider && hider.IsCrouching)
+                return Gait.Crouch;
+
             return _target != null && _target.IsRunning ? Gait.Run : Gait.Walk;
         }
 

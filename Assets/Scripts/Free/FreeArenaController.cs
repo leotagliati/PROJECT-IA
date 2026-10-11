@@ -13,8 +13,19 @@ namespace Assets.Scripts.Free
         // Multiplica pontos e portas (1 = exploração pura; 0.3 na caça, para pegar mandar em tudo).
         public float DiscoveryRewardScale;
 
-        // Presa (hider_mode): 0 nenhuma, 1 parada, 2 anda, 3 foge. O enum é o do GraphHider (os .yaml já usam).
+        // Presa (hider_mode): 0 nenhuma, 1 parada, 2 anda, 3 foge. O enum é o do GraphHider (os .yaml já usam). Os
+        // modos 4 (Escondida), 5 (Misto) e 6 (Rápida) do currículo chegam aqui como Foge + HiderHides / HiderFast.
         public GraphHider.Mode HiderMode;
+
+        // A presa fica ESCONDIDA (FreeHider): esconderijo atrás de esconderijo, parada muito tempo, e só foge achada.
+        public bool HiderHides;
+
+        // A presa corre MAIS que o monstro (_fastHiderSpeed): na reta ela abre distância; pega-se cortando caminho ou
+        // quando o fôlego acaba.
+        public bool HiderFast;
+
+        // Há CHAVES neste episódio (key_chance): a presa vai buscá-las e escapa se levar todas (FreeKeyField).
+        public bool HasKeys;
 
         // m/s da presa CORRENDO e segundos de corrida (hider_speed / hider_stamina); 0 = os do FreeHider.
         public float HiderSpeed;
@@ -44,8 +55,20 @@ namespace Assets.Scripts.Free
         [SerializeField] private float _defaultCoverageTarget = 0.95f;
         [SerializeField] private float _defaultDiscoveryRewardScale = 1f;
 
-        // 3 = Foge, a última lição: Play sem trainer roda o .onnx no ambiente em que ele terminou.
-        [SerializeField, Range(0, 3)] private int _defaultHiderMode = 3;
+        // 0 nenhuma, 1 parada, 2 anda, 3 foge, 4 escondida, 5 misto (sorteia escondida, rápida ou foge por episódio),
+        // 6 rápida. 5 = a última lição: Play sem trainer roda o .onnx no ambiente em que ele terminou.
+        [SerializeField, Range(0, 6)] private int _defaultHiderMode = 5;
+
+        // m/s da presa RÁPIDA correndo (hider_mode 6, e parte do 5). 12.5 = 1 m/s acima da perseguição do monstro
+        // (11.5): com os mesmos 10 s de fôlego ela abre ~10 m na reta, e andando (0.588 x 12.5 = 7.4) é alcançada.
+        [SerializeField, Min(0f)] private float _fastHiderSpeed = 12.5f;
+
+        // Lição Misto: chance de cada episódio ter a presa escondida, e a rápida; o resto foge normal.
+        [SerializeField, Range(0f, 1f)] private float _mixedHiddenChance = 0.4f;
+        [SerializeField, Range(0f, 1f)] private float _mixedFastChance = 0.3f;
+
+        // Chance de um episódio ter chaves (key_chance; 0 = nunca). Sem trainer vale isto: 0.5, a última lição.
+        [SerializeField, Range(0f, 1f)] private float _defaultKeyChance = 0.5f;
         [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
         [SerializeField, Min(0f)] private float _defaultHiderStamina = 0f;
 
@@ -77,6 +100,7 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(1)] private int _avoidSpawnTries = 12;
 
         private FreeMap _map;
+        private FreeKeyField _keys;
         private FreePlayerTarget _playerTarget;
         private float[] _roomSeenRate;
         private float[] _spawnWeights;
@@ -98,6 +122,22 @@ namespace Assets.Scripts.Free
                 if (_map == null)
                     _map = GetComponentInChildren<FreeMap>();
                 return _map;
+            }
+        }
+
+        /// <summary>As chaves desta arena (criado se faltar; vazio sem chaves no episódio).</summary>
+        public FreeKeyField Keys
+        {
+            get
+            {
+                if (_keys == null)
+                {
+                    _keys = GetComponent<FreeKeyField>();
+                    if (_keys == null)
+                        _keys = gameObject.AddComponent<FreeKeyField>();
+                }
+
+                return _keys;
             }
         }
 
@@ -163,6 +203,10 @@ namespace Assets.Scripts.Free
         /// <summary>Posiciona (ou desliga) a presa. Chamar DEPOIS do spawn do monstro: ela nasce longe dele.</summary>
         public void ResetHider(Transform seeker)
         {
+            // Chaves antes da presa: ela sai para buscá-las. No jogo, as do KeySpawner da cena (se houver).
+            Keys.Configure(Map, WallLayer, _gameMode);
+            Keys.ResetEpisode(Settings.HasKeys);
+
             FreeHider hider = Hider;
             if (hider == null)
                 return;
@@ -173,7 +217,7 @@ namespace Assets.Scripts.Free
                 return;
             }
 
-            hider.Configure(Map, WallLayer);
+            hider.Configure(Map, WallLayer, Keys);
             hider.ResetEpisode(Settings, seeker);
         }
 
@@ -282,14 +326,28 @@ namespace Assets.Scripts.Free
             EnvironmentParameters parameters = Academy.IsInitialized && !_gameMode ? Academy.Instance.EnvironmentParameters : null;
             float Get(string key, float fallback) => parameters != null ? parameters.GetWithDefault(key, fallback) : fallback;
             float coverage = Mathf.Max(0.05f, Get("coverage_target", _defaultCoverageTarget));
-            var mode = (GraphHider.Mode)Mathf.Clamp(Mathf.RoundToInt(Get("hider_mode", _defaultHiderMode)), 0, 3);
+            int lesson = Mathf.Clamp(Mathf.RoundToInt(Get("hider_mode", _defaultHiderMode)), 0, 6);
+
+            // 4, 5 e 6 são a presa que foge: escondida (4), rápida (6) ou sorteada por episódio (5, a última lição): no
+            // jogo o jogador às vezes corre, às vezes fica agachado num canto, e o monstro tem de saber caçar os dois.
+            float roll = Random.value;
+            bool hides = lesson == 4 || (lesson == 5 && roll < _mixedHiddenChance);
+            bool fast = lesson == 6 || (lesson == 5 && !hides && roll < _mixedHiddenChance + _mixedFastChance);
+            var mode = lesson >= 4 ? GraphHider.Mode.Flee : (GraphHider.Mode)lesson;
+            float speed = Mathf.Max(0f, Get("hider_speed", _defaultHiderSpeed));
+
+            // Treino sem key_chance no .yaml (os da v8.0) = sem chaves; o padrão do Inspector vale só sem trainer.
+            float keyFallback = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn ? 0f : _defaultKeyChance;
 
             return new FreeEpisodeSettings
             {
                 CoverageTarget = _gameMode ? Mathf.Max(coverage, 1.1f) : coverage,
                 DiscoveryRewardScale = Mathf.Max(0f, Get("discovery_reward_scale", _defaultDiscoveryRewardScale)),
                 HiderMode = _gameMode ? GraphHider.Mode.Flee : mode,
-                HiderSpeed = Mathf.Max(0f, Get("hider_speed", _defaultHiderSpeed)),
+                HiderHides = !_gameMode && hides,
+                HiderFast = !_gameMode && fast,
+                HasKeys = !_gameMode && mode != GraphHider.Mode.None && Random.value < Mathf.Clamp01(Get("key_chance", keyFallback)),
+                HiderSpeed = !_gameMode && fast ? _fastHiderSpeed : speed,
                 HiderStamina = Mathf.Max(0f, Get("hider_stamina", _defaultHiderStamina)),
             };
         }

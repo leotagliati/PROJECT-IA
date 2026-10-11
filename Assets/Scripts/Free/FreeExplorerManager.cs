@@ -68,6 +68,11 @@ namespace Assets.Scripts.Free
         // Nasce a pelo menos isto (m, em linha reta) do jogador, no Play e depois de pegá-lo sem GameManager.
         [SerializeField, Min(0f)] private float _gameModeSpawnDistance = 25f;
 
+        [Header("-----Chaves (v8.1)-----")]
+        // Sensor das chaves (BufferSensor "Keys"): o cérebro passa a ter uma entrada a mais, então os .onnx sem ele (o
+        // v8.0 inteiro) não rodam com isto ligado, e os com ele não rodam desligado. Ligado só na cena/build da v8.1.
+        [SerializeField] private bool _keySensor = false;
+
         [Header("-----Debug-----")]
         // Painel na tela (Game view) com cobertura, sala, portas, reward, parede e presa. Desligado no treino; o menu
         // PROJECT-IA > "v8 (em Play)" liga no agente assistido.
@@ -77,6 +82,8 @@ namespace Assets.Scripts.Free
         private Rigidbody _rigidbody;
         private FreeObservations _observations;
         private BufferSensorComponent _roomSensor;
+        private BufferSensorComponent _keySensorComponent;
+        private FreeKeyField _keys;
         private readonly GraphBodyTracker _body = new GraphBodyTracker();
         private readonly FreeStuckTracker _stuck = new FreeStuckTracker();
         private FreeEpisodeSettings _settings;
@@ -106,6 +113,8 @@ namespace Assets.Scripts.Free
         {
             ResolveSystems();
             _roomSensor = FreeObservations.EnsureRoomSensor(gameObject);
+            if (_keySensor)
+                _keySensorComponent = FreeObservations.EnsureKeySensor(gameObject);
             EnforceBrainShape(GetComponent<BehaviorParameters>(), warn: true, this);
             ApplyGameModeBehavior();
             base.Awake();
@@ -246,8 +255,10 @@ namespace Assets.Scripts.Free
             }
 
             _trackSense.Configure(_trail, _memory.WallLayer, _map.FloorY);
+            _keys = _arenaController.Keys;
             _observations = new FreeObservations(
-                _map, _memory, _locomotion, _body, _stuck, _perception, _trackSense, _roomSensor, _rewardSystem.StagnationSteps);
+                _map, _memory, _locomotion, _body, _stuck, _perception, _trackSense, _roomSensor, _rewardSystem.StagnationSteps,
+                _keys, _keySensorComponent);
         }
 
         // Erro de wiring em ML-Agents é silencioso (treino que não converge): loga, e false = não dá para rodar.
@@ -371,6 +382,16 @@ namespace Assets.Scripts.Free
             if (_settings.HasHider && _trackSense.NewTrackThisStep)
                 _locomotion.NotifyHeard();
 
+            // Chave levada que o monstro acabou de saber (com atraso) = pista: Alerta, como ouvir o alvo.
+            if (_keys != null && _keys.Count > 0)
+            {
+                Vector3 ground = _memory.Ground;
+                var eye = new Vector3(ground.x, _map.FloorY + _memory.EyeHeight, ground.z);
+                _keys.Tick(ground, eye, _locomotion.ViewDirection, _memory.CosHalfAngle);
+                if (_keys.NewlyKnownThisStep > 0)
+                    _locomotion.NotifyHeard();
+            }
+
             _locomotion.UpdateAwareness(_perception.IsSeeing);
             _memory.Tick(transform.position, _locomotion.ViewDirection);
         }
@@ -410,6 +431,9 @@ namespace Assets.Scripts.Free
             bool caught = _settings.HasHider && _perception.Caught && !IsGameMode;
             bool covered = !caught && !_settings.HasHider && _memory.SeenFraction >= _settings.CoverageTarget;
 
+            // A presa levou todas as chaves (o monstro soube da última): escapou, encerra. No jogo quem decide é o jogo.
+            bool escaped = !caught && !IsGameMode && _keys != null && _keys.Escaped;
+
             FreeStepContext context = new FreeStepContext
             {
                 MaxEpisodeSteps = _maxEpisodeSteps,
@@ -433,6 +457,11 @@ namespace Assets.Scripts.Free
                 HiderSpotted = _settings.HasHider && _perception.Spotted,
                 HiderApproachDelta = _settings.HasHider ? _perception.ApproachDelta : 0f,
                 HiderCaught = caught,
+
+                KeyChecks = _keys != null ? _keys.ChecksThisStep : 0,
+                KeysLost = _keys != null ? _keys.NewlyKnownThisStep : 0,
+                HiderEscaped = escaped,
+                Camping = _keys != null && _keys.IsCamping && !IsHunting,
             };
             _lastStepReward = _rewardSystem.EvaluateStep(context);
             AddReward(_lastStepReward);
@@ -444,6 +473,8 @@ namespace Assets.Scripts.Free
             _memory.ClearStepFlags();
             _perception.ClearStepFlags();
             _trackSense.ClearStepFlags();
+            if (_keys != null)
+                _keys.ClearStepFlags();
 
             // Agir: andar [0..1] e olhar [2..3], no referencial do mundo. O corpo vai para onde anda; o olhar só vira
             // a cabeça (o cone de visão), até o limite do pescoço.
@@ -452,8 +483,12 @@ namespace Assets.Scripts.Free
             var look3 = _matchRunning ? new Vector3(look.x, 0f, look.y) : Vector3.zero;
             _locomotion.Drive(move3, look3);
             _perception.SetViewDirection(_locomotion.ViewDirection);
+            // Animação pela velocidade real do corpo (só visual; no treino o Animator fica desligado).
             if (_animationSystem != null)
-                _animationSystem.Tick(move3, _locomotion.State);
+            {
+                _animationSystem.TickBySpeed(_locomotion.Speed, _locomotion.PatrolSpeed, _locomotion.MaxSpeed);
+                _animationSystem.SetHeadYaw(_locomotion.HeadYaw);
+            }
             if (_chaseState != null)
                 _chaseState.Tick(_perception.IsSeeing);
             if (_staticVisual != null)
@@ -474,6 +509,12 @@ namespace Assets.Scripts.Free
             if (caught || covered)
             {
                 FinishEpisode(success: true);
+                return;
+            }
+
+            if (escaped)
+            {
+                FinishEpisode(success: false);
                 return;
             }
 
@@ -650,11 +691,24 @@ namespace Assets.Scripts.Free
             {
                 stats.Add("Hunt/Seen", _perception.HasSeen ? 1f : 0f);
                 stats.Add("Hunt/Caught", _perception.Caught ? 1f : 0f);
+                // Separado por tipo de presa: na lição Misto o Caught junta os três tipos e esconde quem vai mal.
+                string prey = _settings.HiderHides ? "Hunt/CaughtHidden" : _settings.HiderFast ? "Hunt/CaughtFast" : "Hunt/CaughtFleeing";
+                stats.Add(prey, _perception.Caught ? 1f : 0f);
                 stats.Add("Hunt/Sightings", _perception.EpisodeSightings);
                 stats.Add("Hunt/LostSight", _perception.EpisodeLostSight);
                 if (_perception.SightToCatchSeconds >= 0f)
                     stats.Add("Hunt/SightToCatchSeconds", _perception.SightToCatchSeconds);
                 stats.Add("Hunt/TracksSeen", _trackSense.EpisodeTracksSeen);
+            }
+
+            // Chaves (só episódios com chaves): quantas a presa levou, se escapou, rondas e tempo campando.
+            if (_keys != null && _keys.Count > 0)
+            {
+                stats.Add("Keys/Taken", _keys.Count - _keys.Remaining);
+                stats.Add("Keys/Escaped", _keys.Escaped ? 1f : 0f);
+                stats.Add("Keys/Checks", _keys.EpisodeChecks);
+                if (_elapsedSteps > 0)
+                    stats.Add("Keys/CampFraction", (float)_keys.EpisodeCampSteps / _elapsedSteps);
             }
         }
 

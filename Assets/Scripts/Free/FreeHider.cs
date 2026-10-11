@@ -16,7 +16,14 @@ namespace Assets.Scripts.Free
     ///            corre para o que fica mais longe DO MONSTRO pelo NavMesh, valendo mais o que ele não vê; refaz a cada
     ///            _fleeReplanSeconds. Corre só com estamina (GraphStamina, o modelo do jogador).
     ///   ESCONDERIJO  ponto perto de parede (canto, atrás de móvel) visto pelo menor número de portas da sala.
-    /// Modos (currículo hider_mode, o mesmo enum do GraphHider): 0 Nenhum, 1 Parado, 2 Anda, 3 Foge.
+    ///   ESCONDIDA  (hider_mode 4, e parte dos episódios no 5): o jogador agachado num canto. Só vai a esconderijos,
+    ///            fica em cada um _hiddenPauseMin..MaxSeconds e só foge com o monstro colado ou vendo-o de perto. Anda e
+    ///            fica AGACHADA: mais baixa (a cápsula encolhe e a visão do monstro mira cabeça e peito por ela, então
+    ///            mesa e sofá tapam), mais lenta e com pegada fraca. Fugindo, levanta e corre.
+    ///   CHAVES   com chaves no episódio (FreeKeyField, lições finais): a maior parte dos destinos de passeio é a chave
+    ///            mais perto pelo NavMesh; passando a menos de _keyPickupRadius dela, pega. Levar todas = escapou.
+    /// Modos (currículo hider_mode): 0 Nenhum, 1 Parado, 2 Anda, 3 Foge (o enum do GraphHider), 4 Escondida, 5 Misto
+    /// (o FreeArenaController traduz 4 e 5 em Foge + Hides).
     /// Um por arena, filho dela; o <see cref="FreeArenaController"/> configura (mapa, parede) e reposiciona.
     /// </summary>
     public class FreeHider : MonoBehaviour, IGraphTarget
@@ -83,6 +90,32 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0.1f)] private float _doorEyeHeight = 2.5f;
         [SerializeField, Min(0.1f)] private float _hiderChestHeight = 1f;
 
+        [Header("-----Escondida (hider_mode 4; metade dos episódios no 5)-----")]
+        // Quanto tempo (s) fica em cada esconderijo: o bastante para o monstro ter de achá-la parada, sem o movimento
+        // que a denuncia na lição Foge (lá a pausa máxima escondida é ~6 s).
+        [SerializeField, Min(0f)] private float _hiddenPauseMinSeconds = 15f;
+        [SerializeField, Min(0f)] private float _hiddenPauseMaxSeconds = 45f;
+
+        // Só foge com o monstro a menos disto (m), ou vendo-o a menos de _hiddenFleeSightDistance: quem está escondido
+        // não sai correndo ao ver o monstro do outro lado da sala, espera ser achado.
+        [SerializeField, Min(0f)] private float _hiddenFleeRadius = 5f;
+        [SerializeField, Min(0f)] private float _hiddenFleeSightDistance = 8f;
+
+        [Header("-----Agachada (escondida)-----")]
+        // Altura da cápsula agachada / em pé. 0.55: a cabeça desce para perto da altura de uma mesa de escritório.
+        [SerializeField, Range(0.2f, 1f)] private float _crouchHeightFraction = 0.55f;
+
+        // Andar agachada = andar x isto. 0.45 = o crouchSpeedMultiplier do PlayerDummy (2.7 m/s com o andar de 6).
+        [SerializeField, Range(0.1f, 1f)] private float _crouchSpeedMultiplier = 0.45f;
+
+        [Header("-----Chaves (lições finais)-----")]
+        // Chance de o próximo destino ser a chave mais perto (o resto é esconderijo ou passeio, como sem chaves): o
+        // jogador vai atrás delas, mas se esconde no caminho.
+        [SerializeField, Range(0f, 1f)] private float _keySeekChance = 0.7f;
+
+        // Distância (m) do pivô à chave para pegá-la.
+        [SerializeField, Min(0.1f)] private float _keyPickupRadius = 1.2f;
+
         [Header("-----Spawn-----")]
         // Distância mínima (m pelo NavMesh) entre o spawn do hider e o monstro; numa sala diferente da dele.
         [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
@@ -92,10 +125,15 @@ namespace Assets.Scripts.Free
         [SerializeField] private GraphHiderAnimationSystem _animationSystem;
 
         private Rigidbody _rigidbody;
+        private CapsuleCollider _capsule;
+        private float _standHeight;
+        private Vector3 _standCenter;
         private FreeMap _map;
+        private FreeKeyField _keys;
         private LayerMask _walls;
         private Transform _seeker;
         private GraphHider.Mode _mode = GraphHider.Mode.None;
+        private bool _hides;
         private float _currentSpeed;
 
         // Caminho atual (quinas do NavMesh) e a próxima quina.
@@ -120,6 +158,9 @@ namespace Assets.Scripts.Free
         /// <summary>Correndo neste step (fugindo com estamina). Pegadas e animação.</summary>
         public bool IsRunning { get; private set; }
 
+        /// <summary>Agachada (escondida e sem fugir): cápsula baixa, passo lento, pegada fraca (FreeFootprintTrail).</summary>
+        public bool IsCrouching { get; private set; }
+
         // Sem grafo não há nó nem ping (o GraphPingSystem da v5 é que lia isto; a v8 não usa).
         public int CurrentNode => -1;
 
@@ -128,17 +169,25 @@ namespace Assets.Scripts.Free
         private void Awake()
         {
             _rigidbody = GetComponent<Rigidbody>();
+            _capsule = GetComponent<CapsuleCollider>();
+            if (_capsule != null)
+            {
+                _standHeight = _capsule.height;
+                _standCenter = _capsule.center;
+            }
+
             if (_animationSystem == null)
                 _animationSystem = GetComponentInChildren<GraphHiderAnimationSystem>();
             if (_animationSystem != null)
                 _animationSystem.Initialize();
         }
 
-        /// <summary>O mapa (pontos, salas, portas) e a parede da arena. Antes do primeiro ResetEpisode.</summary>
-        public void Configure(FreeMap map, LayerMask walls)
+        /// <summary>O mapa (pontos, salas, portas), a parede e as chaves da arena. Antes do primeiro ResetEpisode.</summary>
+        public void Configure(FreeMap map, LayerMask walls, FreeKeyField keys = null)
         {
             _map = map;
             _walls = walls;
+            _keys = keys;
         }
 
         /// <summary>
@@ -149,6 +198,7 @@ namespace Assets.Scripts.Free
         {
             _seeker = seeker;
             _mode = settings.HiderMode;
+            _hides = settings.HiderHides;
             _stamina.Reset(settings.HiderStamina);
             _currentSpeed = settings.HiderSpeed > 0f ? settings.HiderSpeed : _speed;
             IsRunning = false;
@@ -169,7 +219,15 @@ namespace Assets.Scripts.Free
             }
 
             gameObject.SetActive(true);
+            SetCrouching(_hides);
             Place(PickSpawn(seeker.position));
+
+            // Escondida já começa parada no esconderijo do spawn.
+            if (_hides)
+            {
+                _goalIsHiding = true;
+                _pauseLeft = HiddenPauseSteps();
+            }
         }
 
         /// <summary>Tira o hider de cena (modo de jogo: quem foge é o jogador).</summary>
@@ -177,6 +235,7 @@ namespace Assets.Scripts.Free
         {
             _mode = GraphHider.Mode.None;
             IsRunning = false;
+            SetCrouching(false);
             gameObject.SetActive(false);
         }
 
@@ -198,6 +257,13 @@ namespace Assets.Scripts.Free
 
             // Antes da pausa: parado também recupera estamina.
             IsRunning = _stamina.Step(_fleeing, Time.fixedDeltaTime);
+
+            // Escondida fica agachada até ser achada; fugindo, levanta.
+            SetCrouching(_hides && !_fleeing);
+
+            // Passou pela chave, pegou (fugindo também: no caminho, leva).
+            if (_keys != null && _keys.Remaining > 0)
+                _keys.TryTake(Ground, _keyPickupRadius);
 
             if (_fleeing)
             {
@@ -235,7 +301,7 @@ namespace Assets.Scripts.Free
                 return true;
             }
 
-            float speed = IsRunning ? _currentSpeed : _currentSpeed * _walkFraction;
+            float speed = IsRunning ? _currentSpeed : _currentSpeed * _walkFraction * (IsCrouching ? _crouchSpeedMultiplier : 1f);
             Vector3 step = delta / distance * Mathf.Min(distance, speed * Time.fixedDeltaTime);
             Vector3 next = transform.position + step;
             next.y = corner.y;
@@ -248,8 +314,11 @@ namespace Assets.Scripts.Free
             _corners.Clear();
             _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
             if (_goalIsHiding)
-                _pauseLeft = Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
+                _pauseLeft = _hides && !_fleeing ? HiddenPauseSteps() : Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
         }
+
+        private int HiddenPauseSteps() =>
+            Mathf.RoundToInt(Random.Range(_hiddenPauseMinSeconds, Mathf.Max(_hiddenPauseMinSeconds, _hiddenPauseMaxSeconds)) / Time.fixedDeltaTime);
 
         // ================================================================================
         // Destinos
@@ -258,6 +327,15 @@ namespace Assets.Scripts.Free
         // Andando: a sala atual ou uma vizinha (evitando voltar à de onde veio), e nela um ponto ou um esconderijo.
         private void ChooseWanderGoal()
         {
+            // Com chaves no mapa, a maior parte dos destinos é a chave mais perto.
+            if (_keys != null && _keys.Remaining > 0 && Random.value < _keySeekChance
+                && _keys.TryNearestRemaining(Ground, _probe ??= new NavMeshPath(), out Vector3 key))
+            {
+                _goalIsHiding = false;
+                if (SetPathTo(key))
+                    return;
+            }
+
             int room = RoomAt(Ground);
             if (room < 0)
                 return;
@@ -275,7 +353,7 @@ namespace Assets.Scripts.Free
                     target = other;
             }
 
-            _goalIsHiding = Random.value < _hideChance;
+            _goalIsHiding = _hides || Random.value < _hideChance;
             Vector3 goal = _goalIsHiding ? HidingSpot(target) : RandomSpot(target);
             if (target != room)
                 _previousRoom = room;
@@ -432,16 +510,17 @@ namespace Assets.Scripts.Free
         private bool SeekerIsNear()
         {
             Vector3 toSeeker = _seeker.position - transform.position;
-            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= _fleeRadius;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= (_hides ? _hiddenFleeRadius : _fleeRadius);
         }
 
         private bool SeesSeeker()
         {
-            if (_fleeSightDistance <= 0f)
+            float sight = _hides ? _hiddenFleeSightDistance : _fleeSightDistance;
+            if (sight <= 0f)
                 return false;
 
             Vector3 toSeeker = _seeker.position - transform.position;
-            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= _fleeSightDistance && LineIsClear(transform.position, _seeker.position);
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= sight && LineIsClear(transform.position, _seeker.position);
         }
 
         // O monstro veria este ponto se olhasse para ele (sem cone: a cabeça dele vira rápido)?
@@ -462,6 +541,21 @@ namespace Assets.Scripts.Free
             Vector3 ray = new Vector3(b.x, eyeY, b.z) - from;
             float length = ray.magnitude;
             return length < 1e-3f || !Physics.Raycast(from, ray / length, length, _walls, QueryTriggerInteraction.Ignore);
+        }
+
+        // Agacha encolhendo a cápsula com a base parada no chão. É ela que a visão do monstro mira (cabeça e peito).
+        private void SetCrouching(bool crouching)
+        {
+            if (IsCrouching == crouching)
+                return;
+
+            IsCrouching = crouching;
+            if (_capsule == null)
+                return;
+
+            float height = crouching ? _standHeight * _crouchHeightFraction : _standHeight;
+            _capsule.height = height;
+            _capsule.center = _standCenter - Vector3.up * ((_standHeight - height) * 0.5f);
         }
 
         // ================================================================================
