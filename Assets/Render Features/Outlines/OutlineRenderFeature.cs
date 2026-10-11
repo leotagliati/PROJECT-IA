@@ -25,7 +25,7 @@ namespace Xenon
         [Serializable]
         public class OutlineSettings
         {
-            [Tooltip("Meia espessura do contorno, em pixels.")]
+            [Tooltip("Espessura do contorno, em pixels da câmera, desenhada por fora do objeto.")]
             public float OutlineScale = 1f;
 
             [Tooltip("Diferença entre normais (0–2) que conta como quina interna. Acima de 2 só a silhueta é contornada.")]
