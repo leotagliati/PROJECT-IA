@@ -10247,6 +10247,8 @@ GameObject:
   - component: {fileID: 65562059}
   - component: {fileID: 65562061}
   - component: {fileID: 65562060}
+  - component: {fileID: 2090001958}
+  - component: {fileID: 1815526292}
   m_Layer: 0
   m_Name: Hinge
   m_TagString: Untagged
@@ -329336,6 +329338,7 @@ GameObject:
   - component: {fileID: 5770580618072834486}
   - component: {fileID: 1980405080}
   - component: {fileID: 1980405079}
+  - component: {fileID: 2109245761}
   m_Layer: 0
   m_Name: Wooden Locked Door
   m_TagString: Untagged
@@ -347862,3 +347865,52 @@ SceneRoots:
   - {fileID: 1012911239}
   - {fileID: 944204264}
   - {fileID: 98031029}
+--- !u!114 &2090001958
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 65562058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  locks:
+  - {fileID: 5502779191599059135}
+  - {fileID: 7555775669762591126}
+  - {fileID: 3095400261602550629}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor
+--- !u!114 &1815526292
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 65562058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  profile: {fileID: 11400000, guid: 652399caa1e361e0b058432c6000c025, type: 2}
+--- !u!114 &2109245761
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4172972009002573894}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  locks:
+  - {fileID: 5502779191599059135}
+  - {fileID: 7555775669762591126}
+  - {fileID: 3095400261602550629}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor

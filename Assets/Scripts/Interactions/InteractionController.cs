@@ -5,7 +5,11 @@ using UnityEngine.InputSystem;
 
 public class InteractionController : MonoBehaviour
 {
+    [Tooltip("Alcance do raycast: outline e o ponto de 'tem algo ali'.")]
     [SerializeField] private float raycastDistance = 10f;
+
+    [Tooltip("Alcance para interagir de fato.")]
+    [SerializeField] private float interactDistance = 2.5f;
 
     [SerializeField] private LayerMask blockingMask;
 
@@ -18,9 +22,6 @@ public class InteractionController : MonoBehaviour
     [Tooltip("Solta o objeto quando o ponto agarrado fica mais longe que isto da câmera.")]
     [SerializeField] private float dragReleaseDistance = 3f;
 
-    [Tooltip("Congela a mira durante o arrasto: o mouse passa a mover só o objeto.")]
-    [SerializeField] private bool blockLookWhileDragging = true;
-
     private readonly RaycastHit[] hits = new RaycastHit[16];
     private static readonly IComparer<RaycastHit> byDistance = new HitDistanceComparer();
 
@@ -28,35 +29,48 @@ public class InteractionController : MonoBehaviour
     private HighlightTarget currentHighlightTarget;
     private IInteractable currentInteractable;
     private Vector3 currentHitPoint;
+    private float currentHitDistance;
     private IDraggable activeDrag;
-    private PlayerCamera playerCamera;
+
+    private InteractionAnchor targetAnchor;
+    private Renderer[] targetRenderers;
+
+    private IInteractable holdTarget;
+    private float holdElapsed;
+    private float holdDuration;
 
     public IInteractable CurrentInteractable => currentInteractable;
 
+    public bool HasPrompt { get; private set; }
+
+    public InteractionPrompt CurrentPrompt { get; private set; }
+
+    public bool IsInRange => currentInteractable != null && currentHitDistance <= interactDistance;
+
+    public Vector3 TargetAnchor { get; private set; }
+
     public bool IsDragging => activeDrag != null;
+
+    public bool IsHolding => holdTarget != null;
+
+    public float HoldProgress => holdTarget != null && holdDuration > 0f ? Mathf.Clamp01(holdElapsed / holdDuration) : 0f;
 
     public event Action<IInteractable> TargetChanged;
 
-    public event Action<string> InteractionFailed;
+    public event Action<IInteractable, string> InteractionDenied;
 
-    /// <summary>
-    /// Inventário do jogador dono deste controller. Interagíveis leem daqui em vez de
-    /// procurar na cena — em multiplayer local ou teste com dois players, é o do jogador
-    /// certo. Pode ser null: nem toda cena de teste tem inventário.
-    /// </summary>
+    public event Action<IInteractable> InteractionCompleted;
+
     public PlayerInventory Inventory { get; private set; }
+
+    public Camera ViewCamera => cam;
 
     void Awake()
     {
         cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
 
-        // O controller mora na câmera e o inventário na raiz do player: sobe a hierarquia.
         Inventory = GetComponentInParent<PlayerInventory>();
-
-        playerCamera = GetComponentInParent<PlayerCamera>();
-        if (playerCamera == null)
-            playerCamera = transform.root.GetComponentInChildren<PlayerCamera>();
 
         if (blockingMask.value == 0)
             blockingMask = LayerMask.GetMask("Wall");
@@ -79,6 +93,7 @@ public class InteractionController : MonoBehaviour
         PlayerInputProvider.Player.Interact.performed -= OnInteractPerformed;
         PlayerInputProvider.Player.Interact.canceled -= OnInteractCanceled;
         PlayerInputProvider.Release();
+        CancelHold();
         EndDrag();
         SetHighlightTarget(null);
         SetInteractable(null);
@@ -86,11 +101,10 @@ public class InteractionController : MonoBehaviour
 
     void Update()
     {
-        // Durante o arrasto o alvo fica preso ao objeto agarrado: o raycast sairia dele assim
-        // que a porta gira, e o prompt/outline piscariam no meio do movimento.
         if (activeDrag != null)
         {
             UpdateDrag();
+            RefreshPrompt();
             return;
         }
 
@@ -100,7 +114,7 @@ public class InteractionController : MonoBehaviour
         IInteractable interactable = null;
 
         int count = Physics.RaycastNonAlloc(ray, hits, raycastDistance, ~0, triggerInteraction);
-        System.Array.Sort(hits, 0, count, byDistance);
+        Array.Sort(hits, 0, count, byDistance);
 
         for (int i = 0; i < count; i++)
         {
@@ -115,6 +129,7 @@ public class InteractionController : MonoBehaviour
             if (interactable != null || highlight != null)
             {
                 currentHitPoint = hits[i].point;
+                currentHitDistance = hits[i].distance;
                 break;
             }
 
@@ -124,17 +139,52 @@ public class InteractionController : MonoBehaviour
 
         SetInteractable(interactable);
         SetHighlightTarget(highlight);
+        RefreshPrompt();
+        UpdateHold();
+    }
+
+    private void RefreshPrompt()
+    {
+        if (currentInteractable == null || IsDestroyed(currentInteractable))
+        {
+            HasPrompt = false;
+            return;
+        }
+
+        HasPrompt = currentInteractable.TryGetPrompt(this, out InteractionPrompt prompt);
+        CurrentPrompt = prompt;
+        TargetAnchor = ResolveAnchor();
+    }
+
+    private Vector3 ResolveAnchor()
+    {
+        if (targetAnchor != null)
+            return targetAnchor.Position;
+
+        if (targetRenderers == null || targetRenderers.Length == 0)
+            return currentHitPoint;
+
+        Bounds bounds = targetRenderers[0].bounds;
+        for (int i = 1; i < targetRenderers.Length; i++)
+            bounds.Encapsulate(targetRenderers[i].bounds);
+
+        return bounds.center;
     }
 
     private void SetInteractable(IInteractable target)
     {
-        // ReferenceEquals, e não ==: o alvo é interface, e o == sobrecarregado do
-        // UnityEngine.Object não entra por esse tipo. Objeto destruído enquanto está na mira
-        // vira um raycast que já não o acha, então a troca para null acontece naturalmente.
+        // ReferenceEquals: o == do UnityEngine.Object não entra por interface.
         if (ReferenceEquals(currentInteractable, target))
             return;
 
+        CancelHold();
+
         currentInteractable = target;
+
+        var component = target as Component;
+        targetAnchor = component != null ? component.GetComponentInChildren<InteractionAnchor>() : null;
+        targetRenderers = component != null && targetAnchor == null ? component.GetComponentsInChildren<Renderer>() : null;
+
         TargetChanged?.Invoke(target);
     }
 
@@ -154,43 +204,109 @@ public class InteractionController : MonoBehaviour
 
     private void OnInteractPerformed(InputAction.CallbackContext ctx)
     {
-        if (currentInteractable == null || activeDrag != null)
+        if (!HasPrompt || !IsInRange || activeDrag != null || holdTarget != null)
             return;
 
-        // Interact é Button sem interaction: performed no aperto, canceled ao soltar. Para um
-        // arrastável, o aperto agarra e o canceled solta — mas só no mouse. No controle não há
-        // delta de mouse para arrastar (o analógico dá posição, não movimento), então o botão
-        // cai no Interact comum, e o objeto decide o que é "usar" (a porta alterna sozinha).
-        // Decidido pelo dispositivo que apertou, não por configuração: quem joga alternando
-        // entre os dois recebe o esquema certo em cada aperto.
+        IInteractable target = currentInteractable;
+        InteractionPrompt prompt = CurrentPrompt;
+
+        // No controle não há delta de mouse para arrastar: o aperto vira uso comum.
         bool fromGamepad = ctx.control != null && ctx.control.device is Gamepad;
+        InteractionKind kind = prompt.Kind;
+        if (kind == InteractionKind.Drag && (fromGamepad || !(target is IDraggable)))
+            kind = InteractionKind.Instant;
 
-        InteractionResult result;
-        if (currentInteractable is IDraggable draggable && !fromGamepad)
+        if (!prompt.Available)
         {
-            result = draggable.BeginDrag(this, currentHitPoint);
-            if (result.Succeeded)
-                StartDrag(draggable);
-        }
-        else
-        {
-            result = currentInteractable.Interact(this);
+            Report(target, target.Interact(this), prompt.BlockedReason);
+            return;
         }
 
-        if (!result.Succeeded)
-            InteractionFailed?.Invoke(result.Message);
+        switch (kind)
+        {
+            case InteractionKind.Hold:
+                BeginHold(target, prompt.HoldDuration);
+                break;
+
+            case InteractionKind.Drag:
+                var draggable = (IDraggable)target;
+                InteractionResult result = draggable.BeginDrag(this, currentHitPoint);
+                if (result.Succeeded)
+                    activeDrag = draggable;
+                else
+                    Report(target, result, prompt.BlockedReason);
+                break;
+
+            default:
+                Report(target, target.Interact(this), prompt.BlockedReason);
+                break;
+        }
     }
 
-    private void OnInteractCanceled(InputAction.CallbackContext ctx) => EndDrag();
-
-    private void StartDrag(IDraggable draggable)
+    private void OnInteractCanceled(InputAction.CallbackContext ctx)
     {
-        activeDrag = draggable;
+        CancelHold();
+        EndDrag();
+    }
+
+    private void Report(IInteractable target, InteractionResult result, string fallbackReason)
+    {
+        if (result.Succeeded)
+            InteractionCompleted?.Invoke(target);
+        else
+            InteractionDenied?.Invoke(target, string.IsNullOrEmpty(result.Message) ? fallbackReason : result.Message);
+    }
+
+    private void BeginHold(IInteractable target, float duration)
+    {
+        if (duration <= 0f)
+        {
+            Report(target, target.Interact(this), null);
+            return;
+        }
+
+        holdTarget = target;
+        holdDuration = duration;
+        holdElapsed = 0f;
+
+        if (target is IHoldFeedback feedback)
+            feedback.OnHoldStarted();
+    }
+
+    private void UpdateHold()
+    {
+        if (holdTarget == null)
+            return;
+
+        if (!ReferenceEquals(holdTarget, currentInteractable) || !IsInRange || !HasPrompt || !CurrentPrompt.Available)
+        {
+            CancelHold();
+            return;
+        }
+
+        holdElapsed += Time.deltaTime;
+        if (holdElapsed < holdDuration)
+            return;
+
+        IInteractable target = holdTarget;
+        holdTarget = null;
+        Report(target, target.Interact(this), CurrentPrompt.BlockedReason);
+    }
+
+    private void CancelHold()
+    {
+        if (holdTarget == null)
+            return;
+
+        IInteractable target = holdTarget;
+        holdTarget = null;
+
+        if (target is IHoldFeedback feedback && !IsDestroyed(target))
+            feedback.OnHoldCanceled();
     }
 
     private void UpdateDrag()
     {
-        // Objeto destruído no meio do arrasto (troca de cena, script de cutscene).
         if (IsDestroyed(activeDrag))
         {
             EndDrag();
@@ -203,8 +319,6 @@ public class InteractionController : MonoBehaviour
             return;
         }
 
-        // Mouse para frente = mão para frente no plano do chão, para os lados = para os lados
-        // da câmera. Delta do mouse já é por frame, então não multiplica por deltaTime.
         Vector2 delta = PlayerInputProvider.Player.Look.ReadValue<Vector2>();
         Vector3 forward = Vector3.ProjectOnPlane(cam.transform.forward, Vector3.up).normalized;
         Vector3 right = Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized;
@@ -212,8 +326,6 @@ public class InteractionController : MonoBehaviour
         activeDrag.Drag((right * delta.x + forward * delta.y) * dragSensitivity);
     }
 
-    // Idempotente: chamado ao soltar o botão, no OnDisable e quando o jogador se afasta.
-    // Desligar o mapa de input (pausa) também dispara canceled, então pausar solta a porta.
     private void EndDrag()
     {
         if (activeDrag == null)
@@ -225,10 +337,9 @@ public class InteractionController : MonoBehaviour
         activeDrag = null;
     }
 
-    // Mesma pegadinha do SetInteractable: por interface o == do UnityEngine.Object não entra.
-    private static bool IsDestroyed(IDraggable draggable)
+    private static bool IsDestroyed(object target)
     {
-        return draggable is UnityEngine.Object obj && obj == null;
+        return target is UnityEngine.Object obj && obj == null;
     }
 
     private sealed class HitDistanceComparer : IComparer<RaycastHit>

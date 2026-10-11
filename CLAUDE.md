@@ -146,8 +146,10 @@ determinístico durante o treino.
   action map só liga quando o primeiro usuário aparece. Ao regerar o `.cs`, não edite o
   arquivo gerado.
 - **Ordem de execução da câmera** — vários componentes escrevem na mesma transform, e a
-  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, dobra o `spine.002`
-  com o pitch e **escreve posição e rotação da câmera** a partir do osso `Neck`) →
+  ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, camadas procedurais
+  nos ossos — crouch, torção de strafe, arco do peek, pitch no `spine.002` — com um único
+  registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
+  `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
   `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
@@ -161,6 +163,16 @@ determinístico durante o treino.
   de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
   `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
   `Stop` de handle cujo slot já foi roubado é no-op.
+- **Interação**: `InteractionController` (na câmera) faz o raycast e é dono do alcance, do
+  hold e do arrasto; o `IInteractable` só responde `TryGetPrompt` (consulta pura, todo frame:
+  verbo, `InteractionKind` Instant/Hold/Drag, `Available`) e `Interact`. A view é o
+  `InteractionWidget`, que monta a própria hierarquia e se ancora no objeto
+  (`InteractionAnchor` ou centro dos renderers), projetando em viewport porque a câmera do
+  player renderiza numa RenderTexture menor que a tela. Ícones de tecla e esquema ativo
+  (teclado ↔ controle) vêm da facade estática `InputIcons` (`Resources/InputIconLibrary`),
+  usada também pelo `HintController`. Portas são `SwingDoor` + `Lockable` +
+  `SwingDoorAudio` (perfis em `Assets/Audio/SwingDoor/`), todos opcionais exceto o núcleo.
+  `LockedDoor` é legado e só segura a porta de saída da `Cena FInal`.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.

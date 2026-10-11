@@ -140,3 +140,21 @@ MonoBehaviour:
     Volume: 0.6
     PitchJitter: 0.04
     MaxDistance: 0
+  - Id: suspenseStart
+    Clips:
+    - {fileID: 8300000, guid: ccfac6ce2ee13aa4f92ef030d580fcc5, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: fridgeClose
+    Clips:
+    - {fileID: 8300000, guid: a44ffbf24cbeab743b4f50a3414965e1, type: 3}
+    Volume: 1
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: fridgeOpen
+    Clips:
+    - {fileID: 8300000, guid: cc5f4ed4af5c81a4785b570e9132ea1d, type: 3}
+    Volume: 1
+    PitchJitter: 0.04
+    MaxDistance: 0

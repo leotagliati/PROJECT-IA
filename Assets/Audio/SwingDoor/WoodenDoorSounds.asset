@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f54ef22d164073ac1bec841ca6664620, type: 3}
+  m_Name: WoodenDoorSounds
+  m_EditorClassIdentifier:
+  creakSoundId: creakingDoor
+  creakMinSpeed: 8
+  creakFullSpeed: 120
+  creakPitchRange: {x: 0.85, y: 1.15}
+  creakResponse: 0.08
+  slamSoundId: doorSlam
+  slamSpeed: 150
+  latchSoundId: doorShut
+  latchMinSpeed: 5
+  openSoundId: 
+  openStopSoundId:
+  openStopMinSpeed: 100
+  impactVolumeRange: {x: 0.5, y: 1}

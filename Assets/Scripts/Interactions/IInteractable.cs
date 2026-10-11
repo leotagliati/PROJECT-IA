@@ -1,8 +1,5 @@
 public interface IInteractable
 {
-    string Prompt { get; }
-
-    string? ErrorMessage { get; }
-
+    bool TryGetPrompt(InteractionController interactor, out InteractionPrompt prompt);
     InteractionResult Interact(InteractionController interactor);
 }

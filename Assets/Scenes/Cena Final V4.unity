@@ -1978,6 +1978,7 @@ GameObject:
   - component: {fileID: 62317065}
   - component: {fileID: 62317064}
   - component: {fileID: 62317063}
+  - component: {fileID: 1352809278}
   m_Layer: 0
   m_Name: Wooden Locked Door
   m_TagString: Untagged
@@ -30794,6 +30795,8 @@ GameObject:
   - component: {fileID: 1010685251}
   - component: {fileID: 1010685253}
   - component: {fileID: 1010685252}
+  - component: {fileID: 1240711226}
+  - component: {fileID: 1437435725}
   m_Layer: 0
   m_Name: Hinge
   m_TagString: Untagged
@@ -31498,6 +31501,7 @@ GameObject:
   - component: {fileID: 1040809371}
   - component: {fileID: 1040809373}
   - component: {fileID: 1040809372}
+  - component: {fileID: 1252159709}
   m_Layer: 0
   m_Name: Hinge
   m_TagString: Untagged
@@ -454385,3 +454389,65 @@ SceneRoots:
   - {fileID: 944204264}
   - {fileID: 562876993}
   - {fileID: 443854628}
+--- !u!114 &1352809278
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 62317062}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  locks:
+  - {fileID: 884628124}
+  - {fileID: 680513385}
+  - {fileID: 1044424976}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor
+--- !u!114 &1240711226
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1010685250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  locks:
+  - {fileID: 884628124}
+  - {fileID: 680513385}
+  - {fileID: 1044424976}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor
+--- !u!114 &1437435725
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1010685250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  profile: {fileID: 11400000, guid: 652399caa1e361e0b058432c6000c025, type: 2}
+--- !u!114 &1252159709
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1040809370}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  profile: {fileID: 11400000, guid: 652399caa1e361e0b058432c6000c025, type: 2}
