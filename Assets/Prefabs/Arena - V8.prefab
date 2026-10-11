@@ -13232,8 +13232,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _viewDistance: 12
   _viewAngle: 140
-  _faintIntensity: 0.35
-  _faintDistance: 5
   _minIntensity: 0.05
   _scanInterval: 5
   _maxRaycasts: 12
@@ -366983,11 +366981,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1042654503540933444, guid: 4c8baa72f244403c98825edc1ade1753, type: 3}
       propertyPath: m_Height
-      value: 1.75
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 1042654503540933444, guid: 4c8baa72f244403c98825edc1ade1753, type: 3}
       propertyPath: m_Center.y
-      value: 0.9
+      value: 0.5
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 2745945177132972946, guid: 4c8baa72f244403c98825edc1ade1753, type: 3}
