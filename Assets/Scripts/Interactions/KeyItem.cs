@@ -2,15 +2,16 @@ using UnityEngine;
 
 public class KeyItem : MonoBehaviour, IInteractable
 {
-    [SerializeField] private string prompt = "Pegar chave";
+    [SerializeField] private string prompt = "Pegar";
 
     [Header("Áudio")]
     [SerializeField] private string pickupSoundId = "key_pickup";
 
-    public string Prompt => prompt;
-
-    public string ErrorMessage => null; // Não há erro possível ao pegar a chave
-
+    public bool TryGetPrompt(InteractionController interactor, out InteractionPrompt result)
+    {
+        result = InteractionPrompt.Instant(prompt);
+        return true;
+    }
 
     public InteractionResult Interact(InteractionController interactor)
     {
@@ -19,8 +20,7 @@ public class KeyItem : MonoBehaviour, IInteractable
 
         interactor.Inventory.AddKey(1);
 
-        // PlayAt usa uma fonte do pool, não um AudioSource da chave: o som sobrevive ao
-        // Destroy logo abaixo.
+        // PlayAt usa fonte do pool: o som sobrevive ao Destroy.
         AudioProvider.PlayAt(pickupSoundId, transform.position);
         Destroy(gameObject);
 

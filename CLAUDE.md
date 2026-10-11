@@ -163,6 +163,16 @@ determinístico durante o treino.
   de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
   `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
   `Stop` de handle cujo slot já foi roubado é no-op.
+- **Interação**: `InteractionController` (na câmera) faz o raycast e é dono do alcance, do
+  hold e do arrasto; o `IInteractable` só responde `TryGetPrompt` (consulta pura, todo frame:
+  verbo, `InteractionKind` Instant/Hold/Drag, `Available`) e `Interact`. A view é o
+  `InteractionWidget`, que monta a própria hierarquia e se ancora no objeto
+  (`InteractionAnchor` ou centro dos renderers), projetando em viewport porque a câmera do
+  player renderiza numa RenderTexture menor que a tela. Ícones de tecla e esquema ativo
+  (teclado ↔ controle) vêm da facade estática `InputIcons` (`Resources/InputIconLibrary`),
+  usada também pelo `HintController`. Portas são `SwingDoor` + `Lockable` +
+  `SwingDoorAudio` (perfis em `Assets/Audio/SwingDoor/`), todos opcionais exceto o núcleo.
+  `LockedDoor` é legado e só segura a porta de saída da `Cena FInal`.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
