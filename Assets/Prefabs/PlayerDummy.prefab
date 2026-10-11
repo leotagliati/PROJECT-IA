@@ -216,7 +216,7 @@ MonoBehaviour:
   flickerBurstDuration: {x: 0.05, y: 0.35}
   flickerBlinkDuration: {x: 0.02, y: 0.07}
   flickerOffLevel: 0
-  startsOn: 1
+  startsOn: 0
   turnOnSpeed: 22
   turnOffSpeed: 44
   turnOnSoundId: flashlight_on

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
 /// Porta de dobradiça arrastada em tempo real (estilo Amnesia): segurando o botão, empurrar
@@ -56,6 +57,14 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 
     [Header("Prompt")]
     [SerializeField] private string prompt = "Segurar para mover";
+
+    [Header("Evento de abertura")]
+    [Tooltip("Graus a partir do batente para a porta contar como aberta. Encostar ou tremer a " +
+             "mão no batente não é abrir.")]
+    [SerializeField, Min(0f)] private float openedAngle = 25f;
+
+    [Tooltip("Primeira vez que a porta passa do Opened Angle. Uma vez só por carregamento de cena.")]
+    [SerializeField] private UnityEvent opened;
 
     [Header("Áudio (vazio = sem som)")]
     [SerializeField] private string lockedSoundId = "lockedDoor";
@@ -116,6 +125,7 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
     private float autoTarget;
     private bool restingOnLow;
     private bool restingOnHigh;
+    private bool hasOpened;
     private AudioSource creakSource;
     private float creakBaseVolume;
     private float creakGain;
@@ -139,6 +149,8 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
 
     private float OpenAngle => Mathf.Abs(minAngle) <= Mathf.Abs(maxAngle) ? maxAngle : minAngle;
 
+    private bool IsPastOpenedAngle => Mathf.Abs(angle - ClosedAngle) >= openedAngle;
+
     private Vector3 HingeAxis => transform.parent != null ? transform.parent.TransformDirection(Vector3.up) : Vector3.up;
 
     private void Awake()
@@ -155,6 +167,9 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
         // batente no primeiro agarrão não pode soar como se tivesse acabado de fechar.
         restingOnLow = angle <= Mathf.Min(minAngle, maxAngle) + contactRearmAngle;
         restingOnHigh = angle >= Mathf.Max(minAngle, maxAngle) - contactRearmAngle;
+
+        // Porta que já nasce aberta não "abriu" no primeiro passo de física.
+        hasOpened = IsPastOpenedAngle;
 
         locks.RemoveAll(l => l == null || l.IsUnlocked);
 
@@ -337,6 +352,14 @@ public class HingedDoor : MonoBehaviour, IInteractable, IDraggable
         // O quique que ele aplicou fica: a porta assenta com o atrito normal.
         if (autoMoving && Mathf.Approximately(angle, autoTarget))
             autoMoving = false;
+
+        // Aqui, e não no BeginDrag/Interact: abrir é o ângulo de fato mudar. Porta trancada
+        // recusa antes e nunca chega a se mover, então o evento já respeita os cadeados.
+        if (!hasOpened && IsPastOpenedAngle)
+        {
+            hasOpened = true;
+            opened.Invoke();
+        }
 
         Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
         body.MoveRotation(parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, Vector3.up));
