@@ -45,10 +45,10 @@ namespace Assets.Scripts.Free
     ///     [26]     distância pelo caminho / DoorReach
     ///     [27..28] velocidade do alvo enquanto vê / 5 m/s
     ///     [29]     procurando (perdeu de vista há < 20 s)
-    ///     [30]     PEGADA vista: intensidade agora (0 = nenhuma lembrada)
-    ///     [31..32] direção até a pegada (X/Z)
-    ///     [33]     distância até a pegada / DoorReach
-    ///     [34..35] para onde o alvo ia ao deixar a pegada (X/Z): o "seguir o rastro"
+    ///     [30]     PISTA (pegada vista ou som ouvido, FreeTrackSense): intensidade agora (0 = nenhuma lembrada)
+    ///     [31..32] direção até a pista: a próxima quina do caminho NavMesh (som atrás de parede = pela porta)
+    ///     [33]     distância pelo caminho até a pista / DoorReach
+    ///     [34..35] para onde o alvo ia ao deixar a pegada (X/Z): o "seguir o rastro" (som: zero)
     ///     [36]     CAÇANDO (o foco acima está ligado)
     ///     [37]     ALARME de chave: 1 quando acaba de saber que uma chave foi levada, cai a 0 (FreeKeyField; 0 sem chaves)
     ///   Radar (8 setores x 3), setores de 45° presos ao mundo, o setor k centrado no ângulo k x 45° a partir de +X:
@@ -250,13 +250,16 @@ namespace Assets.Scripts.Free
             sensor.AddObservation(Mathf.Clamp(targetVelocity.z, -1f, 1f));
             sensor.AddObservation(huntActive && _perception.IsSearching ? 1f : 0f);
 
-            // ---- Pegada (6) + caçando (1) + reservado (1) ----
+            // ---- Pista: pegada ou som (6) + caçando (1) + reservado (1) ----
+            // Pelo caminho NavMesh, não em linha reta (11/10): pegada é sempre vista com linha livre (aí dá no mesmo),
+            // mas o som vem de trás da parede, e a reta apontaria para ela.
             bool track = huntActive && !seeing && _track != null && _track.HasTrack;
             if (track)
             {
-                var toPrint = new Vector2(_track.Position.x - agent.position.x, _track.Position.z - agent.position.z);
-                float printDistance = toPrint.magnitude;
-                Vector2 printUnit = printDistance > 1e-4f ? toPrint / printDistance : Vector2.zero;
+                Vector3 aim = PathAim(_memory.Ground, _track.Position, out float printDistance);
+                var toPrint = new Vector2(aim.x - agent.position.x, aim.z - agent.position.z);
+                float aimDistance = toPrint.magnitude;
+                Vector2 printUnit = aimDistance > 1e-4f ? toPrint / aimDistance : Vector2.zero;
                 sensor.AddObservation(_track.Intensity);
                 sensor.AddObservation(printUnit.x);
                 sensor.AddObservation(printUnit.y);
@@ -402,6 +405,31 @@ namespace Assets.Scripts.Free
             for (int i = 1; i < corners.Length; i++)
                 length += Vector3.Distance(corners[i - 1], corners[i]);
             return length;
+        }
+
+        // A próxima quina do caminho NavMesh até o ponto e o comprimento do caminho. Sem caminho (ponto fora do
+        // NavMesh, outro andar), a reta, como era antes.
+        private Vector3 PathAim(Vector3 from, Vector3 to, out float length)
+        {
+            if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, _path) || _path.status != NavMeshPathStatus.PathComplete)
+            {
+                length = new Vector2(to.x - from.x, to.z - from.z).magnitude;
+                return to;
+            }
+
+            Vector3[] corners = _path.corners;
+            length = 0f;
+            for (int i = 1; i < corners.Length; i++)
+                length += Vector3.Distance(corners[i - 1], corners[i]);
+
+            // A 1ª quina a mais de meio metro: colado numa quina, a direção até ela é zero.
+            for (int i = 1; i < corners.Length; i++)
+            {
+                if (new Vector2(corners[i].x - from.x, corners[i].z - from.z).sqrMagnitude > 0.25f)
+                    return corners[i];
+            }
+
+            return to;
         }
 
         private void WriteRoomPlan(Vector3 ground, int current)

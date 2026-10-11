@@ -24,7 +24,8 @@ namespace Assets.Scripts.Free
     /// "agachado" que só a v7 pôs no IGraphTarget.
     ///
     /// O monstro só sabe da pegada que VÊ (<see cref="FreeTrackSense"/>): pegada não atravessa parede, então
-    /// esconder perto continua funcionando. Nada paga seguir pegada; quem paga é a captura.
+    /// esconder perto continua funcionando. Nada paga seguir pegada; quem paga é a captura. CORRENDO o passo também faz
+    /// BARULHO (<see cref="FreeNoise"/>), e esse o monstro ouve através da parede, pelo caminho NavMesh.
     /// Fica no objeto do alvo; o FreeExplorerManager adiciona se faltar. Sem visual no chão (só gizmo, marrom).
     /// </summary>
     public class FreeFootprintTrail : MonoBehaviour
@@ -43,6 +44,16 @@ namespace Assets.Scripts.Free
         [SerializeField, Range(0f, 1f)] private float _crouchStrength = 0.2f;
         [SerializeField, Min(0.1f)] private float _crouchLifetime = 2.5f;
 
+        [Header("-----Barulho dos passos (FreeNoise)-----")]
+        // Raio (m, pelo NavMesh) em que o passo é OUVIDO pelo monstro. Correndo faz barulho: a audição de corrida da
+        // v5 (30 m pelo grafo), menor aqui porque o raio é caminho de verdade, não salto de nó. Andando e agachado,
+        // zero: quem anda com cuidado só deixa pegada.
+        [SerializeField, Min(0f)] private float _runNoiseRadius = 20f;
+        [SerializeField, Min(0f)] private float _walkNoiseRadius = 0f;
+
+        // No máximo um barulho a cada isto (s): passo a passo, ouvir correndo viraria um radar através da parede.
+        [SerializeField, Min(0f)] private float _noiseInterval = 0.5f;
+
         // Pulo maior que isto num step (m) é teleporte (respawn): o rastro recomeça, sem pegada atravessando o mapa.
         private const float TeleportDistance = 3f;
         private const int Capacity = 128;
@@ -53,6 +64,7 @@ namespace Assets.Scripts.Free
         private Vector3 _lastPrint;
         private Vector3 _lastPosition;
         private bool _hasLast;
+        private float _lastNoise = float.NegativeInfinity;
 
         private IGraphTarget _target;
         private PlayerMovement _player;
@@ -77,6 +89,7 @@ namespace Assets.Scripts.Free
             _count = 0;
             _head = 0;
             _hasLast = false;
+            _lastNoise = float.NegativeInfinity;
         }
 
         private void OnDisable() => Clear();
@@ -115,6 +128,13 @@ namespace Assets.Scripts.Free
 
             AddPrint(position, moved.normalized, gait);
             _lastPrint = position;
+
+            float noise = gait == Gait.Run ? _runNoiseRadius : gait == Gait.Walk ? _walkNoiseRadius : 0f;
+            if (noise > 0f && Now - _lastNoise >= _noiseInterval)
+            {
+                _lastNoise = Now;
+                FreeNoise.Emit(position, noise);
+            }
         }
 
         private enum Gait { Walk, Run, Crouch }

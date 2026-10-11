@@ -377,7 +377,7 @@ namespace Assets.Scripts.Free
 
             _perception.Tick(transform);
 
-            // Pegada nova vista = pista: Alerta (como ouvir o alvo na v5). Vendo o alvo ela nem é procurada.
+            // Pista nova (pegada vista ou som ouvido, FreeNoise) = Alerta. Vendo o alvo nenhuma das duas é procurada.
             _trackSense.Tick(transform.position, _locomotion.ViewDirection, _perception.IsSeeing);
             if (_settings.HasHider && _trackSense.NewTrackThisStep)
                 _locomotion.NotifyHeard();
@@ -551,7 +551,7 @@ namespace Assets.Scripts.Free
             else if (context.HiderSpotted)
                 _lastEvent = $"{t:0}s  AVISTOU";
             else if (_trackSense.NewTrackThisStep)
-                _lastEvent = $"{t:0}s  viu PEGADA";
+                _lastEvent = _trackSense.Heading == Vector3.zero ? $"{t:0}s  OUVIU" : $"{t:0}s  viu PEGADA";
             else if (context.CoverageReached)
                 _lastEvent = $"{t:0}s  COBERTURA";
             else if (context.WallHits > 0)
@@ -645,7 +645,7 @@ namespace Assets.Scripts.Free
         ///   Exploration/WallContactFraction, WallHits, DoorContactFraction (batente), DoorHits   (GraphBodyTracker)
         ///   Movement/StuckFraction      fração do episódio PRESA na parede
         ///   Movement/IdleFraction, ActionJitter, LookJitter, ChaseFraction, AlertFraction, MeanSpeed
-        ///   Hunt/Seen, Caught, Sightings, LostSight, SightToCatchSeconds, TracksSeen (pegadas)   (só com presa)
+        ///   Hunt/Seen, Caught, Sightings, LostSight, SightToCatchSeconds, TracksSeen (pegadas), NoisesHeard (sons)   (só com presa)
         /// </summary>
         private string[] _roomStatNames;
 
@@ -699,6 +699,7 @@ namespace Assets.Scripts.Free
                 if (_perception.SightToCatchSeconds >= 0f)
                     stats.Add("Hunt/SightToCatchSeconds", _perception.SightToCatchSeconds);
                 stats.Add("Hunt/TracksSeen", _trackSense.EpisodeTracksSeen);
+                stats.Add("Hunt/NoisesHeard", _trackSense.EpisodeNoisesHeard);
             }
 
             // Chaves (só episódios com chaves): quantas a presa levou, se escapou, rondas e tempo campando.
