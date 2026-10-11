@@ -16,11 +16,11 @@ public class InteractionController : MonoBehaviour
     [SerializeField] private QueryTriggerInteraction triggerInteraction = QueryTriggerInteraction.Ignore;
 
     [Header("Arrasto (portas)")]
-    [Tooltip("Metros de mão por unidade de delta do mouse. Sobe se a porta parecer pesada.")]
-    [SerializeField] private float dragSensitivity = 0.003f;
-
     [Tooltip("Solta o objeto quando o ponto agarrado fica mais longe que isto da câmera.")]
     [SerializeField] private float dragReleaseDistance = 3f;
+
+    [Tooltip("Solta quando a mão (o ponto na mira) se afasta isto do ponto agarrado: porta travada no limite e o jogador olhou para longe.")]
+    [SerializeField] private float dragSlipDistance = 1.2f;
 
     private readonly RaycastHit[] hits = new RaycastHit[16];
     private static readonly IComparer<RaycastHit> byDistance = new HitDistanceComparer();
@@ -31,6 +31,7 @@ public class InteractionController : MonoBehaviour
     private Vector3 currentHitPoint;
     private float currentHitDistance;
     private IDraggable activeDrag;
+    private float dragHoldDistance;
 
     private InteractionAnchor targetAnchor;
     private Renderer[] targetRenderers;
@@ -232,7 +233,10 @@ public class InteractionController : MonoBehaviour
                 var draggable = (IDraggable)target;
                 InteractionResult result = draggable.BeginDrag(this, currentHitPoint);
                 if (result.Succeeded)
+                {
                     activeDrag = draggable;
+                    dragHoldDistance = currentHitDistance;
+                }
                 else
                     Report(target, result, prompt.BlockedReason);
                 break;
@@ -319,11 +323,16 @@ public class InteractionController : MonoBehaviour
             return;
         }
 
-        Vector2 delta = PlayerInputProvider.Player.Look.ReadValue<Vector2>();
-        Vector3 forward = Vector3.ProjectOnPlane(cam.transform.forward, Vector3.up).normalized;
-        Vector3 right = Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized;
+        // A mão fica na mira, na distância em que agarrou: girar a câmera ou andar arrasta junto.
+        Vector3 hand = cam.transform.position + cam.transform.forward * dragHoldDistance;
 
-        activeDrag.Drag((right * delta.x + forward * delta.y) * dragSensitivity);
+        if (Vector3.Distance(hand, activeDrag.GrabPoint) > dragSlipDistance)
+        {
+            EndDrag();
+            return;
+        }
+
+        activeDrag.Drag(hand);
     }
 
     private void EndDrag()

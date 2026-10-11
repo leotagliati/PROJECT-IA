@@ -16,8 +16,12 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
     [SerializeField] private float startAngle = 0f;
 
     [Header("Arrasto")]
-    [Tooltip("1 = o ponto agarrado acompanha a mão. Maior deixa a porta mais leve.")]
-    [SerializeField] private float dragGain = 1f;
+    [Tooltip("Quão rápido o ponto agarrado alcança a mão (1/s). Menor deixa a porta mais pesada.")]
+    [SerializeField] private float followSharpness = 12f;
+
+    [Tooltip("Mão mais perto da dobradiça que esta fração do braço é ignorada: ali o ângulo pula de lado.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float minReachFraction = 0.3f;
 
     [Tooltip("Teto em graus/s, segurando ou não.")]
     [SerializeField] private float maxAngularSpeed = 400f;
@@ -60,7 +64,8 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
     private Vector3 localGrabPoint;
     private float angle;
     private float angularVelocity;
-    private float pendingAngle;
+    private Vector3 handTarget;
+    private bool hasHandTarget;
     private bool grabbed;
     private bool autoMoving;
     private float autoTarget;
@@ -158,30 +163,44 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
 
         autoMoving = false;
         localGrabPoint = transform.InverseTransformPoint(grabPoint);
-        pendingAngle = 0f;
+        hasHandTarget = false;
         grabbed = true;
         return InteractionResult.Success;
     }
 
-    public void Drag(Vector3 handDelta)
+    public void Drag(Vector3 handPosition)
     {
         if (!grabbed)
             return;
 
-        Vector3 axis = HingeAxis;
-        Vector3 arm = Vector3.ProjectOnPlane(GrabPoint - transform.position, axis);
-
-        // Braço ~0 (agarrou na dobradiça) daria ganho infinito.
-        float armSqr = Mathf.Max(arm.sqrMagnitude, 0.2f * 0.2f);
-
-        // Cross(eixo, braço) tem módulo |braço|; dividir por |braço|² dá radianos.
-        Vector3 tangent = Vector3.Cross(axis, arm);
-        pendingAngle += Vector3.Dot(handDelta, tangent) / armSqr * Mathf.Rad2Deg * dragGain;
+        handTarget = handPosition;
+        hasHandTarget = true;
     }
 
     public void EndDrag()
     {
         grabbed = false;
+    }
+
+    // Quanto girar para o ponto agarrado ficar do lado da mão. Usa a pose do próprio `angle`, não o
+    // transform: com interpolação, o transform no FixedUpdate não é a pose simulada.
+    private float AngleToHand()
+    {
+        if (!hasHandTarget)
+            return 0f;
+
+        Vector3 axis = HingeAxis;
+        Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
+        Quaternion rotation = parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, LocalAxis);
+        Vector3 grabWorld = transform.position + rotation * Vector3.Scale(localGrabPoint, transform.lossyScale);
+
+        Vector3 arm = Vector3.ProjectOnPlane(grabWorld - transform.position, axis);
+        Vector3 reach = Vector3.ProjectOnPlane(handTarget - transform.position, axis);
+
+        if (arm.sqrMagnitude < 1e-4f || reach.magnitude < arm.magnitude * minReachFraction)
+            return 0f;
+
+        return Vector3.SignedAngle(arm, reach, axis);
     }
 
     // MoveRotation no passo de física: só assim o Rigidbody cinemático empurra o jogador.
@@ -193,8 +212,8 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
 
         if (grabbed)
         {
-            step = Mathf.Clamp(pendingAngle, -maxStep, maxStep);
-            pendingAngle = 0f;
+            float follow = 1f - Mathf.Exp(-followSharpness * dt);
+            step = Mathf.Clamp(AngleToHand() * follow, -maxStep, maxStep);
             angularVelocity = Mathf.Lerp(angularVelocity, step / dt, 0.35f);
         }
         else if (autoMoving)
