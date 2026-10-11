@@ -6,50 +6,15 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-/// <summary>Identifica uma dica mostrada, para escondê-la depois. default = nenhuma.</summary>
 public readonly struct HintHandle
 {
     internal readonly int Id;
-
     internal HintHandle(int id) => Id = id;
-
     public bool IsValid => Id != 0;
 }
 
-/// <summary>
-/// Ponto único para mostrar dicas. Quem quer uma dica (<see cref="HintDirector"/>,
-/// <see cref="HintTrigger"/>, qualquer script) chama <see cref="Show"/> com o texto cru e
-/// guarda o handle; o controller traduz a marcação e entrega pronta para a
-/// <see cref="HintView"/>.
-///
-/// Marcação do texto:
-///   {Action}  teclas/botões do binding atual daquela action do mapa Player ({Move} → W A S D).
-///   [Texto]   uma tecla literal ([Mouse], [Esc]).
-///   *texto*   destaque na cor de highlight.
-/// Rich text do TMP passa direto.
-///
-/// Ícones: cada <see cref="IconScheme"/> liga um control scheme do .inputactions a um TMP
-/// Sprite Asset (gerado em Tools > Hints). O sprite é procurado pelo nome do controle
-/// ("buttonSouth", "leftStick", "w"); sem sprite, a tecla é desenhada como caixa com o nome
-/// legível. O esquema ativo segue o último dispositivo usado: pegou o controle, as dicas
-/// viram botões de controle.
-///
-/// Várias dicas podem estar ativas ao mesmo tempo, e a mais recente é a que aparece. Quando
-/// ela sai, a anterior volta: um trigger de corredor que mostra algo por 4s não apaga a
-/// instrução do director que ainda espera o jogador agachar.
-/// </summary>
 public class HintController : MonoBehaviour
 {
-    [Serializable]
-    private struct IconScheme
-    {
-        [Tooltip("Nome do control scheme no .inputactions.")]
-        public string bindingGroup;
-
-        [Tooltip("Vazio = todas as teclas deste esquema viram caixa desenhada.")]
-        public TMP_SpriteAsset icons;
-    }
-
     [Serializable]
     private struct KeyLabel
     {
@@ -63,21 +28,11 @@ public class HintController : MonoBehaviour
     [Header("Destaque")]
     [SerializeField] private Color highlightColor = new(1f, 0.85f, 0.55f, 1f);
 
-    [Header("Ícones")]
-    [Tooltip("O primeiro é o inicial. Troca para o esquema que aceitar o último dispositivo usado.")]
-    [SerializeField] private IconScheme[] schemes =
-    {
-        new() { bindingGroup = "Keyboard&Mouse" },
-        new() { bindingGroup = "Gamepad" },
-    };
-
+    [Header("Ícones (tabela em Resources/InputIconLibrary)")]
     [Tooltip("Trava num esquema (pelo Binding Group), ignorando o dispositivo. Para ver os ícones " +
              "de controle sem ter um conectado. Vazio = automático.")]
     [SerializeField] private string forceScheme;
 
-    // O padding do <mark> só desenha, não ocupa espaço no layout: padding lateral faria uma
-    // tecla invadir a vizinha. A largura vem dos espaços inquebráveis dentro da caixa, que o
-    // TMP conta como caractere; o padding fica só no vertical (em % do tamanho da fonte).
     [Tooltip("Rich text de uma tecla sem ícone; {0} = nome da tecla.")]
     [SerializeField] private string keyFormat = "<mark=#EDE6D6F0 padding=\"0,0,12,12\"><color=#141414><b> {0} </b></color></mark>";
 
@@ -86,7 +41,8 @@ public class HintController : MonoBehaviour
 
     [Tooltip("Nome legível da tecla sem ícone para um control path, no lugar do display string do " +
              "Input System (que escreve 'Delta' para o mouse e 'Left Shift' para o shift).")]
-    [SerializeField] private KeyLabel[] keyLabels =
+    [SerializeField]
+    private KeyLabel[] keyLabels =
     {
         new() { path = "<Mouse>/delta", label = "Mouse" },
         new() { path = "<Pointer>/delta", label = "Mouse" },
@@ -99,9 +55,6 @@ public class HintController : MonoBehaviour
     private static readonly Regex ActionToken = new(@"\{(\w+)\}");
     private static readonly Regex LiteralKey = new(@"\[([^\]]+)\]");
     private static readonly Regex Highlight = new(@"\*([^*]+)\*");
-
-    // Ordem de leitura do WASD. No .inputactions o composite vem up/down/left/right, que
-    // escreveria "W S A D".
     private static readonly string[] CompositeOrder = { "up", "left", "down", "right" };
 
     private sealed class Entry
@@ -115,14 +68,12 @@ public class HintController : MonoBehaviour
     private readonly Dictionary<string, string> formatted = new();
     private int nextId = 1;
     private string highlightHex;
-    private int currentScheme;
 
     /// <summary>
     /// Sprite asset do esquema ativo. Quem formata texto com <see cref="Format"/> num TMP
-    /// próprio (o prompt de interação) precisa pôr este asset no label, senão os
-    /// &lt;sprite&gt; saem vazios.
+    /// próprio precisa pôr este asset no label, senão os &lt;sprite&gt; saem vazios.
     /// </summary>
-    public TMP_SpriteAsset Icons => schemes.Length > 0 ? schemes[currentScheme].icons : null;
+    public TMP_SpriteAsset Icons => InputIcons.Icons;
 
     /// <summary>Trocou teclado ↔ controle: texto já formatado ficou com os ícones errados.</summary>
     public event Action SchemeChanged;
@@ -139,23 +90,23 @@ public class HintController : MonoBehaviour
             return;
         }
 
-        if (schemes.Length == 0)
-            schemes = new[] { new IconScheme { bindingGroup = "Keyboard&Mouse" } };
-
         highlightHex = ColorUtility.ToHtmlStringRGBA(highlightColor);
-        SetScheme(0);
+
+        if (!string.IsNullOrEmpty(forceScheme))
+            InputIcons.ForceScheme(forceScheme);
     }
 
     private void OnEnable()
     {
         // Rebind entre um enable e outro troca a tecla: o cache formatado não vale mais.
         formatted.Clear();
-        InputSystem.onActionChange += HandleActionChange;
+        view.Label.spriteAsset = InputIcons.Icons;
+        InputIcons.SchemeChanged += HandleSchemeChanged;
     }
 
     private void OnDisable()
     {
-        InputSystem.onActionChange -= HandleActionChange;
+        InputIcons.SchemeChanged -= HandleSchemeChanged;
     }
 
     /// <summary>
@@ -197,13 +148,6 @@ public class HintController : MonoBehaviour
         if (game != null && game.IsOver)
             active.Clear();
 
-        if (!string.IsNullOrEmpty(forceScheme))
-        {
-            int forced = Array.FindIndex(schemes, scheme => scheme.bindingGroup == forceScheme);
-            if (forced >= 0)
-                SetScheme(forced);
-        }
-
         // Time.time para na pausa: dica com duração não "gasta" tempo atrás do menu.
         float now = Time.time;
         active.RemoveAll(entry => entry.expiresAt <= now);
@@ -212,44 +156,9 @@ public class HintController : MonoBehaviour
         view.SetText(hidden ? null : Format(active[active.Count - 1].text));
     }
 
-    // Ouve o resultado das actions, não o dispositivo cru: o controle encostado na mesa com o
-    // analógico com drift não rouba os ícones de quem está no teclado, porque o drift fica
-    // abaixo do deadzone e nunca vira action.
-    private void HandleActionChange(object actionOrMap, InputActionChange change)
+    private void HandleSchemeChanged()
     {
-        if (change != InputActionChange.ActionPerformed || !string.IsNullOrEmpty(forceScheme))
-            return;
-
-        if (actionOrMap is not InputAction action || action.activeControl == null)
-            return;
-
-        InputDevice device = action.activeControl.device;
-        if (Supports(currentScheme, device))
-            return;
-
-        for (int i = 0; i < schemes.Length; i++)
-        {
-            if (Supports(i, device))
-            {
-                SetScheme(i);
-                return;
-            }
-        }
-    }
-
-    private bool Supports(int schemeIndex, InputDevice device)
-    {
-        InputControlScheme? scheme = PlayerInputProvider.Actions.asset.FindControlScheme(schemes[schemeIndex].bindingGroup);
-        return scheme.HasValue && scheme.Value.SupportsDevice(device);
-    }
-
-    private void SetScheme(int index)
-    {
-        if (index == currentScheme && view.Label.spriteAsset == schemes[index].icons)
-            return;
-
-        currentScheme = index;
-        view.Label.spriteAsset = schemes[index].icons;
+        view.Label.spriteAsset = InputIcons.Icons;
         formatted.Clear();
         SchemeChanged?.Invoke();
     }
@@ -280,7 +189,7 @@ public class HintController : MonoBehaviour
 
     private string Key(string iconName, string fallbackLabel)
     {
-        TMP_SpriteAsset icons = schemes[currentScheme].icons;
+        TMP_SpriteAsset icons = InputIcons.Icons;
         if (icons != null && icons.GetSpriteIndexFromName(iconName) >= 0)
             return $"<sprite name=\"{iconName}\">";
 
@@ -296,7 +205,7 @@ public class HintController : MonoBehaviour
             return null;
         }
 
-        InputBinding mask = InputBinding.MaskByGroup(schemes[currentScheme].bindingGroup);
+        InputBinding mask = InputBinding.MaskByGroup(InputIcons.ActiveBindingGroup);
         var keys = new List<(int order, int binding)>();
         var seenParts = new HashSet<string>();
         var bindings = action.bindings;
@@ -339,22 +248,10 @@ public class HintController : MonoBehaviour
                 builder.Append(keySeparator);
 
             int index = keys[i].binding;
-            builder.Append(Key(IconName(action.bindings[index].effectivePath), LabelFor(action, index)));
+            builder.Append(Key(InputIcons.IconName(action.bindings[index].effectivePath), LabelFor(action, index)));
         }
 
         return builder.ToString();
-    }
-
-    /// <summary>
-    /// Nome do sprite para um control path: o controle sem o dispositivo, com '/' virando '_'
-    /// ("&lt;Gamepad&gt;/dpad/up" → "dpad_up"). O dispositivo já está implícito no esquema, e
-    /// assim o mesmo asset de PS4 serve para qualquer binding de &lt;Gamepad&gt;.
-    /// </summary>
-    private static string IconName(string controlPath)
-    {
-        int slash = controlPath.IndexOf('/');
-        string control = slash >= 0 ? controlPath.Substring(slash + 1) : controlPath;
-        return control.Replace('/', '_');
     }
 
     private string LabelFor(InputAction action, int bindingIndex)

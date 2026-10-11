@@ -265,6 +265,7 @@ GameObject:
   - component: {fileID: 6403016606492021256}
   - component: {fileID: 5218448643615721287}
   - component: {fileID: 8120244642151128031}
+  - component: {fileID: 1477885292}
   m_Layer: 7
   m_Name: Hinge
   m_TagString: Untagged
@@ -356,3 +357,16 @@ MonoBehaviour:
   openStopMinSpeed: 100
   impactVolumeRange: {x: 0.5, y: 1}
   contactRearmAngle: 2
+--- !u!114 &1477885292
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5192196964173711825}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  profile: {fileID: 11400000, guid: 7b0b7f7cf8b9d22c64f0faecbe2f12ac, type: 2}
