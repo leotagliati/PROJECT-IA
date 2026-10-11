@@ -10464,6 +10464,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b60acf4172fbb28498e3ab2fee6ead36, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hingeLocalAxis: {x: 0, y: 1, z: 0}
   minAngle: 0
   maxAngle: 100
   startAngle: 0
@@ -10471,33 +10472,15 @@ MonoBehaviour:
   maxAngularSpeed: 400
   friction: 3
   limitBounce: 0.15
+  latchRange: 6
+  latchPull: 400
   autoSpeed: 110
   autoAcceleration: 360
   autoArriveSpeed: 30
-  locks:
-  - {fileID: 5502779191599059135}
-  - {fileID: 7555775669762591126}
-  - {fileID: 3095400261602550629}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  prompt: Segurar para mover
-  openedAngle: 25
-  opened:
-    m_PersistentCalls:
-      m_Calls: []
-  lockedSoundId: lockedDoor
-  creakSoundId: creakingDoor
-  creakMinSpeed: 8
-  creakFullSpeed: 120
-  creakPitchRange: {x: 0.85, y: 1.15}
-  creakResponse: 0.08
-  slamSoundId: doorSlam
-  slamSpeed: 150
-  latchSoundId: doorShut
-  latchMinSpeed: 5
-  openStopSoundId: 
-  openStopMinSpeed: 100
-  impactVolumeRange: {x: 0.5, y: 1}
+  openLabel: Abrir
+  closeLabel: Fechar
   contactRearmAngle: 2
+  lockable: {fileID: 0}
 --- !u!54 &65562061
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -147010,11 +146993,15 @@ MonoBehaviour:
   controller: {fileID: 0}
   hints: {fileID: 0}
   label: {fileID: 0}
-  promptMarkup: '{Interact} {0}'
-  bindingGroup: Keyboard&Mouse
-  failureDuration: 1.5
+  buttonSize: 28
+  discColor: {r: 0.08, g: 0.08, b: 0.08, a: 0.85}
+  glyphColor: {r: 0.93, g: 0.9, b: 0.84, a: 1}
+  ringColor: {r: 1, g: 0.85, b: 0.55, a: 1}
   failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
   fadeTime: 0.08
+  failureDuration: 1.5
+  shakeDuration: 0.4
+  shakeAmplitude: 5
 --- !u!1001 &997966689
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -263036,6 +263023,19 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 3705921023976154763, guid: 3a0325eddc75e854990f0e6eca2db428, type: 3}
   m_PrefabInstance: {fileID: 530201908}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1815526292
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 65562058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  profile: {fileID: 11400000, guid: 652399caa1e361e0b058432c6000c025, type: 2}
 --- !u!4 &1816044992 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 3705921023976154763, guid: 3a0325eddc75e854990f0e6eca2db428, type: 3}
@@ -292573,6 +292573,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b60acf4172fbb28498e3ab2fee6ead36, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hingeLocalAxis: {x: 0, y: 1, z: 0}
   minAngle: 0
   maxAngle: 100
   startAngle: 0
@@ -292580,33 +292581,15 @@ MonoBehaviour:
   maxAngularSpeed: 400
   friction: 3
   limitBounce: 0.15
+  latchRange: 6
+  latchPull: 400
   autoSpeed: 110
   autoAcceleration: 360
   autoArriveSpeed: 30
-  locks:
-  - {fileID: 5502779191599059135}
-  - {fileID: 7555775669762591126}
-  - {fileID: 3095400261602550629}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  prompt: Segurar para mover
-  openedAngle: 25
-  opened:
-    m_PersistentCalls:
-      m_Calls: []
-  lockedSoundId: lockedDoor
-  creakSoundId: 
-  creakMinSpeed: 8
-  creakFullSpeed: 120
-  creakPitchRange: {x: 0.85, y: 1.15}
-  creakResponse: 0.08
-  slamSoundId: 
-  slamSpeed: 150
-  latchSoundId: 
-  latchMinSpeed: 5
-  openStopSoundId: 
-  openStopMinSpeed: 100
-  impactVolumeRange: {x: 0.5, y: 1}
+  openLabel: Abrir
+  closeLabel: Fechar
   contactRearmAngle: 2
+  lockable: {fileID: 0}
 --- !u!54 &1980405080
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -307259,6 +307242,24 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 37f533e1990504f4496d50abc0803119, type: 3}
+--- !u!114 &2090001958
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 65562058}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  locks:
+  - {fileID: 5502779191599059135}
+  - {fileID: 7555775669762591126}
+  - {fileID: 3095400261602550629}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor
 --- !u!1 &2090129781
 GameObject:
   m_ObjectHideFlags: 0
@@ -310135,6 +310136,24 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 8300888472574270570, guid: 9f028dc2d1ae5e643bb94b4e679f1a48, type: 3}
   m_PrefabInstance: {fileID: 2109230658}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &2109245761
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4172972009002573894}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  locks:
+  - {fileID: 5502779191599059135}
+  - {fileID: 7555775669762591126}
+  - {fileID: 3095400261602550629}
+  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
+  lockedSoundId: lockedDoor
 --- !u!1001 &2109466297
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -326633,7 +326652,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave verde
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!4 &3100218214536453153
 Transform:
   m_ObjectHideFlags: 0
@@ -335848,7 +335871,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave vermelha
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!4 &5502924919075100061 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -342487,7 +342514,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar
   noKeyMessage: Requer chave azul
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!4 &7559367916354467015 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -349101,52 +349132,3 @@ SceneRoots:
   - {fileID: 1012911239}
   - {fileID: 944204264}
   - {fileID: 98031029}
---- !u!114 &2090001958
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 65562058}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  locks:
-  - {fileID: 5502779191599059135}
-  - {fileID: 7555775669762591126}
-  - {fileID: 3095400261602550629}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  lockedSoundId: lockedDoor
---- !u!114 &1815526292
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 65562058}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 63304a7abe78910e198946797741a355, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  profile: {fileID: 11400000, guid: 652399caa1e361e0b058432c6000c025, type: 2}
---- !u!114 &2109245761
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4172972009002573894}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 93ee5f63090c3aed0ae4ba73c1e77731, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  locks:
-  - {fileID: 5502779191599059135}
-  - {fileID: 7555775669762591126}
-  - {fileID: 3095400261602550629}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  lockedSoundId: lockedDoor

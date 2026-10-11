@@ -30,6 +30,13 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
     [Range(0f, 1f)]
     [SerializeField] private float limitBounce = 0.15f;
 
+    [Header("Trinco")]
+    [Tooltip("Graus a partir do batente em que a porta solta é puxada para fechar. 0 desliga.")]
+    [SerializeField] private float latchRange = 6f;
+
+    [Tooltip("Aceleração do puxão (graus/s²). Escapa dele quem sai com mais de sqrt(2 * pull * range).")]
+    [SerializeField] private float latchPull = 400f;
+
     [Header("Controle (botão abre/fecha)")]
     [SerializeField] private float autoSpeed = 110f;
 
@@ -201,6 +208,10 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
         }
         else
         {
+            float toClosed = ClosedAngle - angle;
+            if (Mathf.Abs(toClosed) > 0.01f && Mathf.Abs(toClosed) < latchRange)
+                angularVelocity += Mathf.Sign(toClosed) * latchPull * dt;
+
             angularVelocity *= Mathf.Exp(-friction * dt);
             step = Mathf.Clamp(angularVelocity * dt, -maxStep, maxStep);
         }
