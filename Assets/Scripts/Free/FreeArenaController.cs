@@ -13,21 +13,28 @@ namespace Assets.Scripts.Free
         // Multiplica pontos e portas (1 = exploração pura; 0.3 na caça, para pegar mandar em tudo).
         public float DiscoveryRewardScale;
 
-        // Há presa neste episódio (hider_mode > 0, lido pelo GraphArenaController da arena).
-        public bool HasHider;
+        // Presa (hider_mode): 0 nenhuma, 1 parada, 2 anda, 3 foge. O enum é o do GraphHider (os .yaml já usam).
+        public GraphHider.Mode HiderMode;
+
+        // m/s da presa CORRENDO e segundos de corrida (hider_speed / hider_stamina); 0 = os do FreeHider.
+        public float HiderSpeed;
+        public float HiderStamina;
+
+        public bool HasHider => HiderMode != GraphHider.Mode.None;
     }
 
     /// <summary>
-    /// Dono do AMBIENTE da v8, um por arena (no objeto raiz da arena): o <see cref="FreeMap"/>, o currículo e o
-    /// spawn. Parâmetro novo de currículo = campo no FreeEpisodeSettings + _defaultX + uma linha no ApplyCurriculum.
-    ///
-    /// PRESA: quem cuida do hider é o <see cref="GraphArenaController"/> que já está na arena (o da v5), sem mudança:
-    /// ele lê hider_mode / hider_speed / hider_stamina do mesmo currículo, posiciona o GraphHider longe do monstro e o
-    /// faz fugir. Esta arena só repassa (ResetEpisode, ResetHider, ShowOutcome).
+    /// Dono do AMBIENTE da v8, um por arena (no objeto raiz da arena), SÓ COM NAVMESH: o <see cref="FreeMap"/>, o
+    /// currículo, o spawn, a presa (<see cref="FreeHider"/>) e o alvo do monstro. Não há NavGraph nem nó na arena.
+    /// Parâmetro novo de currículo = campo no FreeEpisodeSettings + _defaultX + uma linha no ApplyCurriculum.
     ///
     /// SPAWN: sala sorteada com peso _rareSpawnFloor + (1 - taxa com que ela foi vista nos últimos episódios desta
     /// arena), depois um ponto qualquer dela, virado para qualquer lado. É a correção que levou a v5.1 ao mapa inteiro
     /// (nascer longe das salas que ele pula), ligada desde o step 0. A taxa começa em 1 (peso mínimo para todas).
+    ///
+    /// MODO DE JOGO (_gameMode): sem currículo (valem a última lição e os padrões abaixo), a presa sai de cena e o
+    /// alvo passa a ser o jogador, achado pela tag; o FreeExplorerManager cuida da inferência e do fim.
+    /// Nunca guarde estado estático (há várias arenas).
     /// </summary>
     public class FreeArenaController : MonoBehaviour
     {
@@ -36,6 +43,26 @@ namespace Assets.Scripts.Free
         // (atrás de armário alto encostado). Meta parcial (0.8) deixou a v4.1 pular sempre as mesmas salas.
         [SerializeField] private float _defaultCoverageTarget = 0.95f;
         [SerializeField] private float _defaultDiscoveryRewardScale = 1f;
+
+        // 3 = Foge, a última lição: Play sem trainer roda o .onnx no ambiente em que ele terminou.
+        [SerializeField, Range(0, 3)] private int _defaultHiderMode = 3;
+        [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
+        [SerializeField, Min(0f)] private float _defaultHiderStamina = 0f;
+
+        [Header("-----Mundo-----")]
+        // Parede para a visão do alvo, a captura e a presa (a mesma máscara da FreeExplorationMemory). Vazia = Reset.
+        [SerializeField] private LayerMask _wallLayer;
+
+        // Fallback: GetComponentInChildren (a presa e o chão são filhos da arena).
+        [SerializeField] private FreeHider _hider;
+        [SerializeField] private Renderer _floorRenderer;
+
+        [Header("-----Modo de jogo-----")]
+        // Ligado: jogo de verdade (inferência, sem currículo, sem presa, caça o jogador, sem timeout).
+        [SerializeField] private bool _gameMode = false;
+
+        // Tag do jogador. "Goal" é a convenção do projeto (o PlayerDummy já vem com ela).
+        [SerializeField] private string _playerTag = "Goal";
 
         [Header("-----Spawn-----")]
         [SerializeField] private bool _spawnFavorsRareRooms = true;
@@ -46,12 +73,22 @@ namespace Assets.Scripts.Free
         // Peso do episódio novo na média móvel da taxa de cada sala (~1/20: os últimos ~20 episódios desta arena).
         [SerializeField, Range(0.01f, 1f)] private float _roomRateSmoothing = 0.05f;
 
+        // Modo de jogo: pontos sorteados para nascer longe do jogador (FreeExplorerManager._gameModeSpawnDistance).
+        [SerializeField, Min(1)] private int _avoidSpawnTries = 12;
+
         private FreeMap _map;
-        private GraphArenaController _graphArena;
+        private FreePlayerTarget _playerTarget;
         private float[] _roomSeenRate;
         private float[] _spawnWeights;
+        private Color _initialFloorColor;
+        private bool _floorColorSaved;
 
         public FreeEpisodeSettings Settings { get; private set; }
+
+        public bool GameMode => _gameMode;
+
+        // Máscara vazia = visão do alvo atravessando parede, e o treino não acusaria nada: cai no padrão do Reset.
+        public LayerMask WallLayer => _wallLayer.value != 0 ? _wallLayer : (LayerMask)LayerMask.GetMask("Wall", "Obstacle", "Door");
 
         /// <summary>Resolvido sob demanda: o agente lê isto no Initialize, que pode vir antes do Awake da arena.</summary>
         public FreeMap Map
@@ -64,40 +101,94 @@ namespace Assets.Scripts.Free
             }
         }
 
-        /// <summary>O controlador da v5 na arena: presa, NavGraph (a visão do alvo usa a máscara de parede dele).</summary>
-        public GraphArenaController GraphArena
+        public FreeHider Hider
         {
             get
             {
-                if (_graphArena == null)
-                    _graphArena = GetComponentInChildren<GraphArenaController>(true);
-                return _graphArena;
+                if (_hider == null)
+                    _hider = GetComponentInChildren<FreeHider>(true);
+                return _hider;
             }
+        }
+
+        /// <summary>O alvo do monstro: a presa no treino, o jogador no modo de jogo. Null se não há.</summary>
+        public IGraphTarget Target => _gameMode ? PlayerTarget : Hider;
+
+        /// <summary>
+        /// O jogador (modo de jogo), achado pela tag entre os objetos ATIVOS; ganha um FreePlayerTarget se não tiver.
+        /// </summary>
+        public FreePlayerTarget PlayerTarget
+        {
+            get
+            {
+                if (_playerTarget != null)
+                    return _playerTarget;
+
+                GameObject player = GameObject.FindWithTag(_playerTag);
+                if (player == null)
+                    return null;
+
+                _playerTarget = player.GetComponent<FreePlayerTarget>();
+                if (_playerTarget == null)
+                    _playerTarget = player.AddComponent<FreePlayerTarget>();
+                return _playerTarget;
+            }
+        }
+
+#if UNITY_EDITOR
+        private void Reset() => _wallLayer = LayerMask.GetMask("Wall", "Obstacle", "Door");
+#endif
+
+        private void Awake() => SaveFloorColor();
+
+        // Antes do primeiro ResetEpisode, que pode chegar antes do Awake.
+        private void SaveFloorColor()
+        {
+            if (_floorColorSaved)
+                return;
+
+            _floorColorSaved = true;
+            if (_floorRenderer != null)
+                _initialFloorColor = _floorRenderer.material.color;
         }
 
         public void ResetEpisode()
         {
-            if (GraphArena != null)
-                GraphArena.ResetEpisode();
-
+            SaveFloorColor();
             Settings = ApplyCurriculum();
+            if (_floorRenderer != null)
+                _floorRenderer.material.color = _initialFloorColor;
         }
 
         /// <summary>Posiciona (ou desliga) a presa. Chamar DEPOIS do spawn do monstro: ela nasce longe dele.</summary>
         public void ResetHider(Transform seeker)
         {
-            if (GraphArena != null)
-                GraphArena.ResetHider(seeker);
+            FreeHider hider = Hider;
+            if (hider == null)
+                return;
+
+            if (_gameMode)
+            {
+                hider.Deactivate();
+                return;
+            }
+
+            hider.Configure(Map, WallLayer);
+            hider.ResetEpisode(Settings, seeker);
         }
 
         public void ShowOutcome(bool success)
         {
-            if (GraphArena != null)
-                GraphArena.ShowOutcome(success);
+            if (_floorRenderer != null)
+                _floorRenderer.material.color = success ? Color.green : Color.red;
         }
 
-        /// <summary>Ponto de spawn no chão e uma rotação aleatória; false se o mapa está vazio.</summary>
-        public bool TryGetSpawn(out Vector3 ground, out Quaternion rotation)
+        /// <summary>
+        /// Ponto de spawn no chão e uma rotação aleatória; false se o mapa está vazio. Com <paramref name="avoid"/> (o
+        /// jogador, no modo de jogo), sorteia até _avoidSpawnTries pontos e fica com o primeiro a pelo menos
+        /// <paramref name="minDistance"/> m dele, ou com o mais longe.
+        /// </summary>
+        public bool TryGetSpawn(out Vector3 ground, out Quaternion rotation, Vector3? avoid = null, float minDistance = 0f)
         {
             ground = Vector3.zero;
             rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
@@ -114,6 +205,33 @@ namespace Assets.Scripts.Free
                 total += _spawnWeights[r];
             }
 
+            if (!avoid.HasValue)
+                return TryPickSpawnPoint(map, total, out ground);
+
+            float best = -1f;
+            for (int attempt = 0; attempt < _avoidSpawnTries; attempt++)
+            {
+                if (!TryPickSpawnPoint(map, total, out Vector3 candidate))
+                    continue;
+
+                float distance = new Vector2(candidate.x - avoid.Value.x, candidate.z - avoid.Value.z).magnitude;
+                if (distance > best)
+                {
+                    best = distance;
+                    ground = candidate;
+                }
+
+                if (distance >= minDistance)
+                    break;
+            }
+
+            return best >= 0f;
+        }
+
+        // Sala pelo peso do spawn, depois um ponto qualquer dela.
+        private bool TryPickSpawnPoint(FreeMap map, float total, out Vector3 ground)
+        {
+            ground = Vector3.zero;
             int room = 0;
             float pick = Random.value * total;
             for (int r = 0; r < _spawnWeights.Length; r++)
@@ -158,59 +276,22 @@ namespace Assets.Scripts.Free
 
         private FreeEpisodeSettings ApplyCurriculum()
         {
-            EnvironmentParameters parameters = Academy.IsInitialized ? Academy.Instance.EnvironmentParameters : null;
+            // Modo de jogo não lê o trainer. A cobertura nunca encerra e há sempre "presa" (o jogador, que foge): vale
+            // a última lição (HiderFoge, meta 1.1). A meta entra na observação [13] (pontos vistos / meta): com o
+            // padrão 0.95 a rede veria outra escala.
+            EnvironmentParameters parameters = Academy.IsInitialized && !_gameMode ? Academy.Instance.EnvironmentParameters : null;
             float Get(string key, float fallback) => parameters != null ? parameters.GetWithDefault(key, fallback) : fallback;
+            float coverage = Mathf.Max(0.05f, Get("coverage_target", _defaultCoverageTarget));
+            var mode = (GraphHider.Mode)Mathf.Clamp(Mathf.RoundToInt(Get("hider_mode", _defaultHiderMode)), 0, 3);
 
             return new FreeEpisodeSettings
             {
-                CoverageTarget = Mathf.Max(0.05f, Get("coverage_target", _defaultCoverageTarget)),
+                CoverageTarget = _gameMode ? Mathf.Max(coverage, 1.1f) : coverage,
                 DiscoveryRewardScale = Mathf.Max(0f, Get("discovery_reward_scale", _defaultDiscoveryRewardScale)),
-
-                // hider_mode é lido pelo GraphArenaController (o dono do hider); aqui só se há presa.
-                HasHider = GraphArena != null && GraphArena.Settings.HasHider,
+                HiderMode = _gameMode ? GraphHider.Mode.Flee : mode,
+                HiderSpeed = Mathf.Max(0f, Get("hider_speed", _defaultHiderSpeed)),
+                HiderStamina = Mathf.Max(0f, Get("hider_stamina", _defaultHiderStamina)),
             };
         }
-
-#if UNITY_EDITOR
-        // Monta a arena para a v8 (Prefab Mode da cópia do prefab de treino, com Undo): põe o FreeMap aqui e troca o
-        // monstro da v5 por uma CÓPIA dele com o cérebro da v8 (o original fica desligado). A presa fica como está.
-        // Rodar de novo não duplica: se já há um FreeExplorerManager, só confere o resto.
-        [ContextMenu("v8: montar arena livre")]
-        private void SetUpArena()
-        {
-            UnityEditor.Undo.SetCurrentGroupName("Montar arena v8");
-            int undoGroup = UnityEditor.Undo.GetCurrentGroup();
-            string result = SetUpForV8();
-            UnityEditor.Undo.CollapseUndoOperations(undoGroup);
-            Debug.Log($"{name}: {result} Confira o mapa no FreeMap ⋮ \"Gerar e relatar (v8)\" e salve o prefab.", this);
-        }
-
-        /// <summary>A montagem em si (também usada pelo FreeV8Setup em batchmode). Devolve um resumo para o Console.</summary>
-        public string SetUpForV8()
-        {
-            if (GetComponentInChildren<FreeMap>(true) == null)
-                UnityEditor.Undo.AddComponent<FreeMap>(gameObject);
-
-            FreeExplorerManager agent = GetComponentInChildren<FreeExplorerManager>(true);
-            if (agent != null)
-                return $"arena v8 já montada (agente '{agent.name}').";
-
-            GraphExplorerManager original = null;
-            foreach (GraphExplorerManager candidate in GetComponentsInChildren<GraphExplorerManager>(true))
-            {
-                if (original == null || candidate.gameObject.activeSelf)
-                    original = candidate;
-            }
-
-            if (original == null)
-                return "ERRO: nenhum monstro da v5 (GraphExplorerManager) na arena para copiar.";
-
-            LayerMask walls = GraphArena != null && GraphArena.Graph != null
-                ? GraphArena.Graph.WallLayer
-                : (LayerMask)LayerMask.GetMask("Wall", "Obstacle", "Door");
-            agent = FreeExplorerManager.ConvertFromV5(original, walls);
-            return $"arena v8 montada: agente '{agent.name}' (cópia de '{original.name}', que ficou desligado).";
-        }
-#endif
     }
 }

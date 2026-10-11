@@ -168,7 +168,7 @@ namespace Assets.Scripts.Graph
                     return LastSeenPosition;
 
                 // Raio na altura do peito do alvo: a projeção não atravessa parede (a layer do grafo, a mesma da visão).
-                LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+                LayerMask walls = Walls;
                 Vector3 direction = travel / length;
                 Vector3 origin = LastSeenPosition + Vector3.up;
                 if (walls.value != 0 && Physics.Raycast(origin, direction, out RaycastHit hit, length, walls, QueryTriggerInteraction.Ignore))
@@ -221,9 +221,16 @@ namespace Assets.Scripts.Graph
         /// <summary>Metros abaixo do recorde de proximidade do episódio desde o último ClearStepFlags (>= 0).</summary>
         public float ApproachDelta => _approachThisStep;
 
-        public void Configure(NavGraph graph, IGraphTarget target)
+        public void Configure(NavGraph graph, IGraphTarget target) => Configure(graph, target, default);
+
+        /// <summary>
+        /// Sem NavGraph (a arena da v8, só NavMesh), a parede da visão e da captura vem de <paramref name="wallsWithoutGraph"/>.
+        /// Com grafo vale a máscara dele, como sempre. Máscara vazia = visão atravessando parede.
+        /// </summary>
+        public void Configure(NavGraph graph, IGraphTarget target, LayerMask wallsWithoutGraph)
         {
             _graph = graph;
+            _wallsWithoutGraph = wallsWithoutGraph;
             _target = target;
 
             // O corpo do alvo (CapsuleCollider do hider, CharacterController do jogador) para mirar cabeça e peito.
@@ -234,6 +241,10 @@ namespace Assets.Scripts.Graph
 
         private Collider _targetCollider;
         private bool _spottedThisEpisode;
+        private LayerMask _wallsWithoutGraph;
+
+        // A máscara de parede da visão, da captura e da previsão: a do grafo, ou a dada no Configure sem grafo.
+        private LayerMask Walls => _graph != null ? _graph.WallLayer : _wallsWithoutGraph;
 
         // Criado na primeira consulta: o construtor do NavMeshPath é nativo e não deve rodar na serialização.
         private NavMeshPath _route;
@@ -431,7 +442,7 @@ namespace Assets.Scripts.Graph
                 return false;
 
             // Pegar através de parede fina não conta.
-            LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+            LayerMask walls = Walls;
             if (walls.value == 0)
                 return true;
 
@@ -461,7 +472,7 @@ namespace Assets.Scripts.Graph
                 return false;
 
             // Mesma máscara que valida as ligações do grafo; inclui a mobília, por isso _eyeHeight importa.
-            LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+            LayerMask walls = Walls;
             if (walls.value == 0)
                 return true;
 
@@ -489,7 +500,7 @@ namespace Assets.Scripts.Graph
                     return false;
             }
 
-            LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+            LayerMask walls = Walls;
             if (walls.value == 0)
                 return true;
 
@@ -553,7 +564,7 @@ namespace Assets.Scripts.Graph
             // Não diz se está no cone/alcance, só se a linha passa; para depurar "por que não me vê".
             if (GraphTarget.IsLive(_target) && _targetCollider != null && _targetCollider.enabled)
             {
-                LayerMask walls = _graph != null ? _graph.WallLayer : (LayerMask)0;
+                LayerMask walls = Walls;
                 Bounds body = _targetCollider.bounds;
                 Vector3 point = _target.Position;
                 Vector3 chest = new Vector3(point.x, body.center.y, point.z);

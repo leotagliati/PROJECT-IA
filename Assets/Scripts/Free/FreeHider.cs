@@ -1,0 +1,568 @@
+using System.Collections.Generic;
+using Assets.Scripts.Graph;
+using UnityEngine;
+using UnityEngine.AI;
+
+namespace Assets.Scripts.Free
+{
+    /// <summary>
+    /// A presa SCRIPTADA da v8, só com NAVMESH (sem nó, sem grafo): faz o papel do jogador no treino e não aprende
+    /// nada. Substitui o GraphHider, que andava em linha reta de centro em centro de nó, e o monstro treinado contra
+    /// ele aprendia a caçar por cima do grafo.
+    ///   ANDA     escolhe um destino na sala atual ou numa vizinha (pelas portas do <see cref="FreeMap"/>): um ponto
+    ///            qualquer do chão ou, com _hideChance, um ESCONDERIJO; vai pelo caminho do NavMesh e pausa ao chegar
+    ///            (escondido, pausa mais).
+    ///   FOGE     com o monstro a menos de _fleeRadius ou à vista (até _fleeSightDistance): sorteia pontos em volta e
+    ///            corre para o que fica mais longe DO MONSTRO pelo NavMesh, valendo mais o que ele não vê; refaz a cada
+    ///            _fleeReplanSeconds. Corre só com estamina (GraphStamina, o modelo do jogador).
+    ///   ESCONDERIJO  ponto perto de parede (canto, atrás de móvel) visto pelo menor número de portas da sala.
+    /// Modos (currículo hider_mode, o mesmo enum do GraphHider): 0 Nenhum, 1 Parado, 2 Anda, 3 Foge.
+    /// Um por arena, filho dela; o <see cref="FreeArenaController"/> configura (mapa, parede) e reposiciona.
+    /// </summary>
+    public class FreeHider : MonoBehaviour, IGraphTarget
+    {
+        [Header("-----Movimento-----")]
+        // Velocidade CORRENDO (m/s) quando o currículo não manda outra (hider_speed). 10.2 = a corrida do PlayerDummy
+        // (6 x 1.7); o monstro persegue a 11.5 (GraphLocomotion).
+        [SerializeField, Min(0f)] private float _speed = 10.2f;
+
+        // Andar = correr x isto. 0.588 = 6 / 10.2, a razão andar/correr do jogador.
+        [SerializeField, Range(0.1f, 1f)] private float _walkFraction = 0.588f;
+
+        // Só gasta fugindo. Segundos do tanque vêm do currículo (hider_stamina); 0 lá = os daqui.
+        [SerializeField] private GraphStamina _stamina = new GraphStamina();
+
+        // Pausa máxima ao chegar no destino, em steps de física (sorteada entre 0 e isto). Fugindo não pausa.
+        [SerializeField, Min(0)] private int _maxPauseSteps = 100;
+
+        // Altura (m) do pivô acima do NavMesh. O modelo do hider de treino tem o pivô no pé.
+        [SerializeField] private float _heightOffset = 0.05f;
+
+        // Quina do caminho mais perto que isto (m) já foi alcançada.
+        [SerializeField, Min(0.05f)] private float _cornerReached = 0.3f;
+
+        [Header("-----Fuga-----")]
+        // Distância planar (m) a partir da qual foge em vez de andar.
+        [SerializeField, Min(0f)] private float _fleeRadius = 12f;
+
+        // Segundos que CONTINUA fugindo depois que o monstro sai do raio e da vista (sem isso hesita na borda).
+        [SerializeField, Min(0f)] private float _fleeMemorySeconds = 3f;
+
+        // Foge também ao VER o monstro (linha livre) até esta distância (m): o jogador corre assim que vê. 0 = só o raio.
+        [SerializeField, Min(0f)] private float _fleeSightDistance = 25f;
+
+        // Na escolha da fuga, ponto FORA da vista do monstro vale como se estivesse estes metros mais longe: dobrar a
+        // esquina ou passar a porta ganha de correr reto num corredor à vista.
+        [SerializeField, Min(0f)] private float _hiddenExitBonus = 10f;
+
+        // Pontos sorteados por fuga, a uma distância planar entre min e max (m) do hider.
+        [SerializeField, Min(1)] private int _fleeCandidates = 10;
+        [SerializeField, Min(1f)] private float _fleeMinDistance = 6f;
+        [SerializeField, Min(2f)] private float _fleeMaxDistance = 16f;
+
+        // De quanto em quanto tempo (s) a fuga é refeita (o monstro se mexe).
+        [SerializeField, Min(0.1f)] private float _fleeReplanSeconds = 0.5f;
+
+        // Altura (m) do olho do monstro acima do pivô dele (GraphHiderPerception._eyeHeight) e até onde ele vê (m).
+        [SerializeField] private float _seekerEyeHeight = 1.67f;
+        [SerializeField, Min(1f)] private float _seekerViewDistance = 35f;
+
+        [Header("-----Esconderijo-----")]
+        // Chance de o próximo destino (andando) ser um esconderijo.
+        [SerializeField, Range(0f, 1f)] private float _hideChance = 0.5f;
+
+        // Pontos sorteados para escolher o esconderijo, e quanto (m) cada um se afasta do ponto da grade sorteado.
+        [SerializeField, Min(1)] private int _hideCandidates = 8;
+        [SerializeField, Min(0f)] private float _spotSpread = 1.5f;
+
+        // Multiplicador da pausa quando escondido.
+        [SerializeField, Min(1f)] private float _hidePauseMultiplier = 3f;
+
+        // Altura (m) acima do piso de quem olha da porta (o olho do monstro, FreeExplorationMemory._eyeHeight) e do
+        // ponto olhado (o peito do hider).
+        [SerializeField, Min(0.1f)] private float _doorEyeHeight = 2.5f;
+        [SerializeField, Min(0.1f)] private float _hiderChestHeight = 1f;
+
+        [Header("-----Spawn-----")]
+        // Distância mínima (m pelo NavMesh) entre o spawn do hider e o monstro; numa sala diferente da dele.
+        [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
+
+        [Header("-----Referências-----")]
+        // Opcional e só visual (Animator do modelo): vazio = acha nos filhos; sem ele o hider treina igual.
+        [SerializeField] private GraphHiderAnimationSystem _animationSystem;
+
+        private Rigidbody _rigidbody;
+        private FreeMap _map;
+        private LayerMask _walls;
+        private Transform _seeker;
+        private GraphHider.Mode _mode = GraphHider.Mode.None;
+        private float _currentSpeed;
+
+        // Caminho atual (quinas do NavMesh) e a próxima quina.
+        private readonly List<Vector3> _corners = new List<Vector3>();
+        private int _cornerIndex;
+        private bool _goalIsHiding;
+        private int _pauseLeft;
+        private int _previousRoom = -1;
+
+        private bool _fleeing;
+        private int _fleeMemoryLeft;
+        private float _replanLeft;
+
+        // Criados na primeira consulta: o construtor do NavMeshPath é nativo e não deve rodar na serialização.
+        private NavMeshPath _path;
+        private NavMeshPath _probe;
+
+        public bool IsActive => _mode != GraphHider.Mode.None;
+
+        public Vector3 Position => transform.position;
+
+        /// <summary>Correndo neste step (fugindo com estamina). Pegadas e animação.</summary>
+        public bool IsRunning { get; private set; }
+
+        // Sem grafo não há nó nem ping (o GraphPingSystem da v5 é que lia isto; a v8 não usa).
+        public int CurrentNode => -1;
+
+        public int ConsumeArrival() => -1;
+
+        private void Awake()
+        {
+            _rigidbody = GetComponent<Rigidbody>();
+            if (_animationSystem == null)
+                _animationSystem = GetComponentInChildren<GraphHiderAnimationSystem>();
+            if (_animationSystem != null)
+                _animationSystem.Initialize();
+        }
+
+        /// <summary>O mapa (pontos, salas, portas) e a parede da arena. Antes do primeiro ResetEpisode.</summary>
+        public void Configure(FreeMap map, LayerMask walls)
+        {
+            _map = map;
+            _walls = walls;
+        }
+
+        /// <summary>
+        /// Chamar DEPOIS do spawn do monstro (nasce longe dele). Modo Nenhum desliga o objeto. Velocidade e estamina
+        /// &lt;= 0 na lição usam as do Inspector.
+        /// </summary>
+        public void ResetEpisode(in FreeEpisodeSettings settings, Transform seeker)
+        {
+            _seeker = seeker;
+            _mode = settings.HiderMode;
+            _stamina.Reset(settings.HiderStamina);
+            _currentSpeed = settings.HiderSpeed > 0f ? settings.HiderSpeed : _speed;
+            IsRunning = false;
+            _corners.Clear();
+            _goalIsHiding = false;
+            _pauseLeft = 0;
+            _previousRoom = -1;
+            _fleeing = false;
+            _fleeMemoryLeft = 0;
+            _replanLeft = 0f;
+            if (_animationSystem != null)
+                _animationSystem.ResetEpisode();
+
+            if (_mode == GraphHider.Mode.None || _map == null || _map.RoomCount == 0)
+            {
+                Deactivate();
+                return;
+            }
+
+            gameObject.SetActive(true);
+            Place(PickSpawn(seeker.position));
+        }
+
+        /// <summary>Tira o hider de cena (modo de jogo: quem foge é o jogador).</summary>
+        public void Deactivate()
+        {
+            _mode = GraphHider.Mode.None;
+            IsRunning = false;
+            gameObject.SetActive(false);
+        }
+
+        private void FixedUpdate()
+        {
+            if (_mode == GraphHider.Mode.None)
+                return;
+
+            bool moved = _mode != GraphHider.Mode.Static && StepMovement();
+            if (_animationSystem != null)
+                _animationSystem.Tick(moved, moved && IsRunning);
+        }
+
+        // Um step de física. Devolve se o corpo andou (parado, pausado ou chegando = idle, para a animação).
+        private bool StepMovement()
+        {
+            bool wasFleeing = _fleeing;
+            UpdateFleeing();
+
+            // Antes da pausa: parado também recupera estamina.
+            IsRunning = _stamina.Step(_fleeing, Time.fixedDeltaTime);
+
+            if (_fleeing)
+            {
+                // Começou a fugir agora: larga a pausa e o destino de passeio na hora.
+                _replanLeft -= Time.fixedDeltaTime;
+                if (!wasFleeing || _replanLeft <= 0f || _corners.Count == 0)
+                {
+                    _pauseLeft = 0;
+                    PlanFlee();
+                    _replanLeft = _fleeReplanSeconds;
+                }
+            }
+
+            if (_pauseLeft > 0)
+            {
+                _pauseLeft--;
+                return false;
+            }
+
+            if (_corners.Count == 0)
+            {
+                ChooseWanderGoal();
+                return false;
+            }
+
+            Vector3 corner = _corners[_cornerIndex] + Vector3.up * _heightOffset;
+            Vector3 delta = corner - transform.position;
+            delta.y = 0f;
+            float distance = delta.magnitude;
+            if (distance <= _cornerReached)
+            {
+                _cornerIndex++;
+                if (_cornerIndex >= _corners.Count)
+                    Arrive();
+                return true;
+            }
+
+            float speed = IsRunning ? _currentSpeed : _currentSpeed * _walkFraction;
+            Vector3 step = delta / distance * Mathf.Min(distance, speed * Time.fixedDeltaTime);
+            Vector3 next = transform.position + step;
+            next.y = corner.y;
+            Move(next, delta);
+            return true;
+        }
+
+        private void Arrive()
+        {
+            _corners.Clear();
+            _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
+            if (_goalIsHiding)
+                _pauseLeft = Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
+        }
+
+        // ================================================================================
+        // Destinos
+        // ================================================================================
+
+        // Andando: a sala atual ou uma vizinha (evitando voltar à de onde veio), e nela um ponto ou um esconderijo.
+        private void ChooseWanderGoal()
+        {
+            int room = RoomAt(Ground);
+            if (room < 0)
+                return;
+
+            int target = room;
+            int options = 1;
+            foreach (int door in _map.DoorsOfRoom(room))
+            {
+                int other = _map.GetDoor(door).OtherRoom(room);
+                if (other < 0 || other == _previousRoom)
+                    continue;
+
+                options++;
+                if (Random.Range(0, options) == 0)
+                    target = other;
+            }
+
+            _goalIsHiding = Random.value < _hideChance;
+            Vector3 goal = _goalIsHiding ? HidingSpot(target) : RandomSpot(target);
+            if (target != room)
+                _previousRoom = room;
+
+            if (!SetPathTo(goal))
+                _goalIsHiding = false;
+        }
+
+        // Fugindo: entre pontos sorteados em volta, o mais longe DO MONSTRO pelo NavMesh (+ bônus se ele não vê), sem
+        // caminho que comece correndo na direção dele.
+        private void PlanFlee()
+        {
+            if (_seeker == null)
+                return;
+
+            Vector3 here = Ground;
+            if (!TrySampleGround(_seeker.position, 2f, out Vector3 seekerGround))
+                return;
+
+            Vector3 toSeeker = seekerGround - here;
+            toSeeker.y = 0f;
+            float seekerDistance = toSeeker.magnitude;
+            Vector3 seekerDirection = seekerDistance > 1e-3f ? toSeeker / seekerDistance : Vector3.zero;
+
+            float bestScore = float.MinValue;
+            Vector3 best = here;
+            bool found = false;
+            for (int k = 0; k < _fleeCandidates; k++)
+            {
+                float angle = Random.Range(0f, Mathf.PI * 2f);
+                float radius = Random.Range(_fleeMinDistance, Mathf.Max(_fleeMinDistance, _fleeMaxDistance));
+                Vector3 probe = here + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
+                if (!TrySampleGround(probe, 2f, out Vector3 candidate))
+                    continue;
+
+                if (!TryPath(here, candidate, _probe ??= new NavMeshPath(), out float travel, out Vector3 firstLeg)
+                    || travel > _fleeMaxDistance * 2f)
+                    continue;
+
+                // Primeira perna na direção do monstro, com ele perto: correria para os braços dele.
+                if (seekerDistance < _fleeRadius * 1.5f && Vector3.Dot(firstLeg, seekerDirection) > 0.5f)
+                    continue;
+
+                if (!TryPath(seekerGround, candidate, _probe, out float fromSeeker, out _))
+                    fromSeeker = 0f;
+
+                float score = fromSeeker + (SeekerCanSee(candidate) ? 0f : _hiddenExitBonus);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = candidate;
+                    found = true;
+                }
+            }
+
+            if (found)
+            {
+                _goalIsHiding = false;
+                SetPathTo(best);
+            }
+        }
+
+        // Ponto do chão de uma sala: um ponto da grade do mapa, deslocado até _spotSpread e encaixado no NavMesh.
+        private Vector3 RandomSpot(int room)
+        {
+            IReadOnlyList<int> points = _map.RoomPoints(room);
+            Vector3 grid = _map.PointGround(points[Random.Range(0, points.Count)]);
+            Vector3 probe = grid + new Vector3(Random.Range(-_spotSpread, _spotSpread), 0f, Random.Range(-_spotSpread, _spotSpread));
+            return TrySampleGround(probe, _spotSpread, out Vector3 spot) && RoomAt(spot) == room ? spot : grid;
+        }
+
+        // Esconderijo: entre _hideCandidates pontos da sala, o visto pelo menor número de portas dela e, empatado
+        // nisso, o mais colado em parede (canto, atrás de móvel).
+        private Vector3 HidingSpot(int room)
+        {
+            IReadOnlyList<int> doors = _map.DoorsOfRoom(room);
+            Vector3 best = RandomSpot(room);
+            float bestScore = float.MaxValue;
+            for (int k = 0; k < _hideCandidates; k++)
+            {
+                Vector3 spot = k == 0 ? best : RandomSpot(room);
+                int seen = 0;
+                foreach (int door in doors)
+                {
+                    Vector3 eye = _map.GetDoor(door).Ground + Vector3.up * _doorEyeHeight;
+                    if (!Physics.Linecast(eye, spot + Vector3.up * _hiderChestHeight, _walls, QueryTriggerInteraction.Ignore))
+                        seen++;
+                }
+
+                float edge = NavMesh.FindClosestEdge(spot, out NavMeshHit hit, NavMesh.AllAreas) ? hit.distance : 5f;
+                float score = seen * 100f + edge;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    best = spot;
+                }
+            }
+
+            return best;
+        }
+
+        // Spawn: sala diferente da do monstro, esconderijo, a >= _minSpawnDistanceMeters dele pelo NavMesh; mapa
+        // pequeno demais aceita o mais longe sorteado.
+        private Vector3 PickSpawn(Vector3 seekerPosition)
+        {
+            TrySampleGround(seekerPosition, 2f, out Vector3 seekerGround);
+            int seekerRoom = RoomAt(seekerGround);
+            Vector3 fallback = Vector3.zero;
+            float fallbackDistance = -1f;
+
+            for (int attempt = 0; attempt < _map.RoomCount * 2; attempt++)
+            {
+                int room = Random.Range(0, _map.RoomCount);
+                if (room == seekerRoom && _map.RoomCount > 1)
+                    continue;
+
+                Vector3 spot = HidingSpot(room);
+                if (!TryPath(seekerGround, spot, _probe ??= new NavMeshPath(), out float distance, out _))
+                    continue;
+
+                if (distance >= _minSpawnDistanceMeters)
+                    return spot;
+
+                if (distance > fallbackDistance)
+                {
+                    fallbackDistance = distance;
+                    fallback = spot;
+                }
+            }
+
+            return fallbackDistance >= 0f ? fallback : HidingSpot(Random.Range(0, _map.RoomCount));
+        }
+
+        // ================================================================================
+        // Fuga: perto ou à vista
+        // ================================================================================
+
+        private void UpdateFleeing()
+        {
+            if (_mode != GraphHider.Mode.Flee || _seeker == null)
+            {
+                _fleeing = false;
+                return;
+            }
+
+            if (SeekerIsNear() || SeesSeeker())
+                _fleeMemoryLeft = Mathf.RoundToInt(_fleeMemorySeconds / Time.fixedDeltaTime);
+            else if (_fleeMemoryLeft > 0)
+                _fleeMemoryLeft--;
+
+            _fleeing = _fleeMemoryLeft > 0;
+        }
+
+        private bool SeekerIsNear()
+        {
+            Vector3 toSeeker = _seeker.position - transform.position;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= _fleeRadius;
+        }
+
+        private bool SeesSeeker()
+        {
+            if (_fleeSightDistance <= 0f)
+                return false;
+
+            Vector3 toSeeker = _seeker.position - transform.position;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= _fleeSightDistance && LineIsClear(transform.position, _seeker.position);
+        }
+
+        // O monstro veria este ponto se olhasse para ele (sem cone: a cabeça dele vira rápido)?
+        private bool SeekerCanSee(Vector3 point)
+        {
+            Vector3 toPoint = point - _seeker.position;
+            return new Vector2(toPoint.x, toPoint.z).magnitude <= _seekerViewDistance && LineIsClear(point, _seeker.position);
+        }
+
+        // Linha livre de parede entre dois pontos, na altura do olho do monstro sobre o X/Z de cada um.
+        private bool LineIsClear(Vector3 a, Vector3 b)
+        {
+            if (_walls.value == 0)
+                return true;
+
+            float eyeY = _seeker.position.y + _seekerEyeHeight;
+            Vector3 from = new Vector3(a.x, eyeY, a.z);
+            Vector3 ray = new Vector3(b.x, eyeY, b.z) - from;
+            float length = ray.magnitude;
+            return length < 1e-3f || !Physics.Raycast(from, ray / length, length, _walls, QueryTriggerInteraction.Ignore);
+        }
+
+        // ================================================================================
+        // NavMesh
+        // ================================================================================
+
+        // O pivô no NavMesh (no piso).
+        private Vector3 Ground =>
+            TrySampleGround(transform.position - Vector3.up * _heightOffset, 2f, out Vector3 ground) ? ground : transform.position;
+
+        private int RoomAt(Vector3 ground)
+        {
+            int point = _map.NearestPoint(ground);
+            return point >= 0 ? _map.RoomOfPoint(point) : -1;
+        }
+
+        private static bool TrySampleGround(Vector3 position, float radius, out Vector3 ground)
+        {
+            bool ok = NavMesh.SamplePosition(position, out NavMeshHit hit, radius, NavMesh.AllAreas);
+            ground = ok ? hit.position : position;
+            return ok;
+        }
+
+        private bool SetPathTo(Vector3 goal)
+        {
+            _corners.Clear();
+            _cornerIndex = 0;
+            _path ??= new NavMeshPath();
+            if (!NavMesh.CalculatePath(Ground, goal, NavMesh.AllAreas, _path) || _path.status != NavMeshPathStatus.PathComplete)
+                return false;
+
+            _corners.AddRange(_path.corners);
+            // A quina 0 é onde ele já está.
+            _cornerIndex = _corners.Count > 1 ? 1 : 0;
+            return _corners.Count > 0;
+        }
+
+        // Comprimento (m) do caminho completo e a direção planar da primeira perna.
+        private static bool TryPath(Vector3 from, Vector3 to, NavMeshPath path, out float length, out Vector3 firstLeg)
+        {
+            length = 0f;
+            firstLeg = Vector3.zero;
+            if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
+                return false;
+
+            Vector3[] corners = path.corners;
+            for (int i = 1; i < corners.Length; i++)
+                length += Vector3.Distance(corners[i - 1], corners[i]);
+
+            if (corners.Length > 1)
+            {
+                Vector3 leg = corners[1] - corners[0];
+                leg.y = 0f;
+                firstLeg = leg.sqrMagnitude > 1e-6f ? leg.normalized : Vector3.zero;
+            }
+
+            return true;
+        }
+
+        private void Place(Vector3 ground)
+        {
+            Vector3 position = ground + Vector3.up * _heightOffset;
+            if (_rigidbody != null)
+            {
+                _rigidbody.position = position;
+                // Cinemático não tem velocidade, e o Unity 6 avisa a cada reset se zerar.
+                if (!_rigidbody.isKinematic)
+                    _rigidbody.linearVelocity = Vector3.zero;
+            }
+
+            transform.position = position;
+        }
+
+        private void Move(Vector3 position, Vector3 facing)
+        {
+            Quaternion rotation = facing.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(facing.normalized, Vector3.up) : transform.rotation;
+            if (_rigidbody != null)
+            {
+                _rigidbody.MovePosition(position);
+                _rigidbody.MoveRotation(rotation);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(position, rotation);
+            }
+        }
+
+        // Gizmo verde-azulado escuro: o caminho que falta (vermelho fugindo).
+        private void OnDrawGizmos()
+        {
+            if (!Application.isPlaying || _mode == GraphHider.Mode.None || _corners.Count == 0)
+                return;
+
+            Gizmos.color = _fleeing ? new Color(0.9f, 0.2f, 0.2f, 0.9f) : new Color(0f, 0.55f, 0.5f, 0.9f);
+            Vector3 lift = Vector3.up * 0.3f;
+            Vector3 from = transform.position + lift;
+            for (int i = _cornerIndex; i < _corners.Count; i++)
+            {
+                Gizmos.DrawLine(from, _corners[i] + lift);
+                from = _corners[i] + lift;
+            }
+        }
+    }
+}

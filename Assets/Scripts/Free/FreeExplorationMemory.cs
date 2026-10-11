@@ -143,11 +143,6 @@ namespace Assets.Scripts.Free
             }
         }
 
-#if UNITY_EDITOR
-        // O menu de montar a arena copia a máscara de parede do NavGraph antigo (a mesma da visão do hider).
-        internal void SetWallLayer(LayerMask layer) => _wallLayer = layer;
-#endif
-
         public void ResetEpisode()
         {
             System.Array.Clear(_seen, 0, _seen.Length);

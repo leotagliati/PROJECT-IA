@@ -21,7 +21,8 @@ namespace Assets.Scripts.Free
     ///   FreeStuckTracker        PRESO na parede (classe simples)
     ///   FreeRewardSystem        recompensa (função pura do FreeStepContext)
     ///   FreeObservations        vetor (126) e planta de salas                                             | classe simples
-    ///   FreeArenaController     mapa (FreeMap), currículo, spawn, presa (pelo GraphArenaController da arena)  | no pai
+    ///   FreeArenaController     mapa (FreeMap), currículo, spawn, presa (FreeHider), alvo, modo de jogo    | no pai
+    /// Nada aqui usa NavGraph nem nó: o mapa, a presa e as rotas saem do NavMesh.
     ///   GraphAnimationSystem, SeekerChaseState/AudioSystem/StaticVisual: visual e áudio do modelo (opcionais)
     ///
     /// FOCO NA PRESA: CAÇANDO (vendo o alvo, procurando há < 20 s ou com pegada fresca) a exploração não paga e some da
@@ -59,6 +60,14 @@ namespace Assets.Scripts.Free
         // (cabeçalho do FreeRewardSystem); a existencial já se reescala sozinha.
         [SerializeField, Min(1)] private int _maxEpisodeSteps = 35000;
 
+        [Header("-----Modo de jogo (FreeArenaController._gameMode)-----")]
+        // Fração do episódio que a rede vê no jogo, onde não há fim por tempo. 0.05 = ~35 s: onde a caça do treino
+        // viveu (episódios da HiderFoge de ~80 s = 0 a 0.11). O 0.5 da v5 ela quase nunca viu caçando.
+        [SerializeField, Range(0f, 1f)] private float _gameModeEpisodeFraction = 0.05f;
+
+        // Nasce a pelo menos isto (m, em linha reta) do jogador, no Play e depois de pegá-lo sem GameManager.
+        [SerializeField, Min(0f)] private float _gameModeSpawnDistance = 25f;
+
         [Header("-----Debug-----")]
         // Painel na tela (Game view) com cobertura, sala, portas, reward, parede e presa. Desligado no treino; o menu
         // PROJECT-IA > "v8 (em Play)" liga no agente assistido.
@@ -79,6 +88,11 @@ namespace Assets.Scripts.Free
         private float _lastStepReward;
         private string _lastEvent = "";
 
+        // Modo de jogo: o alvo é o jogador (achado pela tag), roda o .onnx sem trainer, sem fim por tempo, e pegar é
+        // derrota (GameManager). Só se mexe com o GameManager em Playing; sem GameManager (cena de teste), sempre.
+        private bool IsGameMode => _arenaController != null && _arenaController.GameMode;
+        private bool _matchRunning = true;
+
         /// <summary>Liga o painel de debug (menu "v8 (em Play)").</summary>
         public void SetDebugHud(bool on) => _debugHud = on;
 
@@ -93,7 +107,56 @@ namespace Assets.Scripts.Free
             ResolveSystems();
             _roomSensor = FreeObservations.EnsureRoomSensor(gameObject);
             EnforceBrainShape(GetComponent<BehaviorParameters>(), warn: true, this);
+            ApplyGameModeBehavior();
             base.Awake();
+        }
+
+        // Modo de jogo roda o .onnx sem trainer, determinístico (a média da política, sem sorteio). Antes do
+        // base.Awake, que cria a política.
+        private void ApplyGameModeBehavior()
+        {
+            if (!IsGameMode)
+                return;
+
+            BehaviorParameters behavior = GetComponent<BehaviorParameters>();
+            if (behavior == null)
+                return;
+
+            // Determinístico ANTES do tipo: só o setter do tipo recria a política.
+            behavior.DeterministicInference = true;
+            behavior.BehaviorType = BehaviorType.InferenceOnly;
+            if (behavior.Model == null)
+                Debug.LogError($"{name}: modo de jogo sem Model no Behavior Parameters — o monstro não vai se mexer.", this);
+        }
+
+        protected override void OnEnable()
+        {
+            // Assina ANTES do base, como na v5: o base.OnEnable pode rodar o OnEpisodeBegin na hora.
+            if (IsGameMode)
+                GameManager.StateChanged += HandleGameState;
+
+            base.OnEnable();
+
+            if (IsGameMode && GameManager.Current != null)
+                HandleGameState(GameManager.Current.State);
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            if (IsGameMode)
+                GameManager.StateChanged -= HandleGameState;
+        }
+
+        private void HandleGameState(GameState state)
+        {
+            _matchRunning = state == GameState.Playing;
+            if (!_matchRunning && _locomotion != null)
+                _locomotion.Stop();
+
+            // Fim de jogo: o monstro cala; dali em diante só o áudio da PlayerCaughtSequence.
+            if ((state == GameState.Won || state == GameState.Lost) && _audioSystem != null)
+                _audioSystem.Silence();
         }
 
         private static void EnforceBrainShape(BehaviorParameters behavior, bool warn, Object context)
@@ -168,13 +231,14 @@ namespace Assets.Scripts.Free
             // A altura do corpo acima do piso é a do prefab (o corpo anda com a altura travada): o spawn repete.
             _heightAboveFloor = Mathf.Clamp(transform.position.y - _map.FloorY, 0f, 3f);
 
-            GraphArenaController graphArena = _arenaController.GraphArena;
+            // Sem grafo: a parede da visão do alvo e da captura vem da arena.
+            IGraphTarget arenaTarget = _arenaController.Target;
             _locomotion.Configure(_movementSystem);
-            _perception.Configure(graphArena.Graph, graphArena.Target);
+            _perception.Configure(null, arenaTarget, _arenaController.WallLayer);
             _memory.Configure(_map);
 
             // As pegadas moram no ALVO (o hider aqui; o jogador no jogo): põe o rastro nele se faltar.
-            if (graphArena.Target is Component target && target != null)
+            if (arenaTarget is Component target && target != null)
             {
                 _trail = target.GetComponent<FreeFootprintTrail>();
                 if (_trail == null)
@@ -193,7 +257,7 @@ namespace Assets.Scripts.Free
             {
                 Debug.LogError(
                     $"{name}: falta FreeExplorationMemory, FreeRewardSystem, SeekerMovementSystem, GraphLocomotion ou " +
-                    "GraphHiderPerception no agente (rode o FreeArenaController ⋮ \"v8: montar arena livre\").", this);
+                    "GraphHiderPerception no agente (o prefab Arena - V8 já vem com eles).", this);
                 return false;
             }
 
@@ -209,10 +273,17 @@ namespace Assets.Scripts.Free
                 return false;
             }
 
-            if (_arenaController.GraphArena == null || _arenaController.GraphArena.Graph == null)
+            // Sem jogador o alvo é nulo e a visão do alvo não tem o que olhar: não roda (tenta de novo no próximo episódio).
+            if (IsGameMode)
             {
-                Debug.LogError($"{name}: a arena não tem GraphArenaController com NavGraph (a presa e a visão dela usam).", this);
-                return false;
+                if (_arenaController.PlayerTarget == null)
+                {
+                    Debug.LogError($"{name}: modo de jogo sem jogador — nenhum objeto ATIVO com a tag do jogador (FreeArenaController).", this);
+                    return false;
+                }
+
+                if (GameManager.Current == null)
+                    Debug.LogWarning($"{name}: modo de jogo sem GameManager — pegar o jogador só faz o monstro renascer.", this);
             }
 
             _map = _arenaController.Map;
@@ -251,7 +322,12 @@ namespace Assets.Scripts.Free
             _arenaController.ResetEpisode();
             _settings = _arenaController.Settings;
 
-            if (_arenaController.TryGetSpawn(out Vector3 ground, out Quaternion rotation))
+            // No jogo o jogador não é reposicionado: o monstro nasce longe dele.
+            Vector3? avoid = null;
+            if (IsGameMode && GraphTarget.IsLive(_arenaController.Target))
+                avoid = _arenaController.Target.Position;
+
+            if (_arenaController.TryGetSpawn(out Vector3 ground, out Quaternion rotation, avoid, _gameModeSpawnDistance))
                 transform.SetPositionAndRotation(ground + Vector3.up * _heightAboveFloor, rotation);
 
             _locomotion.ResetEpisode(transform.forward);
@@ -308,8 +384,8 @@ namespace Assets.Scripts.Free
                 return;
             }
 
-            _observations.Write(sensor, transform, (float)_elapsedSteps / _maxEpisodeSteps, _settings.CoverageTarget,
-                _settings.HasHider, IsHunting);
+            float elapsed = IsGameMode ? _gameModeEpisodeFraction : (float)_elapsedSteps / _maxEpisodeSteps;
+            _observations.Write(sensor, transform, elapsed, _settings.CoverageTarget, _settings.HasHider, IsHunting);
         }
 
         // CAÇANDO: vendo o alvo, procurando (perdeu de vista há < 20 s) ou com pegada fresca na memória.
@@ -330,8 +406,8 @@ namespace Assets.Scripts.Free
             _stuck.Tick(_body.IsTouchingAnyWall, _locomotion.IsMoving, _locomotion.Velocity.magnitude);
 
             // Fim decidido ANTES de cobrar: os bônus de término são termos do contexto. Com presa, a cobertura não
-            // encerra (o episódio é dela).
-            bool caught = _settings.HasHider && _perception.Caught;
+            // encerra (o episódio é dela). No jogo pegar não paga: é derrota do jogador (tratada lá embaixo).
+            bool caught = _settings.HasHider && _perception.Caught && !IsGameMode;
             bool covered = !caught && !_settings.HasHider && _memory.SeenFraction >= _settings.CoverageTarget;
 
             FreeStepContext context = new FreeStepContext
@@ -371,8 +447,10 @@ namespace Assets.Scripts.Free
 
             // Agir: andar [0..1] e olhar [2..3], no referencial do mundo. O corpo vai para onde anda; o olhar só vira
             // a cabeça (o cone de visão), até o limite do pescoço.
-            var move3 = new Vector3(move.x, 0f, move.y);
-            _locomotion.Drive(move3, new Vector3(look.x, 0f, look.y));
+            // Fora da partida (preparação, fim de jogo) o monstro fica parado.
+            var move3 = _matchRunning ? new Vector3(move.x, 0f, move.y) : Vector3.zero;
+            var look3 = _matchRunning ? new Vector3(look.x, 0f, look.y) : Vector3.zero;
+            _locomotion.Drive(move3, look3);
             _perception.SetViewDirection(_locomotion.ViewDirection);
             if (_animationSystem != null)
                 _animationSystem.Tick(move3, _locomotion.State);
@@ -383,15 +461,42 @@ namespace Assets.Scripts.Free
                     _locomotion.State == GraphLocomotion.Awareness.Alert);
 
             // Terminar.
+            if (IsGameMode && _perception.Caught)
+            {
+                // Na preparação o jogador pode passar encostado: não vale, e não fica guardado para depois.
+                if (_matchRunning)
+                    CatchPlayer();
+                else
+                    _perception.ForgetCaught();
+                return;
+            }
+
             if (caught || covered)
             {
                 FinishEpisode(success: true);
                 return;
             }
 
+            // O jogo não tem fim por tempo (o contador segue só para o painel).
             _elapsedSteps++;
-            if (_elapsedSteps >= _maxEpisodeSteps)
+            if (_elapsedSteps >= _maxEpisodeSteps && !IsGameMode)
                 FinishEpisode(success: false);
+        }
+
+        // Com GameManager é derrota do jogador (ele recarrega a cena) e o monstro para onde está; sem GameManager
+        // (cena de teste), o monstro renasce longe do jogador e caça de novo. É o único respawn do modo de jogo.
+        private void CatchPlayer()
+        {
+            if (GameManager.Current != null)
+            {
+                _episodeEnding = true;
+                _matchRunning = false;
+                _locomotion.Stop();
+                GameManager.Current.PlayerCaught();
+                return;
+            }
+
+            FinishEpisode(success: true);
         }
 
         // Último evento que mexeu na reward, para o painel (só com _debugHud).
@@ -558,70 +663,21 @@ namespace Assets.Scripts.Free
         public override void Heuristic(in ActionBuffers actionsOut)
         {
             ActionSegment<float> continuous = actionsOut.ContinuousActions;
+
+            // Modo de jogo: o WASD é do jogador, nunca do monstro (sem Model, ele fica parado em vez de obedecer).
+            if (IsGameMode)
+            {
+                for (int i = 0; i < continuous.Length; i++)
+                    continuous[i] = 0f;
+                return;
+            }
+
             continuous[0] = Input.GetAxisRaw("Horizontal");
             continuous[1] = Input.GetAxisRaw("Vertical");
 
             // Na mão, olha para onde anda.
             continuous[2] = continuous[0];
             continuous[3] = continuous[1];
-        }
-#endif
-
-#if UNITY_EDITOR
-        // Componentes do cérebro da v5 que saem do monstro copiado (o corpo, a visão do alvo e o visual ficam).
-        private static readonly System.Type[] V5BrainComponents =
-        {
-            typeof(GraphExplorerManager), typeof(GraphExplorationMemory), typeof(GraphRewardSystem),
-            typeof(GraphPingSystem), typeof(GraphSuspicionMap),
-        };
-
-        /// <summary>
-        /// Cria o agente da v8 COPIANDO o monstro da v5 da arena (corpo, física, GraphLocomotion, visão do alvo, raios,
-        /// modelo, animação, luz e áudio) e trocando só o cérebro. O original fica desligado ao lado. Chamado pelo
-        /// FreeArenaController ⋮ "v8: montar arena livre" e pelo FreeV8Setup (batchmode).
-        /// </summary>
-        internal static FreeExplorerManager ConvertFromV5(GraphExplorerManager original, LayerMask wallLayer)
-        {
-            GameObject copy = Object.Instantiate(original.gameObject, original.transform.parent);
-            copy.name = "SeekerAgentV2 - V8 livre";
-            copy.transform.SetPositionAndRotation(original.transform.position, original.transform.rotation);
-            copy.SetActive(true);
-            UnityEditor.Undo.RegisterCreatedObjectUndo(copy, "Montar arena v8");
-            UnityEditor.Undo.RecordObject(original.gameObject, "Montar arena v8");
-            original.gameObject.SetActive(false);
-
-            // O DecisionRequester exige um Agent: sai antes do manager antigo e volta depois do novo.
-            foreach (DecisionRequester requester in copy.GetComponentsInChildren<DecisionRequester>(true))
-                Object.DestroyImmediate(requester);
-
-            foreach (System.Type type in V5BrainComponents)
-            {
-                foreach (Component component in copy.GetComponentsInChildren(type, true))
-                    Object.DestroyImmediate(component);
-            }
-
-            // Os filhos que ficaram vazios (MemorySystem, RewardSystem) ficam: apagar "filho só com Transform" levaria
-            // junto as pontas do esqueleto do modelo.
-            FreeExplorationMemory memory = copy.AddComponent<FreeExplorationMemory>();
-            memory.SetWallLayer(wallLayer);
-            copy.AddComponent<FreeRewardSystem>();
-            copy.AddComponent<FreeTrackSense>();
-            FreeExplorerManager manager = copy.AddComponent<FreeExplorerManager>();
-            manager.MaxStep = 0;
-
-            DecisionRequester decisions = copy.AddComponent<DecisionRequester>();
-            decisions.DecisionPeriod = 5;
-            decisions.TakeActionsBetweenDecisions = true;
-
-            BehaviorParameters behavior = copy.GetComponent<BehaviorParameters>();
-            behavior.BehaviorName = BehaviorNameV8;
-            behavior.Model = null;
-            behavior.BehaviorType = BehaviorType.Default;
-            EnforceBrainShape(behavior, warn: false, copy);
-
-            // O sensor da planta da v5 (32 x 10) vira o da v8 (32 x 8).
-            FreeObservations.EnsureRoomSensor(copy);
-            return manager;
         }
 #endif
     }

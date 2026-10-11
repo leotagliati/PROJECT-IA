@@ -10,8 +10,8 @@ namespace Assets.Scripts.Free
     /// O MAPA da v8 (explorador livre), um por arena, GERADO em runtime a partir do NavMesh assado e dos batentes,
     /// sem nó posto à mão e sem ligação que o agente siga:
     ///   PORTAS  as peças Door_Hole (o vão entre os dois pilares; as paredes duplas costas com costas viram uma
-    ///           porta só, lógica do gerador da v7), mais os <see cref="NavDoorMarker"/> e, se ligado, os nós Porta
-    ///           do NavGraph antigo que não têm batente perto (o corte do anel S24/S26, que existe só como nó).
+    ///           porta só, lógica do gerador da v7), mais os <see cref="NavDoorMarker"/> (cortes de sala sem batente,
+    ///           como o do anel S24/S26, que antes existia só como nó Porta do NavGraph).
     ///   PONTOS  uma grade de _cellSize encaixada no NavMesh, na altura do piso. São só ALVOS DE VISÃO: o agente
     ///           ganha por VER um ponto novo, nunca por ir até ele, e não existe "vizinho" do ponto para seguir
     ///           (o defeito da v5: o monstro andava de centro em centro de nó).
@@ -50,10 +50,9 @@ namespace Assets.Scripts.Free
         // Folga (m) somada à profundidade do vão em cada lado: a "zona da porta" onde a travessia é medida.
         [SerializeField, Min(0f)] private float _doorApproach = 0.8f;
 
-        // Nós Porta do NavGraph antigo (filhos desta arena) sem batente a menos de _unframedDoorRadius viram porta
-        // virtual, com o tamanho do ladrilho deles. É o corte do anel S24/S26: sem ele o anel vira uma sala gigante
-        // que a visão não fecha (ficou em 0% na v5.1 até ser cortado).
-        [SerializeField] private bool _useAuthoredDoorNodes = true;
+        // Só na conversão do prefab antigo (ConvertDoorNodesToMarkers): nó Porta sem batente a menos disto (m) vira
+        // NavDoorMarker. É o corte do anel S24/S26: sem ele o anel vira uma sala gigante que a visão não fecha
+        // (ficou em 0% na v5.1 até ser cortado).
         [SerializeField, Min(0f)] private float _unframedDoorRadius = 3f;
 
         [Header("-----Gizmos-----")]
@@ -722,8 +721,8 @@ namespace Assets.Scripts.Free
         private static float PlanarExtent(Bounds b, Vector3 direction) =>
             Mathf.Abs(direction.x) * b.extents.x + Mathf.Abs(direction.z) * b.extents.z;
 
-        // NavDoorMarker (posto à mão) e nós Porta antigos sem batente perto: cortes de sala sem peça de porta.
-        private int AddVirtualDoors(Transform root, List<Door> doors)
+        // NavDoorMarker: cortes de sala sem peça de porta (postos à mão, ou convertidos dos nós Porta antigos).
+        private static int AddVirtualDoors(Transform root, List<Door> doors)
         {
             int added = 0;
             foreach (NavDoorMarker marker in root.GetComponentsInChildren<NavDoorMarker>(true))
@@ -736,46 +735,55 @@ namespace Assets.Scripts.Free
                 added++;
             }
 
-            if (!_useAuthoredDoorNodes)
-                return added;
+            return added;
+        }
 
-            int framedCount = doors.Count;
+#if UNITY_EDITOR
+        /// <summary>
+        /// Arena SEM NÓS (v8): cada nó Porta do NavGraph antigo sem batente a menos de _unframedDoorRadius vira um
+        /// <see cref="NavDoorMarker"/> filho deste objeto, no mesmo lugar e com o tamanho do ladrilho dele (o lado maior
+        /// é a largura do vão). Chamar ANTES de apagar os nós; não precisa de NavMesh. Devolve quantos criou.
+        /// </summary>
+        public int ConvertDoorNodesToMarkers()
+        {
+            Transform root = ArenaRoot;
+            // Marcador que já existe conta como batente: rodar de novo não duplica.
+            List<Door> framed = FindDoorHoles(root);
+            AddVirtualDoors(root, framed);
+            int created = 0;
             foreach (NavNode node in root.GetComponentsInChildren<NavNode>(true))
             {
                 if (!node.IsDoor)
                     continue;
 
                 Vector3 center = node.HasArea ? node.AreaCenter : node.Position;
-                bool framed = false;
-                for (int d = 0; d < framedCount; d++)
+                bool hasFrame = false;
+                foreach (Door door in framed)
                 {
-                    Vector3 offset = center - doors[d].Center;
+                    Vector3 offset = center - door.Center;
                     if (new Vector2(offset.x, offset.z).magnitude < _unframedDoorRadius)
                     {
-                        framed = true;
+                        hasFrame = true;
                         break;
                     }
                 }
 
-                if (framed)
+                if (hasFrame)
                     continue;
 
-                // O lado maior do ladrilho é a largura do vão (o corredor cortado); o menor, a travessia.
                 Vector2 size = node.HasArea ? node.AreaSize : new Vector2(3f, 1f);
                 bool alongX = size.x >= size.y;
-                doors.Add(new Door
-                {
-                    Center = new Vector3(center.x, _floorY, center.z),
-                    Along = alongX ? Vector3.right : Vector3.forward,
-                    HalfWidth = Mathf.Max(size.x, size.y) * 0.5f,
-                    HalfDepth = Mathf.Max(0.05f, Mathf.Min(size.x, size.y) * 0.5f),
-                    Source = $"nó {node.name}",
-                });
-                added++;
+                var marker = new GameObject($"NavDoorMarker ({node.name})");
+                UnityEditor.Undo.RegisterCreatedObjectUndo(marker, "Converter nós Porta");
+                marker.transform.SetParent(transform, false);
+                marker.transform.SetPositionAndRotation(center, Quaternion.Euler(0f, alongX ? 0f : 90f, 0f));
+                marker.AddComponent<NavDoorMarker>().SetSize(new Vector2(Mathf.Max(size.x, size.y), Mathf.Min(size.x, size.y)));
+                created++;
             }
 
-            return added;
+            return created;
         }
+#endif
 
         private void LogRoomReport()
         {
