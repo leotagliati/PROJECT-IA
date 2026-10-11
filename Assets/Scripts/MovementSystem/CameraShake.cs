@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
 /// Tremor de câmera do início da partida: ao entrar em <see cref="GameState.Playing"/> treme
@@ -18,6 +19,9 @@ public class CameraShake : MonoBehaviour
 
     [Tooltip("Entrada da AudioLibrary tocada junto com o tremor. Vazio = sem som.")]
     [SerializeField] private string soundId = "intro_scream";
+
+    [Tooltip("Quando um tremor termina sozinho (não quando é interrompido por outro ou pelo disable).")]
+    [SerializeField] private UnityEvent finished;
 
     private Coroutine running;
     private AudioHandle soundHandle;
@@ -82,6 +86,7 @@ public class CameraShake : MonoBehaviour
 
         offset = Vector3.zero;
         running = null;
+        finished.Invoke();
     }
 
     private void LateUpdate()

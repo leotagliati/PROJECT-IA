@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Events;
 
 public class KeyItem : MonoBehaviour, IInteractable
 {
@@ -6,6 +7,10 @@ public class KeyItem : MonoBehaviour, IInteractable
 
     [Header("Áudio")]
     [SerializeField] private string pickupSoundId = "key_pickup";
+
+    [Tooltip("Ao ser coletada. A chave nasce de prefab em runtime: só alcança componentes do " +
+             "próprio prefab (ex.: um HintSignalEmitter), não objetos da cena.")]
+    [SerializeField] private UnityEvent pickedUp;
 
     public string Prompt => prompt;
 
@@ -22,6 +27,7 @@ public class KeyItem : MonoBehaviour, IInteractable
         // PlayAt usa uma fonte do pool, não um AudioSource da chave: o som sobrevive ao
         // Destroy logo abaixo.
         AudioProvider.PlayAt(pickupSoundId, transform.position);
+        pickedUp.Invoke();
         Destroy(gameObject);
 
         return InteractionResult.Success;

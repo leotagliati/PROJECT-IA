@@ -161,6 +161,13 @@ determinístico durante o treino.
   de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
   `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
   `Stop` de handle cujo slot já foi roubado é no-op.
+- **Dicas**: `HintController.Show` é o ponto único de texto na tela (marcação `{Action}`,
+  `[Tecla]`, `*destaque*`). O tutorial é **um roteiro sequencial** no `HintDirector`; passo
+  que depende do mundo espera um sinal nomeado (`HintSignals`), disparado por um
+  `HintSignalEmitter` plugado no `UnityEvent` do objeto (`KeyItem.pickedUp`,
+  `HingedDoor.opened`, `CameraShake.finished`, `DoorTrigger`). Gameplay não conhece Hints.
+  Não troque passo de roteiro por `HintTrigger` solto: só a sequência garante a ordem e o
+  "pular se já aconteceu". `HintTrigger` é para dica de lugar avulsa.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
