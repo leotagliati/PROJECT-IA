@@ -96,6 +96,10 @@ public class PauseControler : MonoBehaviour
 
     private void OnToggleInput(InputAction.CallbackContext context)
     {
+        if (FindFirstObjectByType<DialogueSystem>() is DialogueSystem dialogue
+            && dialogue.IsDialogueActive)
+            return;
+
         if (IsPaused)
             Resume();
         else

@@ -1311,6 +1311,7 @@ GameObject:
   - component: {fileID: 42313647}
   - component: {fileID: 42313646}
   - component: {fileID: 42313645}
+  - component: {fileID: 42313649}
   m_Layer: 5
   m_Name: RestartButton
   m_TagString: Untagged
@@ -1444,6 +1445,23 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 42313643}
   m_CullTransparentMesh: 1
+--- !u!114 &42313649
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 42313643}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!4 &46226872 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -24228,6 +24246,7 @@ GameObject:
   - component: {fileID: 782040680}
   - component: {fileID: 782040679}
   - component: {fileID: 782040682}
+  - component: {fileID: 782040683}
   m_Layer: 5
   m_Name: QuitButton
   m_TagString: Untagged
@@ -24361,6 +24380,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &782040683
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 782040677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!1001 &784736040
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -60085,6 +60121,7 @@ GameObject:
   - component: {fileID: 1942407589}
   - component: {fileID: 1942407588}
   - component: {fileID: 1942407591}
+  - component: {fileID: 1942407592}
   m_Layer: 5
   m_Name: ResumeButton
   m_TagString: Untagged
@@ -60218,6 +60255,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0800757c9e5c2f449bc80b48fd0e7f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1942407592
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1942407586}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
 --- !u!4 &1943022475 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -406047,6 +406101,9 @@ MonoBehaviour:
   _spawnAtRandomNode: 1
   _nodeSpawnHeightOffset: -1.76
   _randomizeSpawn: 1
+  _roomRateSmoothing: 0.1
+  _spawnFavorsRareRooms: 1
+  _rareSpawnFloor: 0.2
   _episodeEndDelay: 0
 --- !u!1 &7887813090908657517
 GameObject:
