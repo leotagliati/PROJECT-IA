@@ -25,7 +25,8 @@ namespace Assets.Scripts.Free
     ///
     /// O monstro só sabe da pegada que VÊ (<see cref="FreeTrackSense"/>): pegada não atravessa parede, então
     /// esconder perto continua funcionando. Nada paga seguir pegada; quem paga é a captura. CORRENDO o passo também faz
-    /// BARULHO (<see cref="FreeNoise"/>), e esse o monstro ouve através da parede, pelo caminho NavMesh.
+    /// BARULHO (<see cref="NoiseEvents"/>, a API de barulho do jogo), e esse o monstro ouve através da parede, pelo
+    /// caminho NavMesh.
     /// Fica no objeto do alvo; o FreeExplorerManager adiciona se faltar. Sem visual no chão (só gizmo, marrom).
     /// </summary>
     public class FreeFootprintTrail : MonoBehaviour
@@ -44,7 +45,7 @@ namespace Assets.Scripts.Free
         [SerializeField, Range(0f, 1f)] private float _crouchStrength = 0.2f;
         [SerializeField, Min(0.1f)] private float _crouchLifetime = 2.5f;
 
-        [Header("-----Barulho dos passos (FreeNoise)-----")]
+        [Header("-----Barulho dos passos (NoiseEvents)-----")]
         // Raio (m, pelo NavMesh) em que o passo é OUVIDO pelo monstro. Correndo faz barulho: a audição de corrida da
         // v5 (30 m pelo grafo), menor aqui porque o raio é caminho de verdade, não salto de nó. Andando e agachado,
         // zero: quem anda com cuidado só deixa pegada.
@@ -133,7 +134,7 @@ namespace Assets.Scripts.Free
             if (noise > 0f && Now - _lastNoise >= _noiseInterval)
             {
                 _lastNoise = Now;
-                FreeNoise.Emit(position, noise);
+                NoiseEvents.Emit(position, noise);
             }
         }
 

@@ -8,8 +8,12 @@ namespace Assets.Scripts.Free
     ///   PEGADA  (<see cref="FreeFootprintTrail"/>) sem ver o alvo, a cada _scanInterval steps de física olha as pegadas
     ///           mais novas: no alcance, no cone em volta de para onde a cabeça olha e com linha livre do olho até ela
     ///           (parede esconde pegada). A fraca (agachado) dura pouco, mas é vista igual.
-    ///   SOM     (<see cref="FreeNoise"/>) ouvido se o caminho NavMesh até ele cabe no raio do som. Diz ONDE, não para
-    ///           onde o alvo ia (Heading zero). Vendo o alvo, som é ignorado.
+    ///   SOM     (<see cref="NoiseEvents"/>, a API de barulho do jogo: o passo correndo do alvo e o item que o jogador
+    ///           arremessa, ThrowableItem) ouvido se o caminho NavMesh até ele cabe no raio do som. Diz ONDE, não para
+    ///           onde o alvo ia (Heading zero). Vendo o alvo, som é ignorado. Garrafa e corrida são o MESMO som para o
+    ///           cérebro (evento Noise): o treino só tem corrida, então a garrafa atrai o monstro como um barulho de
+    ///           gente (o "lure" que o jogo quer); um tipo próprio, nunca visto no treino, daria reação imprevisível.
+    ///           Até 12/10 isto era o FreeNoise da v9; virou o NoiseEvents para o jogo ter uma API de barulho só.
     /// A pista mais NOVA fica lembrada (Has/Position/Heading/Intensity) até esmaecer, e vira:
     ///   - observação: onde está a pista e para onde o alvo ia (o "seguir o rastro");
     ///   - estado de ALERTA no GraphLocomotion (pista nova = 9.5 m/s), pelo Manager;
@@ -39,7 +43,7 @@ namespace Assets.Scripts.Free
         // Olho acima do PISO (m), como na FreeExplorationMemory.
         [SerializeField, Min(0.1f)] private float _eyeHeight = 2.5f;
 
-        [Header("-----Ouvir (FreeNoise)-----")]
+        [Header("-----Ouvir (NoiseEvents)-----")]
         // Força (0..1) e duração (s) da pista de um som ouvido. Como a pegada de corrida (1, 12 s), mas mais curta:
         // som é um instante, quem faz barulho já saiu dali.
         [SerializeField, Range(0f, 1f)] private float _noiseStrength = 1f;
@@ -97,9 +101,9 @@ namespace Assets.Scripts.Free
 
         private void Awake() => _path = new NavMeshPath();
 
-        private void OnEnable() => FreeNoise.Emitted += Hear;
+        private void OnEnable() => NoiseEvents.Emitted += Hear;
 
-        private void OnDisable() => FreeNoise.Emitted -= Hear;
+        private void OnDisable() => NoiseEvents.Emitted -= Hear;
 
         public void Configure(FreeFootprintTrail trail, LayerMask wallLayer, float floorY)
         {

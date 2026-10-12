@@ -17,14 +17,14 @@ namespace Assets.Scripts.Free
         /// </summary>
         public enum Type
         {
-            Noise = 0,          // som ouvido (FreeNoise: passo correndo, armadilha, item jogado)
+            Noise = 0,          // som ouvido (NoiseEvents: passo correndo, item jogado, armadilha)
             KeyTaken = 1,       // soube que uma chave foi levada (FreeKeyField, com atraso)
             CloneSaw = 2,       // o clone viu o alvo (FreeCloneAbility)
             Stun = 3,           // reservado: o jogador atordoou o monstro
             DoorOpened = 4,     // reservado: porta abriu
             DoorClosed = 5,     // reservado: porta fechou
             Trap = 6,           // reservado: armadilha disparou (se um dia for diferente de som)
-            ThrownItem = 7,     // reservado: item jogado caiu
+            ThrownItem = 7,     // reservado: item jogado caiu (hoje entra como Noise: o treino nunca viu este tipo)
             Reserved8 = 8,
             Reserved9 = 9,
             Reserved10 = 10,

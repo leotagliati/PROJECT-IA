@@ -4,10 +4,13 @@
 #   Anaconda Prompt (aberto pelo Arthur, nunca pelo Claude: o v8.1 morreu quando o VS Code fechou):
 #   conda activate mlagents
 #   cd /d C:\Users\55119\Documents\GitHub\PROJECT-IA
-#   mlagents-learn config/free_v9.yaml --run-id=v9_zero_01 --env=Builds/V9/PROJECT-IA.exe --no-graphics --num-envs=10 --base-port=5010
+#   python tools/mlagents_learn_threads.py config/free_v9.yaml --run-id=v9_zero_02 --env=Builds/V9/PROJECT-IA.exe --no-graphics --num-envs=10 --base-port=5010
+#   (o atalho é o mlagents-learn com o torch em 6 threads; o ML-Agents usaria 4)
+#   v9_zero_01 (12/10, 02:16-12:50, até ~4M na Explorar) foi abandonado: a planta de 64 salas deixava a
+#   atualização 2.3x mais cara. v9_zero_02 é o mesmo cérebro com 32 salas.
 #   (build: menu PROJECT-IA > "v9: montar tudo e build", ou Unity -batchmode -executeMethod FreeV9Setup.BuildAll)
 #
-# Por que do zero: o cerebro muda de forma (vetor 200 com clone e reserva, ramos discretos 3/7/13, 64 salas,
+# Por que do zero: o cerebro muda de forma (vetor 200 com clone e reserva, ramos discretos 3/7/13, 32 salas,
 # 12 portas por sala, 8 chaves, sensor "Events"). Tudo o que muda o cerebro entrou junto; as reservas existem para
 # as proximas habilidades entrarem com --resume e uma licao nova.
 # O que muda frente ao v8.1 (Docs/graph/plano-v9.md):

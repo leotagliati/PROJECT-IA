@@ -10,7 +10,7 @@ namespace Assets.Scripts.Free
     /// TODA a observação da v9 num lugar só: o vetor (200 floats), a planta de salas (BufferSensor "Rooms"), as chaves
     /// ("Keys") e os eventos ("Events"). Só lê.
     ///
-    /// v9 (12/10, treino do zero): tetos maiores para mapa maior no futuro (64 salas, 12 portas por sala, 8 chaves),
+    /// v9 (12/10, treino do zero): tetos maiores (12 portas por sala, 8 chaves; a planta fica em 32 salas, ver MaxRooms),
     /// o bloco do CLONE e RESERVAS para habilidades futuras (32 floats no vetor sempre 0, tipos reservados na lista de
     /// eventos). Reserva em 0 não pesa no treino; quando ganhar uso, o treino segue com --resume e uma lição nova.
     ///
@@ -86,7 +86,7 @@ namespace Assets.Scripts.Free
     /// NavMesh / DoorReach (1 = sem caminho), [4] sabe que foi levada, [5] tempo sem conferir / intervalo da ronda
     /// (1 = nunca ou há muito), [6] levada há pouco (1 = acabou de saber, 0 depois do alarme).
     ///
-    /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (64), 8 floats cada:
+    /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (32), 8 floats cada:
     ///   [0..1] direção X/Z ao centro, [2] distância reta / diâmetro do mapa, [3] portas até ela / 16 (1 = sem
     ///   caminho), [4] fração vista, [5] vista (0/1), [6] é a atual, [7] fração das portas dela já atravessadas.
     /// </summary>
@@ -103,7 +103,11 @@ namespace Assets.Scripts.Free
                                 + CloneObservations + ReservedObservations;
 
         public const int RoomFeatures = 8;
-        public const int MaxRooms = 64;
+        // 32 (12/10; era 64 no v9_zero_01): a rede compara cada sala, chave e evento com todos os outros, e o custo
+        // cresce com o quadrado. Com 64 a atualização ficou 2.3x mais cara que a da v8.1 (0.38 contra 0.9 M steps/h,
+        // medido e confirmado num teste da rede isolada); com 32 volta ao custo da v8.1. O mapa da v9 tem 28 salas.
+        // Mapa com mais salas não quebra: as excedentes só ficam fora da planta (o FreeMap avisa no relatório).
+        public const int MaxRooms = 32;
         private const string RoomSensorName = "Rooms";
 
         public const int KeyFeatures = 7;
