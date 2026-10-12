@@ -75,16 +75,11 @@ MonoBehaviour:
     RenderingLayerMask:
       serializedVersion: 0
       m_Bits: 4
-    OverrideMaterial: {fileID: -876546973899608171, guid: 4f3bc6b888d3080448e0c3bb6fc9deb0,
-      type: 3}
-    BlitMaterial: {fileID: -876546973899608171, guid: 6c897a44b62e6d84e9b0f6d5238a158e,
-      type: 3}
-    ClearDepth: 0
+    MaskShader: {fileID: 4800000, guid: 58d7480a0ab14dc7bea9a334fe9ed2b7, type: 3}
+    CompositeShader: {fileID: 4800000, guid: d304b2fa7b754ee680b542fa0400a09d, type: 3}
   MaterialSettings:
     OutlineScale: 2
-    RobertsCrossMultiplier: 100
-    DepthThreshold: 10
-    NormalThreshold: 0.4
-    SteepAngleThreshold: 0.2
-    SteepAngleMultiplier: 25
+    NormalThreshold: 1
+    DepthThreshold: 0.1
+    OccluderGap: 0.15
     OutlineColor: {r: 0, g: 0, b: 0, a: 1}
