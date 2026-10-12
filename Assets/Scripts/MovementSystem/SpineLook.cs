@@ -1,43 +1,6 @@
+using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// Põe a câmera "no pescoço" do modelo, em duas etapas por frame:
-///   1. dobra o spine.002 com o pitch do mouse. O Animator escreve a pose dos ossos no
-///      Update, então isso só sobrevive em LateUpdate;
-///   2. a câmera acompanha o osso do pescoço em posição E rotação, com o mesmo offset que
-///      tinha em relação a ele na pose de descanso — como se fosse filha dele.
-///
-/// O resultado é o arco: olhar para baixo curva o tronco, o pescoço vai para frente e para
-/// baixo, e a câmera vai junto, em vez de só girar parada no lugar. O balanço da
-/// caminhada/corrida também entra na visão (é o pescoço que balança). Se somado ao head
-/// bob procedural do CameraJuice ficar demais, baixe os *Bob Amount* lá.
-///
-/// O agachar entra pelo mesmo caminho: a bacia desce (<see cref="crouchBodyDrop"/>), o
-/// pescoço vai junto e a câmera segue. O CameraJuice aplica só o que faltar para o drop
-/// de câmera dele — com os dois iguais, o corpo é quem leva a câmera para baixo.
-///
-/// A inclinada do peek é o mesmo princípio, no eixo frontal: o ângulo é REPARTIDO entre
-/// vários ossos da coluna (<see cref="peekSpineChain"/>), de baixo para cima. Cada junta
-/// dobra pouco e o desvio se acumula, então o topo do tronco viaja para o lado — é isso que
-/// desenha o arco em C. Pôr o ângulo inteiro num osso só não curva nada: gira peito, pescoço
-/// e cabeça como um bloco, e o que se vê é a cabeça rodando. A cabeça, essa, fica de pé
-/// (<see cref="peekHeadLevel"/>), como a de quem espia sem deitar o olhar.
-///
-/// A inclinada DESFAZ a si mesma antes de reaplicar, a cada frame. O pitch pode somar direto
-/// na pose porque o Animator reescreve spine.002 todo Update; ossos SEM curva de animação
-/// (spine.001, spine.003) ninguém reescreve, e aí pré-multiplicar todo frame vira rotação
-/// acumulada — o tronco dá a volta completa em poucos segundos. Ver <see cref="RestoreChain"/>.
-///
-/// Não parenta a câmera no osso de verdade: PlayerCamera, ShoulderPeek e CameraJuice
-/// escrevem a transform dela assumindo a raiz do player como pai, e o rig chega com escala
-/// e eixos locais do Blender. Em vez disso, este componente escreve a posição e a rotação
-/// em mundo, e expõe a posição como âncora (<see cref="AnchorLocalPosition"/>) para o
-/// CameraJuice somar bob/dip/crouch em cima.
-///
-/// Ordem -10: antes do CameraJuice (0), que parte da âncora, e do ShoulderPeek (50), que
-/// pré-multiplica o yaw do peek sobre a rotação escrita aqui. A rotação que o PlayerCamera
-/// põe na câmera no Update vira fallback para quando este componente está desligado.
-/// </summary>
 [DefaultExecutionOrder(-10)]
 public class SpineLook : MonoBehaviour
 {
@@ -65,11 +28,18 @@ public class SpineLook : MonoBehaviour
     [Tooltip("Quanto a bacia desce com o agachamento completo, em metros. Sem IK de perna os pés afundam no chão nessa mesma medida.")]
     [SerializeField, Min(0f)] private float crouchBodyDrop = 0.45f;
 
+    [Header("Torção de strafe")]
+    [Tooltip("Quanto a bacia pode girar para o rumo do movimento, em graus. Andar de lado puro (90°) para aqui; o resto vira pé deslizando, que incomoda menos que o tronco torcido demais.")]
+    [SerializeField, Range(0f, 80f)] private float maxStrafeTwist = 50f;
+
+    [Tooltip("Tempo de acomodação da torção. Trocar de A para D direto sem isto estala o quadril.")]
+    [SerializeField, Min(0.01f)] private float strafeTwistSmoothTime = 0.15f;
+
     [Header("Peek")]
     [Tooltip("Vazio: procura no mesmo objeto. Sem ele, o peek fica todo na câmera, como antes.")]
     [SerializeField] private ShoulderPeek shoulderPeek;
 
-    [Tooltip("Ossos que repartem a inclinada, do quadril para cima. Vazio: procura pelos nomes abaixo. Mais ossos = arco mais suave.")]
+    [Tooltip("Ossos da coluna, do quadril para cima. Repartem a inclinada do peek e a contra-torção do strafe. Vazio: procura pelos nomes abaixo. Mais ossos = arco mais suave.")]
     [SerializeField] private Transform[] peekSpineChain;
 
     // A bacia ("spine") fica de fora: ela é a raiz das pernas, e inclinar ali arrasta as coxas
@@ -106,17 +76,21 @@ public class SpineLook : MonoBehaviour
     // modelo sem mexer na câmera — é uma escolha válida, e o desconto precisa saber.
     private bool cameraInheritsHeadLevel;
 
-    // Para desfazer a inclinada do frame anterior: onde o osso estava antes de ela ser
-    // aplicada, e onde ela o deixou. Se o osso ainda está onde deixamos, o Animator não
-    // reescreveu — e é nosso o trabalho de devolver a pose antes de aplicar de novo.
-    //
-    // Em rotação LOCAL, e não em mundo: a de mundo muda sozinha quando o player vira com o
-    // mouse, a comparação nunca bateria e o acúmulo voltaria justamente enquanto se gira.
-    private Quaternion[] peekBaseRotation;
-    private Quaternion[] peekAppliedRotation;
-    private Quaternion headBaseRotation;
-    private Quaternion headAppliedRotation;
-    private bool peekApplied;
+    private bool canStrafeTwist;
+
+    private float strafeTwistTarget;
+    private float strafeTwistVelocity;
+
+    private Vector3 strafeTwistDrift;
+
+    private struct BoneOffset
+    {
+        public Transform Bone;
+        public Quaternion Base;
+        public Quaternion Applied;
+    }
+
+    private readonly List<BoneOffset> touchedBones = new List<BoneOffset>(8);
 
     /// <summary>Pitch aplicado ao osso neste frame, em graus. Positivo = curvado para frente.</summary>
     public float CurrentBend { get; private set; }
@@ -132,6 +106,8 @@ public class SpineLook : MonoBehaviour
     /// <see cref="AnchorLocalPosition"/>; o CameraJuice desconta isto do drop dele.
     /// </summary>
     public float CrouchDrop { get; private set; }
+
+    public float StrafeTwist { get; private set; }
 
     /// <summary>
     /// Quanto o arco do corpo já deslocou a câmera para o lado, em metros, no eixo do player
@@ -171,7 +147,7 @@ public class SpineLook : MonoBehaviour
         // Sem bacia o agachar continua funcionando: o CameraJuice recebe CrouchDrop = 0 e
         // desce a câmera sozinho, como antes.
         if (hipsBone == null)
-            Debug.LogWarning($"{nameof(SpineLook)}: osso '{hipsBoneName}' não encontrado; o corpo não desce ao agachar.", this);
+            Debug.LogWarning($"{nameof(SpineLook)}: osso '{hipsBoneName}' não encontrado; o corpo não desce ao agachar nem torce no strafe.", this);
 
         if (spineBone == null || targetCamera == null)
         {
@@ -194,8 +170,18 @@ public class SpineLook : MonoBehaviour
         if (peekSpineChain == null || peekSpineChain.Length == 0)
             peekSpineChain = FindBones(peekSpineChainNames);
 
-        peekBaseRotation = new Quaternion[peekSpineChain.Length];
-        peekAppliedRotation = new Quaternion[peekSpineChain.Length];
+        // Buraco no array do Inspector quebraria a repartição: o ângulo é dividido pelo
+        // número de ossos, e um nulo pulado deixaria a soma curta — na torção, isso é a
+        // câmera girando junto com a bacia.
+        peekSpineChain = System.Array.FindAll(peekSpineChain, bone => bone != null);
+
+        canStrafeTwist = hipsBone != null &&
+                         peekSpineChain.Length > 0 &&
+                         peekSpineChain[0].IsChildOf(hipsBone) &&
+                         followBone.IsChildOf(peekSpineChain[peekSpineChain.Length - 1]);
+
+        if (hipsBone != null && !canStrafeTwist)
+            Debug.LogWarning($"{nameof(SpineLook)}: a cadeia da coluna não liga '{hipsBone.name}' a '{followBone.name}'; torção de strafe desligada.", this);
 
         if (headBone == null)
             headBone = followBone;
@@ -214,10 +200,19 @@ public class SpineLook : MonoBehaviour
         AnchorLocalPosition = cameraTransform.localPosition;
     }
 
+    private void OnDisable()
+    {
+        // Desligado (ex.: PlayerCaughtSequence), ninguém mais desfaz: ossos sem curva de
+        // animação ficariam torcidos/inclinados para sempre.
+        RestoreBones();
+    }
+
     private void LateUpdate()
     {
         if (playerCamera == null)
             return;
+
+        RestoreBones();
 
         CurrentBend = playerCamera.Pitch;
 
@@ -229,18 +224,101 @@ public class SpineLook : MonoBehaviour
         if (CrouchDrop > 0f)
             hipsBone.position -= transform.up * CrouchDrop;
 
+        // Torção antes do peek e do pitch: as duas giram em torno de eixos da RAIZ, e com a
+        // orientação do pescoço já devolvida pela contra-torção elas saem iguais com ou sem
+        // strafe.
+        ApplyStrafeTwist();
+
         ApplyPeekLean();
 
         // Gira em torno do eixo lateral do player, em mundo: o transform.right da raiz já
         // carrega o yaw certo. Pré-multiplicado para a dobra somar à pose da animação em
         // vez de substituí-la — é essa soma que faz o balanço do passo chegar na câmera.
-        spineBone.rotation = Quaternion.AngleAxis(CurrentBend, transform.right) * spineBone.rotation;
+        RotateBone(spineBone, Quaternion.AngleAxis(CurrentBend, transform.right));
 
-        Vector3 worldPosition = followBone.position + followBone.rotation * offsetInBone;
+        CommitBones();
+
+        Vector3 worldPosition = followBone.position + followBone.rotation * offsetInBone - strafeTwistDrift;
 
         cameraTransform.SetPositionAndRotation(worldPosition, followBone.rotation * boneToCamera);
 
         AnchorLocalPosition = cameraTransform.localPosition;
+    }
+
+    /// <summary>
+    /// Gira a bacia para o rumo do movimento e devolve o ângulo pela coluna, em fatias iguais.
+    /// A orientação do pescoço sai igual à de antes; o desvio de posição que sobra fica em
+    /// <see cref="strafeTwistDrift"/> para a câmera descontar.
+    /// </summary>
+    private void ApplyStrafeTwist()
+    {
+        strafeTwistDrift = Vector3.zero;
+
+        if (!canStrafeTwist)
+        {
+            StrafeTwist = 0f;
+            return;
+        }
+
+        strafeTwistTarget = ResolveStrafeTwistTarget();
+        StrafeTwist = Mathf.SmoothDamp(StrafeTwist, strafeTwistTarget, ref strafeTwistVelocity, strafeTwistSmoothTime);
+
+        if (Mathf.Abs(StrafeTwist) < 0.01f)
+            return;
+
+        Vector3 before = followBone.position;
+        Vector3 up = transform.up;
+
+        // Positivo em torno do up = horário visto de cima = frente virando para a direita,
+        // mesmo sinal do MoveInput.x.
+        RotateBone(hipsBone, Quaternion.AngleAxis(StrafeTwist, up));
+
+        Quaternion counter = Quaternion.AngleAxis(-StrafeTwist / peekSpineChain.Length, up);
+
+        foreach (Transform bone in peekSpineChain)
+            RotateBone(bone, counter);
+
+        strafeTwistDrift = followBone.position - before;
+    }
+
+    /// <summary>
+    /// Ângulo que põe as pernas no eixo do movimento. Para trás, virar a bacia 180° seria
+    /// absurdo: o ângulo é dobrado para o lado oposto — ré-direita vira frente-esquerda — e o
+    /// PlayerMovement toca a caminhada ao contrário, então a perna recua no plano certo.
+    /// </summary>
+    private float ResolveStrafeTwistTarget()
+    {
+        if (movement == null)
+            return 0f;
+
+        switch (movement.CurrentState)
+        {
+            case PlayerState.Walking:
+            case PlayerState.Running:
+            case PlayerState.CrouchWalking:
+                break;
+
+            // No ar a animação congela no passo em curso (ver PlayerMovement): mantém a pose
+            // em vez de desfazer a torção no meio do pulo.
+            case PlayerState.Jumping:
+                return strafeTwistTarget;
+
+            default:
+                return 0f;
+        }
+
+        Vector2 input = movement.MoveInput;
+
+        if (input.sqrMagnitude < 0.01f)
+            return 0f;
+
+        // O critério de ré é o mesmo que inverte a animação no PlayerMovement: a dobra do
+        // ângulo só faz sentido com a perna recuando, e vice-versa.
+        float radians = movement.IsMovingBackward
+            ? Mathf.Atan2(-input.x, -input.y)
+            : Mathf.Atan2(input.x, input.y);
+
+        return Mathf.Clamp(radians * Mathf.Rad2Deg, -maxStrafeTwist, maxStrafeTwist);
     }
 
     /// <summary>
@@ -253,10 +331,8 @@ public class SpineLook : MonoBehaviour
         PeekLateralApplied = 0f;
         PeekRollApplied = 0f;
 
-        if (shoulderPeek == null || peekSpineChain == null || peekSpineChain.Length == 0)
+        if (shoulderPeek == null || peekSpineChain.Length == 0)
             return;
-
-        RestoreChain();
 
         // LeanAmount já vem suavizado e reduzido quando uma parede corta a espiada: o corpo
         // inclina exatamente o quanto a câmera conseguiu sair.
@@ -274,61 +350,72 @@ public class SpineLook : MonoBehaviour
         // (direita = negativo), então LeanAmount positivo tomba o corpo para a direita.
         Quaternion step = Quaternion.AngleAxis(-perBone, transform.forward);
 
-        for (int i = 0; i < peekSpineChain.Length; i++)
-        {
-            Transform bone = peekSpineChain[i];
-            if (bone == null)
-                continue;
-
-            peekBaseRotation[i] = bone.localRotation;
-            bone.rotation = step * bone.rotation;
-            peekAppliedRotation[i] = bone.localRotation;
-        }
+        foreach (Transform bone in peekSpineChain)
+            RotateBone(bone, step);
 
         // A cabeça desfaz o acumulado para continuar de pé. É o oposto de girar a cabeça: sem
         // isto ela deita junto com o arco e o olhar sai torto.
         float headCorrection = total * peekHeadLevel;
 
-        if (headBone != null && !Mathf.Approximately(headCorrection, 0f))
-        {
-            headBaseRotation = headBone.localRotation;
-            headBone.rotation = Quaternion.AngleAxis(headCorrection, transform.forward) * headBone.rotation;
-            headAppliedRotation = headBone.localRotation;
-        }
-        else
-        {
-            headBaseRotation = headAppliedRotation = headBone != null ? headBone.localRotation : Quaternion.identity;
-        }
-
-        peekApplied = true;
+        if (!Mathf.Approximately(headCorrection, 0f))
+            RotateBone(headBone, Quaternion.AngleAxis(headCorrection, transform.forward));
 
         PeekLateralApplied = Vector3.Dot(followBone.position - before, transform.right);
         PeekRollApplied = -total + (cameraInheritsHeadLevel ? headCorrection : 0f);
     }
 
     /// <summary>
-    /// Devolve os ossos à pose de antes da inclinada do frame passado. Só mexe no osso que
-    /// continua exatamente onde o deixamos: se o Animator reescreveu (o osso tem curva de
-    /// animação), a pose nova é a boa e desfazer por cima dela é que estragaria. Sem isto, osso
-    /// sem animação acumula a inclinada frame após frame e o tronco roda sem parar.
+    /// Pré-multiplica uma rotação de mundo no osso e, no primeiro toque do frame, guarda a
+    /// pose de antes para <see cref="RestoreBones"/>. Toques seguintes no mesmo osso (peek
+    /// por cima da torção, pitch por cima dos dois) só somam.
     /// </summary>
-    private void RestoreChain()
+    private void RotateBone(Transform bone, Quaternion worldDelta)
     {
-        if (!peekApplied)
+        if (bone == null)
             return;
 
-        peekApplied = false;
+        if (IndexOfTouched(bone) < 0)
+            touchedBones.Add(new BoneOffset { Bone = bone, Base = bone.localRotation });
 
-        for (int i = 0; i < peekSpineChain.Length; i++)
+        bone.rotation = worldDelta * bone.rotation;
+    }
+
+    /// <summary>Anota onde cada osso ficou, depois da última camada do frame.</summary>
+    private void CommitBones()
+    {
+        for (int i = 0; i < touchedBones.Count; i++)
         {
-            Transform bone = peekSpineChain[i];
+            BoneOffset entry = touchedBones[i];
+            entry.Applied = entry.Bone.localRotation;
+            touchedBones[i] = entry;
+        }
+    }
 
-            if (bone != null && Quaternion.Angle(bone.localRotation, peekAppliedRotation[i]) < 0.01f)
-                bone.localRotation = peekBaseRotation[i];
+    /// <summary>
+    /// Devolve os ossos à pose de antes das rotações do frame passado. Só mexe no osso que
+    /// continua exatamente onde o deixamos: se o Animator reescreveu (o osso tem curva de
+    /// animação), a pose nova é a boa e desfazer por cima dela é que estragaria.
+    /// </summary>
+    private void RestoreBones()
+    {
+        foreach (BoneOffset entry in touchedBones)
+        {
+            if (entry.Bone != null && Quaternion.Angle(entry.Bone.localRotation, entry.Applied) < 0.01f)
+                entry.Bone.localRotation = entry.Base;
         }
 
-        if (headBone != null && Quaternion.Angle(headBone.localRotation, headAppliedRotation) < 0.01f)
-            headBone.localRotation = headBaseRotation;
+        touchedBones.Clear();
+    }
+
+    private int IndexOfTouched(Transform bone)
+    {
+        for (int i = 0; i < touchedBones.Count; i++)
+        {
+            if (touchedBones[i].Bone == bone)
+                return i;
+        }
+
+        return -1;
     }
 
     private Transform[] FindBones(string[] names)
@@ -336,7 +423,7 @@ public class SpineLook : MonoBehaviour
         if (names == null)
             return new Transform[0];
 
-        var found = new System.Collections.Generic.List<Transform>(names.Length);
+        var found = new List<Transform>(names.Length);
 
         foreach (string name in names)
         {

@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.Universal;
@@ -10,45 +10,30 @@ namespace Xenon
         private class PassData
         {
             internal TextureHandle FilterTextureHandle;
-            internal TextureHandle OpaqueTextureHandle;
             internal Material Material;
         }
 
-        private static readonly int FilterTexture = Shader.PropertyToID("_FilterTexture");
         private static readonly int OutlineScale = Shader.PropertyToID("_OutlineScale");
-        private static readonly int RobertsCrossMultiplier = Shader.PropertyToID("_RobertsCrossMultiplier");
-        private static readonly int DepthThreshold = Shader.PropertyToID("_DepthThreshold");
         private static readonly int NormalThreshold = Shader.PropertyToID("_NormalThreshold");
-        private static readonly int SteepAngleThreshold = Shader.PropertyToID("_SteepAngleThreshold");
-        private static readonly int SteepAngleMultiplier = Shader.PropertyToID("_SteepAngleMultiplier");
+        private static readonly int DepthThreshold = Shader.PropertyToID("_DepthThreshold");
+        private static readonly int OccluderGap = Shader.PropertyToID("_OccluderGap");
         private static readonly int OutlineColor = Shader.PropertyToID("_OutlineColor");
 
-        private readonly Material _blitMaterial;
+        private readonly Material _material;
+        private readonly OutlineRenderFeature.OutlineSettings _outlineSettings;
 
-        public OutlinePassFinal(OutlineRenderFeature.Settings settings, OutlineRenderFeature.OutlineSettings outlineSettings)
+        public OutlinePassFinal(OutlineRenderFeature.Settings settings, OutlineRenderFeature.OutlineSettings outlineSettings, Material material)
         {
             renderPassEvent = settings.RenderPassEvent;
-            _blitMaterial = settings.BlitMaterial;
+            _material = material;
+            _outlineSettings = outlineSettings;
 
-            if (_blitMaterial == null)
-                return;
-
-            _blitMaterial.SetFloat(OutlineScale, outlineSettings.OutlineScale);
-            _blitMaterial.SetFloat(RobertsCrossMultiplier, outlineSettings.RobertsCrossMultiplier);
-            _blitMaterial.SetFloat(DepthThreshold, outlineSettings.DepthThreshold);
-            _blitMaterial.SetFloat(NormalThreshold, outlineSettings.NormalThreshold);
-            _blitMaterial.SetFloat(SteepAngleThreshold, outlineSettings.SteepAngleThreshold);
-            _blitMaterial.SetFloat(SteepAngleMultiplier, outlineSettings.SteepAngleMultiplier);
-            _blitMaterial.SetColor(OutlineColor, outlineSettings.OutlineColor);
+            // O composite compara a máscara com a profundidade da cena para saber o que está na frente.
+            ConfigureInput(ScriptableRenderPassInput.Depth);
         }
 
         private static void ExecutePass(PassData passData, RasterGraphContext context)
         {
-            if (passData.Material != null)
-            {
-                passData.Material.SetTexture(FilterTexture, passData.FilterTextureHandle);
-            }
-
             Blitter.BlitTexture(context.cmd, passData.FilterTextureHandle, new Vector4(1, 1, 0, 0), passData.Material, 0);
         }
 
@@ -62,16 +47,25 @@ namespace Xenon
             if (!outlineData.FilterTextureHandle.IsValid())
                 return;
 
-            if (_blitMaterial == null)
+            if (_material == null)
                 return;
+
+            // Valores lidos todo frame para o ajuste no Inspector valer em Play Mode.
+            _material.SetFloat(OutlineScale, _outlineSettings.OutlineScale);
+            _material.SetFloat(NormalThreshold, _outlineSettings.NormalThreshold);
+            _material.SetFloat(DepthThreshold, _outlineSettings.DepthThreshold);
+            _material.SetFloat(OccluderGap, _outlineSettings.OccluderGap);
+            _material.SetColor(OutlineColor, _outlineSettings.OutlineColor);
 
             using var builder = renderGraph.AddRasterRenderPass<PassData>("OutlinePass_Final", out var passData, new ProfilingSampler("OutlinePass_Final"));
 
-            passData.Material = _blitMaterial;
+            passData.Material = _material;
             passData.FilterTextureHandle = outlineData.FilterTextureHandle;
 
             builder.AllowPassCulling(false);
             builder.UseTexture(passData.FilterTextureHandle);
+            if (resourceData.cameraDepthTexture.IsValid())
+                builder.UseTexture(resourceData.cameraDepthTexture);
             builder.SetRenderAttachment(resourceData.cameraColor, index: 0);
             builder.SetRenderFunc<PassData>(ExecutePass);
         }

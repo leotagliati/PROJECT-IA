@@ -80,6 +80,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: ff2aabb35f2ad684696ebacd66cbf8af, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6563946328945372638}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: ff2aabb35f2ad684696ebacd66cbf8af, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4815162342108765432}
   m_SourcePrefab: {fileID: 100100000, guid: ff2aabb35f2ad684696ebacd66cbf8af, type: 3}
 --- !u!1 &118978428063699855 stripped
 GameObject:
@@ -132,6 +135,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   prompt: Pegar chave
+  pickupSoundId: key_pickup
+  pickedUp:
+    m_PersistentCalls:
+      m_Calls:
+      - m_Target: {fileID: 4815162342108765432}
+        m_TargetAssemblyTypeName: HintSignalEmitter, Assembly-CSharp
+        m_MethodName: Raise
+        m_Mode: 5
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: chave_coletada
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &6563946328945372638
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -149,3 +168,16 @@ MonoBehaviour:
   strength: 0.8
   randomizePhase: 1
   pauseWhileHighlighted: 1
+--- !u!114 &4815162342108765432
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 118978428063699855}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 18c0cee9d7a279344aff5c1ea7f3a455, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  signal: 

@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using Unity.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -13,11 +12,8 @@ namespace Xenon
         private class PassData
         {
             internal RendererListHandle RendererListHandle;
-            internal UniversalCameraData CameraData;
-            internal bool ClearDepth;
         }
 
-        private readonly bool _clearDepth;
         private readonly Material _overrideMaterial;
         private readonly LayerMask _layerMask;
         private readonly RenderingLayerMask _renderingLayerMask;
@@ -30,60 +26,65 @@ namespace Xenon
             new ShaderTagId("LightweightForward"),
         };
 
-        public OutlinePassFilter(OutlineRenderFeature.Settings settings)
+        public OutlinePassFilter(OutlineRenderFeature.Settings settings, Material overrideMaterial)
         {
             renderPassEvent = settings.RenderPassEvent;
 
             _layerMask = settings.LayerMask;
             _renderingLayerMask = settings.RenderingLayerMask;
-            _overrideMaterial = settings.OverrideMaterial;
-            _clearDepth = settings.ClearDepth;
+            _overrideMaterial = overrideMaterial;
         }
 
-        private void InitRendererLists(ContextContainer context, ref PassData passData, RenderGraph renderGraph)
+        private RendererListHandle CreateRendererList(ContextContainer context, RenderGraph renderGraph)
         {
             var renderingData = context.Get<UniversalRenderingData>();
             var cameraData = context.Get<UniversalCameraData>();
             var lightData = context.Get<UniversalLightData>();
 
-            var sortingCriteria = passData.CameraData.defaultOpaqueSortFlags;
             var filterSettings = new FilteringSettings(RenderQueueRange.opaque, _layerMask, _renderingLayerMask);
-            var drawSettings = RenderingUtils.CreateDrawingSettings(_shaderTagIds, renderingData, cameraData, lightData, sortingCriteria);
+            var drawSettings = RenderingUtils.CreateDrawingSettings(_shaderTagIds, renderingData, cameraData, lightData, cameraData.defaultOpaqueSortFlags);
             drawSettings.overrideMaterial = _overrideMaterial;
-            var param = new RendererListParams(renderingData.cullResults, drawSettings, filterSettings);
 
-            passData.RendererListHandle = renderGraph.CreateRendererList(param);
+            return renderGraph.CreateRendererList(new RendererListParams(renderingData.cullResults, drawSettings, filterSettings));
         }
 
         private static void ExecutePass(PassData passData, RasterGraphContext context)
         {
-            context.cmd.ClearRenderTarget(passData.ClearDepth, true, new Color(0, 0, 0, 0));
+            context.cmd.ClearRenderTarget(true, true, Color.clear);
             context.cmd.DrawRendererList(passData.RendererListHandle);
         }
 
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
-            var cameraData = frameData.Get<UniversalCameraData>();
             var resourceData = frameData.Get<UniversalResourceData>();
             var outlineData = frameData.GetOrCreate<OutlineRenderFeature.OutlineData>();
 
             using var builder = renderGraph.AddRasterRenderPass<PassData>("OutlinePass_Render", out var passData, new ProfilingSampler("OutlinePass_Render"));
 
-            var targetDesc = renderGraph.GetTextureDesc(resourceData.cameraColor);
-            targetDesc.name = "_OutlineObjects";
-            targetDesc.format = GraphicsFormat.R8G8B8A8_SRGB;
+            var colorDesc = renderGraph.GetTextureDesc(resourceData.cameraColor);
+            colorDesc.name = "_OutlineMask";
+            colorDesc.format = GraphicsFormat.R16G16B16A16_SFloat;
+            colorDesc.msaaSamples = MSAASamples.None;
+            colorDesc.bindTextureMS = false;
+            colorDesc.filterMode = FilterMode.Point;
+            colorDesc.clearBuffer = false;
 
-            var destinationHandle = renderGraph.CreateTexture(targetDesc);
-            outlineData.FilterTextureHandle = destinationHandle;
+            // Depth próprio, e não o da câmera: a máscara precisa do objeto inteiro, inclusive o que
+            // está atrás de outra coisa. Quem decide visibilidade é o OutlineComposite.
+            var depthDesc = colorDesc;
+            depthDesc.name = "_OutlineMaskDepth";
+            depthDesc.depthBufferBits = DepthBits.Depth32;
 
-            passData.CameraData = cameraData;
-            passData.ClearDepth = _clearDepth;
-            InitRendererLists(frameData, ref passData, renderGraph);
+            var maskHandle = renderGraph.CreateTexture(colorDesc);
+            var depthHandle = renderGraph.CreateTexture(depthDesc);
+            outlineData.FilterTextureHandle = maskHandle;
+
+            passData.RendererListHandle = CreateRendererList(frameData, renderGraph);
 
             builder.AllowPassCulling(false);
             builder.UseRendererList(passData.RendererListHandle);
-            builder.SetRenderAttachment(destinationHandle, 0);
-            builder.SetRenderAttachmentDepth(resourceData.activeDepthTexture);
+            builder.SetRenderAttachment(maskHandle, 0);
+            builder.SetRenderAttachmentDepth(depthHandle);
             builder.SetRenderFunc<PassData>(ExecutePass);
         }
     }

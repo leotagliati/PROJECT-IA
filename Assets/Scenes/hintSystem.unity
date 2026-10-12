@@ -143960,8 +143960,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   controller: {fileID: 0}
+  hints: {fileID: 0}
   label: {fileID: 0}
-  format: '[{0}] {1}'
+  promptMarkup: '{Interact} {0}'
   bindingGroup: Keyboard&Mouse
   failureDuration: 1.5
   failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
@@ -145531,7 +145532,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 05e0347aa9c8bad48b0823207ea6ba5e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  preparationSeconds: 15
   reloadDelayAfterLost: 4
   reloadDelayAfterWon: 5.5
 --- !u!4 &1012911239
@@ -170848,38 +170848,53 @@ MonoBehaviour:
   steps:
   - id: mover
     text: Use {Move} para se mover e {Look} para olhar ao redor
+    after: 
     delay: 1.5
     waitFor: 2
     actions: Move
+    signal: 
     amount: 1.5
+    timeout: 0
     skipIfAlreadyDone: 1
   - id: lanterna
     text: Aperte {Flashlight} para ligar a *lanterna*
+    after: 
     delay: 1.5
     waitFor: 1
     actions: Flashlight
+    signal: 
     amount: 1
+    timeout: 0
     skipIfAlreadyDone: 1
   - id: agachar
     text: "{Crouch} para *agachar*. Agachado, seus passos quase n\xE3o fazem barulho"
+    after: 
     delay: 2
     waitFor: 1
     actions: Crouch
+    signal: 
     amount: 1
+    timeout: 0
     skipIfAlreadyDone: 1
   - id: espiar
     text: Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas
+    after: 
     delay: 3
     waitFor: 2
     actions: PeekLeft, PeekRight
+    signal: 
     amount: 0.5
+    timeout: 0
     skipIfAlreadyDone: 1
   - id: correr
     text: Segure {Sprint} para *correr*... mas ele ouve os seus passos
+    after: 
     delay: 3
     waitFor: 2
     actions: Sprint
+    signal: 
     amount: 1
+    timeout: 0
     skipIfAlreadyDone: 1
 --- !u!114 &1209857372
 MonoBehaviour:
