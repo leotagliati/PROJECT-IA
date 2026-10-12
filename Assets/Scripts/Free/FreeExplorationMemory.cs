@@ -15,6 +15,8 @@ namespace Assets.Scripts.Free
     ///            porta é "porta nova" (a recompensa); as seguintes só contam nas métricas.
     ///   SALA     a do ponto mais perto com NavMesh livre; dentro da zona de uma porta fica a anterior (sem
     ///            pisca-pisca no vão).
+    ///   ESQUECER só no jogo (<see cref="SetForgetSeconds"/>, o Manager liga): ponto visto e porta atravessada há mais
+    ///            de N s voltam a ser novos. No treino é 0 e nada muda: a memória zera no episódio.
     /// As flags de step (pontos novos, portas novas) são lidas pela recompensa e limpas pelo Manager.
     /// </summary>
     public class FreeExplorationMemory : MonoBehaviour
@@ -50,6 +52,10 @@ namespace Assets.Scripts.Free
         private readonly List<int> _unseen = new List<int>();
         private int[] _roomSeenCount;
         private bool[] _doorCrossed;
+        private float[] _seenTime;
+        private float[] _doorTime;
+        private float _forgetSeconds;
+        private float _nextForget;
         private float _cosHalfAngle;
         private int _tick;
         private Vector3 _lastView;
@@ -137,6 +143,8 @@ namespace Assets.Scripts.Free
             _seen = new bool[_map.PointCount];
             _roomSeenCount = new int[_map.RoomCount];
             _doorCrossed = new bool[_map.DoorCount];
+            _seenTime = new float[_map.PointCount];
+            _doorTime = new float[_map.DoorCount];
             _cosHalfAngle = Mathf.Cos(_viewAngle * 0.5f * Mathf.Deg2Rad);
 
             // Máscara vazia = visão atravessando parede, e o treino não acusaria nada: cai no padrão com aviso.
@@ -146,6 +154,9 @@ namespace Assets.Scripts.Free
                 Debug.LogWarning($"{name}: Wall Layer vazio na FreeExplorationMemory — usando Wall/Obstacle/Door. Salve o prefab com a máscara certa.", this);
             }
         }
+
+        /// <summary>Segundos até o visto/atravessado voltar a ser novo (0 = nunca, o treino).</summary>
+        public void SetForgetSeconds(float seconds) => _forgetSeconds = Mathf.Max(0f, seconds);
 
         public void ResetEpisode()
         {
@@ -195,6 +206,8 @@ namespace Assets.Scripts.Free
             }
 
             _lastView = new Vector3(view.x, 0f, view.z).normalized;
+            if (_forgetSeconds > 0f && Time.time >= _nextForget)
+                Forget(Time.time - _forgetSeconds);
             if (forceVision || _tick % _visionInterval == 0)
                 Look(ground, view);
             _tick++;
@@ -244,6 +257,7 @@ namespace Assets.Scripts.Free
             }
 
             _doorCrossed[door] = true;
+            _doorTime[door] = Time.time;
             DoorsCrossed++;
             NewDoorsThisStep++;
         }
@@ -273,11 +287,38 @@ namespace Assets.Scripts.Free
                     continue;
 
                 _seen[point] = true;
+                _seenTime[point] = Time.time;
                 SeenCount++;
                 _roomSeenCount[_map.RoomOfPoint(point)]++;
                 NewPointsThisStep++;
                 _unseen[k] = _unseen[_unseen.Count - 1];
                 _unseen.RemoveAt(_unseen.Count - 1);
+            }
+        }
+
+        // Uma vez por segundo basta (850 pontos): o visto antes de "before" volta para a lista de não vistos, e a porta
+        // atravessada antes disso volta a ser nova. O ponto que ele está vendo agora é revisto no mesmo step.
+        private void Forget(float before)
+        {
+            _nextForget = Time.time + 1f;
+            for (int point = 0; point < _seen.Length; point++)
+            {
+                if (!_seen[point] || _seenTime[point] > before)
+                    continue;
+
+                _seen[point] = false;
+                SeenCount--;
+                _roomSeenCount[_map.RoomOfPoint(point)]--;
+                _unseen.Add(point);
+            }
+
+            for (int door = 0; door < _doorCrossed.Length; door++)
+            {
+                if (!_doorCrossed[door] || _doorTime[door] > before)
+                    continue;
+
+                _doorCrossed[door] = false;
+                DoorsCrossed--;
             }
         }
 

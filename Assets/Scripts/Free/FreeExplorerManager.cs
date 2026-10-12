@@ -68,6 +68,17 @@ namespace Assets.Scripts.Free
         // Nasce a pelo menos isto (m, em linha reta) do jogador, no Play e depois de pegá-lo sem GameManager.
         [SerializeField, Min(0f)] private float _gameModeSpawnDistance = 25f;
 
+        // Média da política (true) ou ação sorteada como no treino (false). Desligado (12/10): com a média o monstro
+        // parava do nada no teste mobiliado — em dúvida entre dois caminhos (contornar o móvel pela esquerda ou pela
+        // direita) a média dos dois fica abaixo do _moveDeadzone do GraphLocomotion. O PPO só treinou a ação sorteada.
+        [SerializeField] private bool _gameModeDeterministic = false;
+
+        // Segundos até um ponto visto (e uma porta atravessada) voltar a contar como novo; 0 = nunca. No treino a
+        // memória zera a cada episódio (~1-2 min, ~48% do mapa visto); no jogo não há episódio e em poucos minutos
+        // ele via tudo: radar de "não visto", portas novas e estagnação saturavam num estado que nunca viu treinando,
+        // e a patrulha perdia o rumo. Esquecendo, as salas que ele não vê há tempo voltam a puxá-lo.
+        [SerializeField, Min(0f)] private float _gameModeForgetSeconds = 90f;
+
         [Header("-----Chaves (v8.1)-----")]
         // Sensor das chaves (BufferSensor "Keys"): o cérebro passa a ter uma entrada a mais, então os .onnx sem ele (o
         // v8.0 inteiro) não rodam com isto ligado, e os com ele não rodam desligado. Ligado só na cena/build da v8.1.
@@ -120,8 +131,8 @@ namespace Assets.Scripts.Free
             base.Awake();
         }
 
-        // Modo de jogo roda o .onnx sem trainer, determinístico (a média da política, sem sorteio). Antes do
-        // base.Awake, que cria a política.
+        // Modo de jogo roda o .onnx sem trainer (_gameModeDeterministic: média ou sorteio). Antes do base.Awake, que
+        // cria a política.
         private void ApplyGameModeBehavior()
         {
             if (!IsGameMode)
@@ -132,7 +143,7 @@ namespace Assets.Scripts.Free
                 return;
 
             // Determinístico ANTES do tipo: só o setter do tipo recria a política.
-            behavior.DeterministicInference = true;
+            behavior.DeterministicInference = _gameModeDeterministic;
             behavior.BehaviorType = BehaviorType.InferenceOnly;
             if (behavior.Model == null)
                 Debug.LogError($"{name}: modo de jogo sem Model no Behavior Parameters — o monstro não vai se mexer.", this);
@@ -245,6 +256,7 @@ namespace Assets.Scripts.Free
             _locomotion.Configure(_movementSystem);
             _perception.Configure(null, arenaTarget, _arenaController.WallLayer);
             _memory.Configure(_map);
+            _memory.SetForgetSeconds(IsGameMode ? _gameModeForgetSeconds : 0f);
 
             // As pegadas moram no ALVO (o hider aqui; o jogador no jogo): põe o rastro nele se faltar.
             if (arenaTarget is Component target && target != null)
