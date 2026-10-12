@@ -807,8 +807,9 @@ namespace Assets.Scripts.Free
 #if UNITY_EDITOR
         // Pré-visualização no editor (o NavMesh do prefab tem que estar carregado: abra a cena de treino ou o Prefab
         // Mode com o NavMeshSurface assado). Não grava nada: em Play o mapa é gerado de novo.
+        // Público para o FreeV9Setup relatar a arena nova logo depois de assar.
         [ContextMenu("Gerar e relatar (v8)")]
-        private void GenerateAndReport() => Build(log: true);
+        public void GenerateAndReport() => Build(log: true);
 
         private void OnDrawGizmosSelected()
         {

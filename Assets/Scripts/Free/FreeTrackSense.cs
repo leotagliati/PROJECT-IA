@@ -90,6 +90,11 @@ namespace Assets.Scripts.Free
         /// <summary>Sons ouvidos no episódio (Hunt/NoisesHeard).</summary>
         public int EpisodeNoisesHeard { get; private set; }
 
+        /// <summary>Um som virou pista neste step (o Manager registra o evento "som" na FreeEventLog).</summary>
+        public bool HeardThisStep { get; private set; }
+
+        private bool _heardEventPending;
+
         private void Awake() => _path = new NavMeshPath();
 
         private void OnEnable() => FreeNoise.Emitted += Hear;
@@ -113,12 +118,33 @@ namespace Assets.Scripts.Free
             EpisodeTracksSeen = 0;
             EpisodeNoisesHeard = 0;
             _heardPending = false;
+            _heardEventPending = false;
+            HeardThisStep = false;
 
             // Depois do respawn a posição guardada é a do episódio anterior: só ouve de novo depois do 1º Tick.
             _hasListener = false;
         }
 
-        public void ClearStepFlags() => NewTrackThisStep = false;
+        public void ClearStepFlags()
+        {
+            NewTrackThisStep = false;
+            HeardThisStep = false;
+        }
+
+        /// <summary>
+        /// Pista entregue por outro sentido (o clone vendo o alvo, v9): onde e para onde ia. Mesmo caminho do som: vira
+        /// NewTrackThisStep no próximo Tick (Alerta, foco na caça, observação [30..35]).
+        /// </summary>
+        public void Report(Vector3 position, Vector3 heading, float strength, float lifetime)
+        {
+            Position = position;
+            heading.y = 0f;
+            Heading = heading.sqrMagnitude > 1e-6f ? heading.normalized : Vector3.zero;
+            _trackTime = Time.time;
+            _trackStrength = Mathf.Clamp01(strength);
+            _trackLifetime = Mathf.Max(0.1f, lifetime);
+            _heardPending = true;
+        }
 
         /// <summary>Um step de física. Vendo o alvo não olha o chão (a pegada não acrescenta nada).</summary>
         public void Tick(Vector3 position, Vector3 view, bool seeingTarget)
@@ -130,6 +156,12 @@ namespace Assets.Scripts.Free
             {
                 _heardPending = false;
                 NewTrackThisStep = true;
+            }
+
+            if (_heardEventPending)
+            {
+                _heardEventPending = false;
+                HeardThisStep = true;
             }
 
             if (_trail == null || seeingTarget || _tick++ % _scanInterval != 0)
@@ -204,6 +236,7 @@ namespace Assets.Scripts.Free
             _trackStrength = _noiseStrength;
             _trackLifetime = _noiseLifetime;
             _heardPending = true;
+            _heardEventPending = true;
             EpisodeNoisesHeard++;
         }
 

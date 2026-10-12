@@ -31,6 +31,9 @@ namespace Assets.Scripts.Free
         public float HiderSpeed;
         public float HiderStamina;
 
+        // O clone pode ser usado neste episódio (clone_enabled, v9): a máscara do ramo do clone fecha sem isto.
+        public bool CloneEnabled;
+
         public bool HasHider => HiderMode != GraphHider.Mode.None;
     }
 
@@ -71,6 +74,10 @@ namespace Assets.Scripts.Free
         [SerializeField, Range(0f, 1f)] private float _defaultKeyChance = 0.5f;
         [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
         [SerializeField, Min(0f)] private float _defaultHiderStamina = 0f;
+
+        // Clone liberado sem trainer (jogo e Play solto): sim. No treino quem manda é o clone_enabled do currículo
+        // (parâmetro ausente no .yaml = 0, para um config sem clone não ganhar clone por acidente).
+        [SerializeField] private bool _defaultCloneEnabled = true;
 
         [Header("-----Mundo-----")]
         // Parede para a visão do alvo, a captura e a presa (a mesma máscara da FreeExplorationMemory). Vazia = Reset.
@@ -349,6 +356,7 @@ namespace Assets.Scripts.Free
                 HasKeys = !_gameMode && mode != GraphHider.Mode.None && Random.value < Mathf.Clamp01(Get("key_chance", keyFallback)),
                 HiderSpeed = !_gameMode && fast ? _fastHiderSpeed : speed,
                 HiderStamina = Mathf.Max(0f, Get("hider_stamina", _defaultHiderStamina)),
+                CloneEnabled = Get("clone_enabled", Academy.IsInitialized && Academy.Instance.IsCommunicatorOn ? 0f : (_defaultCloneEnabled ? 1f : 0f)) > 0.5f,
             };
         }
     }

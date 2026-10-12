@@ -8,7 +8,8 @@ namespace Assets.Scripts.Free
     /// As CHAVES de uma arena da v8 (lições finais; o jogo pode não ter chaves, e aí isto fica vazio). Um por arena,
     /// criado pelo <see cref="FreeArenaController"/> se faltar.
     ///   TREINO  a cada episódio com chaves, _keyCount pontos em salas diferentes, de preferência colados em parede
-    ///           (canto, atrás de móvel). A presa (<see cref="FreeHider"/>) vai buscá-las; pegar todas = ESCAPOU.
+    ///           (canto, atrás de móvel); na v9, sorteados entre os KeySpots da arena (os pontos do KeySpawner do jogo).
+    ///           A presa (<see cref="FreeHider"/>) vai buscá-las; pegar todas = ESCAPOU.
     ///   JOGO    as chaves de verdade do <see cref="KeySpawner"/> da cena; pegar = a chave some (KeyItem.Destroy).
     ///   AVISO   o monstro sempre sabe ONDE estão as chaves, mas só fica sabendo que uma foi pega _noticeDelaySeconds
     ///           depois (Known). Aí vem o alarme (observação, Alerta no monstro) e a chave fica marcada como levada.
@@ -20,7 +21,10 @@ namespace Assets.Scripts.Free
     {
         public struct Key
         {
+            // No chão (NavMesh): caminho, pegar, campar e a observação usam este.
             public Vector3 Position;
+            // Onde a chave ESTÁ de verdade (pode ser em cima de mesa ou prateleira): a ronda olha para cá.
+            public Vector3 ViewPoint;
             public bool Taken;
             public float TakenTime;
             public bool Known;
@@ -32,8 +36,15 @@ namespace Assets.Scripts.Free
         [Header("-----Treino-----")]
         [SerializeField, Min(1)] private int _keyCount = 3;
 
-        // Pontos sorteados por chave; fica o mais colado em parede (o lugar em que se esconde uma chave).
+        // Pontos sorteados por chave; fica o mais colado em parede (o lugar em que se esconde uma chave). Só sem
+        // KeySpots na arena (a v8): a v9 sorteia entre os pontos do KeySpawner do jogo.
         [SerializeField, Min(1)] private int _spotCandidates = 6;
+
+        // Filho da arena com os pontos de chave do jogo (o FreeV9Setup copia os do KeySpawner da TaskFurniture).
+        [SerializeField] private string _keySpotsName = "KeySpots";
+
+        // Até onde (m) procura o chão debaixo de um KeySpot (chave em cima de mesa ou prateleira).
+        [SerializeField, Min(0.1f)] private float _spotSnap = 3f;
 
         [Header("-----Aviso, ronda e campar-----")]
         // Segundos entre a presa pegar a chave e o monstro saber (alarme): ele chega tarde e tem de seguir a pista.
@@ -109,6 +120,9 @@ namespace Assets.Scripts.Free
         /// <summary>Chaves que o monstro passou a saber levadas desde o último ClearStepFlags.</summary>
         public int NewlyKnownThisStep { get; private set; }
 
+        /// <summary>Onde estava a última chave que o monstro soube levada (o evento "chave levada" da v9).</summary>
+        public Vector3 LastKnownPosition { get; private set; }
+
         /// <summary>Conferidas de chave parada há mais de _checkIntervalSeconds desde o último ClearStepFlags.</summary>
         public int ChecksThisStep { get; private set; }
 
@@ -146,6 +160,9 @@ namespace Assets.Scripts.Free
             if (!enabled || _map == null || _map.RoomCount == 0)
                 return;
 
+            if (TryPlaceOnSpots())
+                return;
+
             var usedRooms = new HashSet<int>();
             for (int attempt = 0; attempt < _map.RoomCount * 3 && _keys.Count < _keyCount; attempt++)
             {
@@ -153,8 +170,53 @@ namespace Assets.Scripts.Free
                 if (!usedRooms.Add(room) && usedRooms.Count < _map.RoomCount)
                     continue;
 
-                _keys.Add(new Key { Position = KeySpot(room), LastChecked = float.NegativeInfinity });
+                Vector3 spot = KeySpot(room);
+                _keys.Add(new Key { Position = spot, ViewPoint = spot + Vector3.up * 0.5f, LastChecked = float.NegativeInfinity });
             }
+        }
+
+        // v9: as chaves saem dos pontos do jogo (KeySpots), em salas diferentes enquanto der. False se a arena não tem
+        // KeySpots (a v8 cai no sorteio por sala).
+        private bool TryPlaceOnSpots()
+        {
+            Transform spots = transform.Find(_keySpotsName);
+            if (spots == null || spots.childCount == 0)
+                return false;
+
+            var order = new List<int>();
+            for (int i = 0; i < spots.childCount; i++)
+                order.Add(i);
+            for (int i = order.Count - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                (order[i], order[j]) = (order[j], order[i]);
+            }
+
+            // Duas passadas: primeiro uma por sala; se faltar, aceita repetir sala.
+            var usedRooms = new HashSet<int>();
+            for (int pass = 0; pass < 2 && _keys.Count < _keyCount; pass++)
+            {
+                foreach (int index in order)
+                {
+                    if (_keys.Count >= _keyCount)
+                        break;
+
+                    Vector3 spot = spots.GetChild(index).position;
+                    if (!NavMesh.SamplePosition(spot, out NavMeshHit hit, _spotSnap, NavMesh.AllAreas))
+                        continue;
+
+                    int point = _map.NearestPoint(hit.position);
+                    int room = point >= 0 ? _map.RoomOfPoint(point) : -1;
+                    if (pass == 0 && !usedRooms.Add(room))
+                        continue;
+                    if (_keys.Exists(k => (k.Position - hit.position).sqrMagnitude < 0.01f))
+                        continue;
+
+                    _keys.Add(new Key { Position = hit.position, ViewPoint = spot + Vector3.up * 0.1f, LastChecked = float.NegativeInfinity });
+                }
+            }
+
+            return _keys.Count > 0;
         }
 
         public void ClearStepFlags()
@@ -191,10 +253,11 @@ namespace Assets.Scripts.Free
                     key.Known = true;
                     key.KnownTime = now;
                     _alarmTime = now;
+                    LastKnownPosition = key.Position;
                     NewlyKnownThisStep++;
                 }
 
-                if (!key.Known && Sees(eye, view, cosHalfAngle, key.Position))
+                if (!key.Known && Sees(eye, view, cosHalfAngle, key.ViewPoint))
                 {
                     if (now - key.LastChecked > _checkIntervalSeconds)
                     {
@@ -289,9 +352,10 @@ namespace Assets.Scripts.Free
                 EpisodeCampSteps++;
         }
 
+        // position = o ViewPoint da chave (já na altura em que ela está).
         private bool Sees(Vector3 eye, Vector3 view, float cosHalfAngle, Vector3 position)
         {
-            Vector3 target = position + Vector3.up * 0.5f;
+            Vector3 target = position;
             var planar = new Vector2(target.x - eye.x, target.z - eye.z);
             float distance = planar.magnitude;
             if (distance > _checkDistance)
@@ -347,7 +411,7 @@ namespace Assets.Scripts.Free
 
                 Vector3 ground = NavMesh.SamplePosition(gameKey.transform.position, out NavMeshHit hit, 2f, NavMesh.AllAreas)
                     ? hit.position : gameKey.transform.position;
-                _keys.Add(new Key { Position = ground, GameKey = gameKey, LastChecked = float.NegativeInfinity });
+                _keys.Add(new Key { Position = ground, ViewPoint = gameKey.transform.position, GameKey = gameKey, LastChecked = float.NegativeInfinity });
             }
         }
 

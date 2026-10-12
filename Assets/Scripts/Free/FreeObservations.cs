@@ -7,7 +7,12 @@ using UnityEngine.AI;
 namespace Assets.Scripts.Free
 {
     /// <summary>
-    /// TODA a observação da v8 num lugar só: o vetor (126 floats) e a planta de salas (BufferSensor "Rooms"). Só lê.
+    /// TODA a observação da v9 num lugar só: o vetor (200 floats), a planta de salas (BufferSensor "Rooms"), as chaves
+    /// ("Keys") e os eventos ("Events"). Só lê.
+    ///
+    /// v9 (12/10, treino do zero): tetos maiores para mapa maior no futuro (64 salas, 12 portas por sala, 8 chaves),
+    /// o bloco do CLONE e RESERVAS para habilidades futuras (32 floats no vetor sempre 0, tipos reservados na lista de
+    /// eventos). Reserva em 0 não pesa no treino; quando ganhar uso, o treino segue com --resume e uma lição nova.
     ///
     /// A rede NÃO vê nó, vizinho nem ligação: vê o que falta ver, onde dá para andar e as portas. Nada aqui é seta
     /// (nenhum "vá para lá" escolhido por algoritmo): o radar diz em que direção ainda há ponto não visto DENTRO DA
@@ -55,7 +60,7 @@ namespace Assets.Scripts.Free
     ///     [0]      quanto dá para andar nessa direção (NavMesh.Raycast até RadarReach) / RadarReach
     ///     [1]      fração dos pontos NÃO VISTOS da sala atual que estão nesse setor
     ///     [2]      quão perto está o não visto mais perto da sala nesse setor (1 = aqui, 0 = nenhum ou longe)
-    ///   Portas da sala atual (8 x 8), em ordem por ângulo em volta do centro da sala (o slot não pula):
+    ///   Portas da sala atual (12 x 8), em ordem por ângulo em volta do centro da sala (o slot não pula):
     ///     [0..1]   direção X/Z até o meio do vão
     ///     [2]      distância reta / DoorReach
     ///     [3]      distância pelo NavMesh / DoorReach (1 = sem caminho)
@@ -63,14 +68,25 @@ namespace Assets.Scripts.Free
     ///     [5]      entrei por aqui
     ///     [6]      fração vista da sala do outro lado
     ///     [7]      válida
-    /// Total 38 + 24 + 64 = 126.
+    ///   Clone (10, FreeCloneAbility; zeros sem clone):
+    ///     [0] pronto (a máscara também diz)  [1] recarga que falta  [2] canalizando: progresso  [3] ativo
+    ///     [4] modo vigia (0 = andarilho)  [5] vida que resta  [6..7] direção X/Z até ele  [8] distância / DoorReach
+    ///     [9] o clone está vendo o alvo agora
+    ///   Reserva (32): sempre 0. Pensada para o estado de até 6 habilidades (4 cada: pronto, recarga, ativo, vida),
+    ///     stun (4) e canalização genérica (2). Ao usar, documente aqui o índice.
+    /// Total 38 + 24 + 96 + 10 + 32 = 200.
     ///
-    /// CHAVES (BufferSensor "Keys", fora do vetor, só se o agente tiver o sensor ligado; vazio sem chaves), uma entrada
+    /// EVENTOS (BufferSensor "Events", FreeEventLog), os mais novos primeiro, até MaxEvents, 17 floats: [0..11] tipo
+    /// (one-hot, FreeEventLog.Type: 0 som, 1 chave levada, 2 clone viu, 3..11 reservados), [12..13] direção X/Z (a
+    /// próxima quina do caminho NavMesh), [14] distância pelo caminho / DoorReach, [15] força, [16] idade / idade
+    /// máxima (0 = agora).
+    ///
+    /// CHAVES (BufferSensor "Keys", fora do vetor, só se o agente tiver o sensor ligado; vazio sem chaves; até 8), uma entrada
     /// por chave, até MaxKeys, 7 floats: [0..1] direção X/Z, [2] distância reta / DoorReach, [3] distância pelo
     /// NavMesh / DoorReach (1 = sem caminho), [4] sabe que foi levada, [5] tempo sem conferir / intervalo da ronda
     /// (1 = nunca ou há muito), [6] levada há pouco (1 = acabou de saber, 0 depois do alarme).
     ///
-    /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (32), 8 floats cada:
+    /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (64), 8 floats cada:
     ///   [0..1] direção X/Z ao centro, [2] distância reta / diâmetro do mapa, [3] portas até ela / 16 (1 = sem
     ///   caminho), [4] fração vista, [5] vista (0/1), [6] é a atual, [7] fração das portas dela já atravessadas.
     /// </summary>
@@ -79,17 +95,24 @@ namespace Assets.Scripts.Free
         public const int GlobalObservations = 38;
         public const int Sectors = 8;
         public const int FloatsPerSector = 3;
-        public const int DoorSlots = 8;
+        public const int DoorSlots = 12;
         public const int FloatsPerDoor = 8;
-        public const int Size = GlobalObservations + Sectors * FloatsPerSector + DoorSlots * FloatsPerDoor;
+        public const int CloneObservations = 10;
+        public const int ReservedObservations = 32;
+        public const int Size = GlobalObservations + Sectors * FloatsPerSector + DoorSlots * FloatsPerDoor
+                                + CloneObservations + ReservedObservations;
 
         public const int RoomFeatures = 8;
-        public const int MaxRooms = 32;
+        public const int MaxRooms = 64;
         private const string RoomSensorName = "Rooms";
 
         public const int KeyFeatures = 7;
-        public const int MaxKeys = 4;
+        public const int MaxKeys = 8;
         private const string KeySensorName = "Keys";
+
+        public const int EventFeatures = FreeEventLog.TypeCount + 5;
+        public const int MaxEvents = 8;
+        private const string EventSensorName = "Events";
         private const float RoomHopsScale = 16f;
 
         // Alcance do "quanto dá para andar" (m): da ordem de uma sala; acima disso tudo é "livre".
@@ -112,6 +135,10 @@ namespace Assets.Scripts.Free
         private readonly FreeKeyField _keys;
         private readonly BufferSensorComponent _keySensor;
         private readonly float[] _keyBuffer = new float[KeyFeatures];
+        private readonly FreeCloneAbility _clone;
+        private readonly FreeEventLog _events;
+        private readonly BufferSensorComponent _eventSensor;
+        private readonly float[] _eventBuffer = new float[EventFeatures];
         private readonly int _stagnationSteps;
 
         private readonly float[] _roomBuffer = new float[RoomFeatures];
@@ -122,8 +149,12 @@ namespace Assets.Scripts.Free
         public FreeObservations(
             FreeMap map, FreeExplorationMemory memory, GraphLocomotion locomotion, GraphBodyTracker body, FreeStuckTracker stuck,
             GraphHiderPerception perception, FreeTrackSense track, BufferSensorComponent roomSensor, int stagnationSteps,
-            FreeKeyField keys = null, BufferSensorComponent keySensor = null)
+            FreeKeyField keys = null, BufferSensorComponent keySensor = null,
+            FreeCloneAbility clone = null, FreeEventLog events = null, BufferSensorComponent eventSensor = null)
         {
+            _clone = clone;
+            _events = events;
+            _eventSensor = eventSensor;
             _keys = keys;
             _keySensor = keySensor;
             _map = map;
@@ -176,6 +207,25 @@ namespace Assets.Scripts.Free
             keySensor.ObservableSize = KeyFeatures;
             keySensor.MaxNumObservables = MaxKeys;
             return keySensor;
+        }
+
+        /// <summary>O sensor dos eventos (v9). Chamar no Awake do Agent, antes do base.Awake.</summary>
+        public static BufferSensorComponent EnsureEventSensor(GameObject agent)
+        {
+            BufferSensorComponent eventSensor = null;
+            foreach (BufferSensorComponent sensor in agent.GetComponents<BufferSensorComponent>())
+            {
+                if (sensor.SensorName == EventSensorName)
+                    eventSensor = sensor;
+            }
+
+            if (eventSensor == null)
+                eventSensor = agent.AddComponent<BufferSensorComponent>();
+
+            eventSensor.SensorName = EventSensorName;
+            eventSensor.ObservableSize = EventFeatures;
+            eventSensor.MaxNumObservables = MaxEvents;
+            return eventSensor;
         }
 
         /// <param name="agent">O corpo do agente.</param>
@@ -279,14 +329,86 @@ namespace Assets.Scripts.Free
             // ---- Radar (8 x 3) ----
             WriteRadar(sensor, ground, room);
 
-            // ---- Portas da sala atual (8 x 8) ----
+            // ---- Portas da sala atual (12 x 8) ----
             WriteDoors(sensor, ground, room);
+
+            // ---- Clone (10) ----
+            WriteClone(sensor, agent.position);
+
+            // ---- Reserva (32): sempre 0 até uma habilidade nova ganhar índice aqui ----
+            for (int i = 0; i < ReservedObservations; i++)
+                sensor.AddObservation(0f);
 
             // ---- Planta ----
             WriteRoomPlan(ground, room);
 
             // ---- Chaves ----
             WriteKeys(ground);
+
+            // ---- Eventos ----
+            WriteEvents(ground, agent.position);
+        }
+
+        private void WriteClone(VectorSensor sensor, Vector3 position)
+        {
+            if (_clone == null)
+            {
+                for (int i = 0; i < CloneObservations; i++)
+                    sensor.AddObservation(0f);
+                return;
+            }
+
+            sensor.AddObservation(_clone.IsReady ? 1f : 0f);
+            sensor.AddObservation(_clone.CooldownRemaining);
+            sensor.AddObservation(_clone.ChannelProgress);
+            sensor.AddObservation(_clone.IsActive ? 1f : 0f);
+            sensor.AddObservation(_clone.CurrentMode == FreeCloneAbility.Mode.Sentry ? 1f : 0f);
+            sensor.AddObservation(_clone.LifeRemaining);
+            if (_clone.IsActive)
+            {
+                var planar = new Vector2(_clone.Feet.x - position.x, _clone.Feet.z - position.z);
+                float distance = planar.magnitude;
+                Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+                sensor.AddObservation(unit.x);
+                sensor.AddObservation(unit.y);
+                sensor.AddObservation(Mathf.Clamp01(distance / DoorReach));
+            }
+            else
+            {
+                sensor.AddObservation(0f);
+                sensor.AddObservation(0f);
+                sensor.AddObservation(0f);
+            }
+
+            sensor.AddObservation(_clone.SeesTarget ? 1f : 0f);
+        }
+
+        // Os mais novos primeiro; direção pelo caminho NavMesh, como a pista.
+        private void WriteEvents(Vector3 ground, Vector3 position)
+        {
+            if (_eventSensor == null || _events == null)
+                return;
+
+            _events.Prune();
+            float now = Time.time;
+            for (int i = 0; i < _events.Count && i < MaxEvents; i++)
+            {
+                FreeEventLog.Entry entry = _events.GetNewest(i);
+                System.Array.Clear(_eventBuffer, 0, EventFeatures);
+                _eventBuffer[(int)entry.Type] = 1f;
+
+                Vector3 aim = PathAim(ground, entry.Position, out float distance);
+                var planar = new Vector2(aim.x - position.x, aim.z - position.z);
+                float length = planar.magnitude;
+                Vector2 unit = length > 1e-4f ? planar / length : Vector2.zero;
+                int at = FreeEventLog.TypeCount;
+                _eventBuffer[at] = unit.x;
+                _eventBuffer[at + 1] = unit.y;
+                _eventBuffer[at + 2] = Mathf.Clamp01(distance / DoorReach);
+                _eventBuffer[at + 3] = entry.Strength;
+                _eventBuffer[at + 4] = Mathf.Clamp01((now - entry.Time) / _events.MaxAgeSeconds);
+                _eventSensor.AppendObservation(_eventBuffer);
+            }
         }
 
         private void WriteKeys(Vector3 ground)
@@ -477,7 +599,8 @@ namespace Assets.Scripts.Free
             {
                 Debug.LogError(
                     $"{context.name}: VectorObservationSize = {declared} mas o agente emite {Size} " +
-                    $"({GlobalObservations} + {Sectors} setores x {FloatsPerSector} + {DoorSlots} portas x {FloatsPerDoor}).", context);
+                    $"({GlobalObservations} + {Sectors} setores x {FloatsPerSector} + {DoorSlots} portas x {FloatsPerDoor} + " +
+                    $"{CloneObservations} clone + {ReservedObservations} reserva).", context);
             }
 
             if (behavior.BrainParameters.ActionSpec.NumContinuousActions != continuousActions)

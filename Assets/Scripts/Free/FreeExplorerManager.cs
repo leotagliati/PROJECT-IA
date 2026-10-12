@@ -20,7 +20,9 @@ namespace Assets.Scripts.Free
     ///   GraphBodyTracker        parede, batidas, suavidade (classe simples, a da v5)
     ///   FreeStuckTracker        PRESO na parede (classe simples)
     ///   FreeRewardSystem        recompensa (função pura do FreeStepContext)
-    ///   FreeObservations        vetor (126) e planta de salas                                             | classe simples
+    ///   FreeObservations        vetor (200), planta de salas, chaves e eventos                            | classe simples
+    ///   FreeCloneAbility        o CLONE (v9): ramo discreto 0, canalização, recarga                       | estado de episódio
+    ///   FreeEventLog            acontecimentos recentes (som, chave levada, clone viu) para o sensor       | classe simples
     ///   FreeArenaController     mapa (FreeMap), currículo, spawn, presa (FreeHider), alvo, modo de jogo    | no pai
     /// Nada aqui usa NavGraph nem nó: o mapa, a presa e as rotas saem do NavMesh.
     ///   GraphAnimationSystem, SeekerChaseState/AudioSystem/StaticVisual: visual e áudio do modelo (opcionais)
@@ -38,6 +40,13 @@ namespace Assets.Scripts.Free
         // Andar X/Z + olhar X/Z, no referencial do mundo (o mesmo do radar e das direções observadas).
         private const int ContinuousActions = 4;
 
+        // v9: ramos discretos. 0 = clone (nada / andarilho / vigia). 1 = "habilidade" (nada + 6) e 2 = "alvo" (nada +
+        // 12 slots de porta) são RESERVADOS: sempre mascarados até uma habilidade nova ganhar uso (aí o treino segue
+        // com --resume e uma lição nova, sem mudar o cérebro). Ordem e tamanhos são o contrato com os .onnx.
+        public const int AbilityBranchSize = 7;
+        public const int TargetBranchSize = FreeObservations.DoorSlots + 1;
+        private static readonly int[] DiscreteBranches = { FreeCloneAbility.BranchSize, AbilityBranchSize, TargetBranchSize };
+
         [Header("-----Sistemas (vazio = acha neste objeto ou nos filhos)-----")]
         [SerializeField] private FreeExplorationMemory _memory;
         [SerializeField] private FreeRewardSystem _rewardSystem;
@@ -46,6 +55,7 @@ namespace Assets.Scripts.Free
         [SerializeField] private GraphHiderPerception _perception;
         // Vazio = acha no agente, ou cria com os padrões.
         [SerializeField] private FreeTrackSense _trackSense;
+        [SerializeField] private FreeCloneAbility _clone;
         // Opcionais e só visuais/áudio do modelo do monstro: sem eles treina igual.
         [SerializeField] private GraphAnimationSystem _animationSystem;
         [SerializeField] private SeekerChaseState _chaseState;
@@ -83,7 +93,15 @@ namespace Assets.Scripts.Free
         private FreeObservations _observations;
         private BufferSensorComponent _roomSensor;
         private BufferSensorComponent _keySensorComponent;
+        private BufferSensorComponent _eventSensorComponent;
         private FreeKeyField _keys;
+
+        // Acontecimentos dos últimos 10 s, os 8 mais novos (o sensor "Events").
+        private readonly FreeEventLog _events = new FreeEventLog(FreeObservations.MaxEvents, 10f);
+
+        // O corpo do alvo (cabeça e peito para a visão do clone) e onde ele estava no step anterior (para onde ia).
+        private Collider _targetBody;
+        private Vector3 _lastTargetPosition;
         private readonly GraphBodyTracker _body = new GraphBodyTracker();
         private readonly FreeStuckTracker _stuck = new FreeStuckTracker();
         private FreeEpisodeSettings _settings;
@@ -115,6 +133,7 @@ namespace Assets.Scripts.Free
             _roomSensor = FreeObservations.EnsureRoomSensor(gameObject);
             if (_keySensor)
                 _keySensorComponent = FreeObservations.EnsureKeySensor(gameObject);
+            _eventSensorComponent = FreeObservations.EnsureEventSensor(gameObject);
             EnforceBrainShape(GetComponent<BehaviorParameters>(), warn: true, this);
             ApplyGameModeBehavior();
             base.Awake();
@@ -168,7 +187,8 @@ namespace Assets.Scripts.Free
                 _audioSystem.Silence();
         }
 
-        private static void EnforceBrainShape(BehaviorParameters behavior, bool warn, Object context)
+        /// <summary>Acerta vetor e ações do Behavior Parameters (o FreeV9Setup grava isto no prefab).</summary>
+        public static void EnforceBrainShape(BehaviorParameters behavior, bool warn, Object context)
         {
             if (behavior == null)
                 return;
@@ -187,8 +207,12 @@ namespace Assets.Scripts.Free
             }
 
             brain.NumStackedVectorObservations = 1;
-            if (brain.ActionSpec.NumContinuousActions != ContinuousActions || brain.ActionSpec.NumDiscreteActions != 0)
-                brain.ActionSpec = ActionSpec.MakeContinuous(ContinuousActions);
+            ActionSpec spec = brain.ActionSpec;
+            bool branchesOk = spec.BranchSizes != null && spec.BranchSizes.Length == DiscreteBranches.Length;
+            for (int b = 0; branchesOk && b < DiscreteBranches.Length; b++)
+                branchesOk = spec.BranchSizes[b] == DiscreteBranches[b];
+            if (spec.NumContinuousActions != ContinuousActions || !branchesOk)
+                brain.ActionSpec = new ActionSpec(ContinuousActions, (int[])DiscreteBranches.Clone());
         }
 
         // Campo do Inspector > este objeto ou filhos. Checagem explícita, não ??= (fake null do Unity).
@@ -205,6 +229,9 @@ namespace Assets.Scripts.Free
             _trackSense = Find(_trackSense);
             if (_trackSense == null)
                 _trackSense = gameObject.AddComponent<FreeTrackSense>();
+            _clone = Find(_clone);
+            if (_clone == null)
+                _clone = gameObject.AddComponent<FreeCloneAbility>();
             _animationSystem = Find(_animationSystem);
             _chaseState = Find(_chaseState);
             _audioSystem = Find(_audioSystem);
@@ -252,13 +279,14 @@ namespace Assets.Scripts.Free
                 _trail = target.GetComponent<FreeFootprintTrail>();
                 if (_trail == null)
                     _trail = target.gameObject.AddComponent<FreeFootprintTrail>();
+                _targetBody = target.GetComponentInChildren<Collider>();
             }
 
             _trackSense.Configure(_trail, _memory.WallLayer, _map.FloorY);
             _keys = _arenaController.Keys;
             _observations = new FreeObservations(
                 _map, _memory, _locomotion, _body, _stuck, _perception, _trackSense, _roomSensor, _rewardSystem.StagnationSteps,
-                _keys, _keySensorComponent);
+                _keys, _keySensorComponent, _clone, _events, _eventSensorComponent);
         }
 
         // Erro de wiring em ML-Agents é silencioso (treino que não converge): loga, e false = não dá para rodar.
@@ -354,6 +382,10 @@ namespace Assets.Scripts.Free
             if (_trail != null)
                 _trail.Clear();
             _trackSense.ResetEpisode();
+            _clone.ResetEpisode(_settings.CloneEnabled && _settings.HasHider);
+            _events.Clear();
+            if (GraphTarget.IsLive(_arenaController.Target))
+                _lastTargetPosition = _arenaController.Target.Position;
 
             _memory.ResetEpisode();
             _body.ResetEpisode();
@@ -377,10 +409,26 @@ namespace Assets.Scripts.Free
 
             _perception.Tick(transform);
 
-            // Pista nova (pegada vista ou som ouvido, FreeNoise) = Alerta. Vendo o alvo nenhuma das duas é procurada.
+            // Clone (v9): canaliza, anda/varre e olha. Vendo o alvo (e o monstro não), entrega uma PISTA forte: onde o
+            // alvo está e para onde ia. Antes do Tick da pista, para valer já neste step.
+            IGraphTarget target = _arenaController.Target;
+            bool targetLive = GraphTarget.IsLive(target);
+            if (_clone.Tick(transform.position, target, _targetBody, _arenaController.WallLayer)
+                && _settings.HasHider && targetLive && !_perception.IsSeeing)
+            {
+                _trackSense.Report(target.Position, target.Position - _lastTargetPosition, _clone.ReportStrength, _clone.ReportLifetime);
+                _events.Add(FreeEventLog.Type.CloneSaw, target.Position);
+            }
+
+            if (targetLive)
+                _lastTargetPosition = target.Position;
+
+            // Pista nova (pegada vista, som ouvido ou o clone) = Alerta. Vendo o alvo nenhuma delas é procurada.
             _trackSense.Tick(transform.position, _locomotion.ViewDirection, _perception.IsSeeing);
             if (_settings.HasHider && _trackSense.NewTrackThisStep)
                 _locomotion.NotifyHeard();
+            if (_trackSense.HeardThisStep)
+                _events.Add(FreeEventLog.Type.Noise, _trackSense.Position);
 
             // Chave levada que o monstro acabou de saber (com atraso) = pista: Alerta, como ouvir o alvo.
             if (_keys != null && _keys.Count > 0)
@@ -389,7 +437,10 @@ namespace Assets.Scripts.Free
                 var eye = new Vector3(ground.x, _map.FloorY + _memory.EyeHeight, ground.z);
                 _keys.Tick(ground, eye, _locomotion.ViewDirection, _memory.CosHalfAngle);
                 if (_keys.NewlyKnownThisStep > 0)
+                {
                     _locomotion.NotifyHeard();
+                    _events.Add(FreeEventLog.Type.KeyTaken, _keys.LastKnownPosition);
+                }
             }
 
             _locomotion.UpdateAwareness(_perception.IsSeeing);
@@ -423,6 +474,14 @@ namespace Assets.Scripts.Free
             ActionSegment<float> continuous = actions.ContinuousActions;
             var move = new Vector2(continuous[0], continuous[1]);
             var look = new Vector2(continuous[2], continuous[3]);
+
+            // Clone: o ramo 0 pede; a máscara já barrou o que não pode, e o TryActivate confere de novo (entre decisões
+            // a mesma ação chega a cada step de física e só a 1ª começa a canalização). Canalizando, o monstro fica
+            // parado: o andar vale zero (também para a suavidade, senão parar custaria como um tranco).
+            if (actions.DiscreteActions.Length > 0 && actions.DiscreteActions[0] > 0 && _matchRunning)
+                _clone.TryActivate((FreeCloneAbility.Mode)actions.DiscreteActions[0], transform.position, _locomotion.ViewDirection);
+            if (_clone.IsChanneling)
+                move = Vector2.zero;
             _body.BeginStep(move, look);
             _stuck.Tick(_body.IsTouchingAnyWall, _locomotion.IsMoving, _locomotion.Velocity.magnitude);
 
@@ -524,6 +583,18 @@ namespace Assets.Scripts.Free
                 FinishEpisode(success: false);
         }
 
+        // Ramo 0 (clone) só com o clone pronto; ramos 1 e 2 RESERVADOS: só a opção 0 ("nada") até ganharem uso.
+        public override void WriteDiscreteActionMask(IDiscreteActionMask actionMask)
+        {
+            bool cloneReady = _ready && _clone != null && _clone.IsReady && _matchRunning;
+            for (int option = 1; option < FreeCloneAbility.BranchSize; option++)
+                actionMask.SetActionEnabled(0, option, cloneReady);
+            for (int option = 1; option < AbilityBranchSize; option++)
+                actionMask.SetActionEnabled(1, option, false);
+            for (int option = 1; option < TargetBranchSize; option++)
+                actionMask.SetActionEnabled(2, option, false);
+        }
+
         // Com GameManager é derrota do jogador (ele recarrega a cena) e o monstro para onde está; sem GameManager
         // (cena de teste), o monstro renasce longe do jogador e caça de novo. É o único respawn do modo de jogo.
         private void CatchPlayer()
@@ -574,8 +645,12 @@ namespace Assets.Scripts.Free
                 hunt += $"   pegada a {Vector3.Distance(transform.position, _trackSense.Position):0} m ({_trackSense.Intensity:P0})";
             if (IsHunting)
                 hunt += "   [CAÇANDO: exploração em 0]";
+            string clone = !_clone.Allowed ? "desligado nesta lição"
+                : _clone.IsChanneling ? $"CANALIZANDO {_clone.ChannelProgress:P0}"
+                : _clone.IsActive ? $"{_clone.CurrentMode} ({_clone.LifeRemaining:P0} de vida){(_clone.SeesTarget ? "  VENDO O ALVO" : "")}"
+                : _clone.IsReady ? "pronto (C = andarilho, V = vigia)" : $"recarga {_clone.CooldownRemaining:P0}";
             string text =
-                $"<b>v8 FreeExplorer</b>  {name}\n" +
+                $"<b>v9 FreeExplorer</b>  {name}\n" +
                 $"Tempo: {_elapsedSteps * Time.fixedDeltaTime:0} s / {_maxEpisodeSteps * Time.fixedDeltaTime:0} s\n" +
                 $"Reward do episódio: {GetCumulativeReward():0.000}   (último step {_lastStepReward:+0.0000;-0.0000})\n" +
                 $"Pontos vistos: {_memory.SeenCount}/{_map.PointCount} ({_memory.SeenFraction:P0}), meta {_settings.CoverageTarget:P0}\n" +
@@ -584,10 +659,11 @@ namespace Assets.Scripts.Free
                 $"Estado: {_locomotion.State}  {_locomotion.Velocity.magnitude:0.0} m/s\n" +
                 $"Parede: batidas recentes {_body.RecentHits}   presa {(_stuck.IsStuck ? "SIM" : "não")} ({_stuck.Level:P0})\n" +
                 $"Presa (hider): {hunt}\n" +
+                $"Clone: {clone}   eventos: {_events.Count}\n" +
                 $"Último evento: {_lastEvent}";
 
             var style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 14, richText = true };
-            GUI.Box(new Rect(10, 10, 560, 230), text, style);
+            GUI.Box(new Rect(10, 10, 560, 250), text, style);
         }
 
         // OnCollisionStay chega só no objeto do Rigidbody (este). Parede por LAYER (a máscara da memória), nunca por tag.
@@ -646,6 +722,7 @@ namespace Assets.Scripts.Free
         ///   Movement/StuckFraction      fração do episódio PRESA na parede
         ///   Movement/IdleFraction, ActionJitter, LookJitter, ChaseFraction, AlertFraction, MeanSpeed
         ///   Hunt/Seen, Caught, Sightings, LostSight, SightToCatchSeconds, TracksSeen (pegadas), NoisesHeard (sons)   (só com presa)
+        ///   Clone/Uses, Clone/SawTarget, Clone/Reports                                  (só com o clone liberado)
         /// </summary>
         private string[] _roomStatNames;
 
@@ -702,6 +779,14 @@ namespace Assets.Scripts.Free
                 stats.Add("Hunt/NoisesHeard", _trackSense.EpisodeNoisesHeard);
             }
 
+            // Clone (só episódios em que a lição o libera): usos, se viu o alvo, pistas entregues.
+            if (_clone.Allowed)
+            {
+                stats.Add("Clone/Uses", _clone.EpisodeUses);
+                stats.Add("Clone/SawTarget", _clone.EpisodeSawTarget ? 1f : 0f);
+                stats.Add("Clone/Reports", _clone.EpisodeReports);
+            }
+
             // Chaves (só episódios com chaves): quantas a presa levou, se escapou, rondas e tempo campando.
             if (_keys != null && _keys.Count > 0)
             {
@@ -724,6 +809,9 @@ namespace Assets.Scripts.Free
             {
                 for (int i = 0; i < continuous.Length; i++)
                     continuous[i] = 0f;
+                ActionSegment<int> idle = actionsOut.DiscreteActions;
+                for (int i = 0; i < idle.Length; i++)
+                    idle[i] = 0;
                 return;
             }
 
@@ -733,6 +821,14 @@ namespace Assets.Scripts.Free
             // Na mão, olha para onde anda.
             continuous[2] = continuous[0];
             continuous[3] = continuous[1];
+
+            // C = clone andarilho, V = vigia (na mão a máscara não vale: o TryActivate ignora se não estiver pronto).
+            // Ramos reservados: sempre 0.
+            ActionSegment<int> discrete = actionsOut.DiscreteActions;
+            for (int i = 0; i < discrete.Length; i++)
+                discrete[i] = 0;
+            if (discrete.Length > 0)
+                discrete[0] = Input.GetKey(KeyCode.C) ? 1 : Input.GetKey(KeyCode.V) ? 2 : 0;
         }
 #endif
     }
