@@ -8,8 +8,12 @@ namespace Assets.Scripts.Free
     ///   PEGADA  (<see cref="FreeFootprintTrail"/>) sem ver o alvo, a cada _scanInterval steps de física olha as pegadas
     ///           mais novas: no alcance, no cone em volta de para onde a cabeça olha e com linha livre do olho até ela
     ///           (parede esconde pegada). A fraca (agachado) dura pouco, mas é vista igual.
-    ///   SOM     (<see cref="FreeNoise"/>) ouvido se o caminho NavMesh até ele cabe no raio do som. Diz ONDE, não para
-    ///           onde o alvo ia (Heading zero). Vendo o alvo, som é ignorado.
+    ///   SOM     (<see cref="NoiseEvents"/>, a API de barulho do jogo: o passo correndo do alvo e o item que o jogador
+    ///           arremessa, ThrowableItem) ouvido se o caminho NavMesh até ele cabe no raio do som. Diz ONDE, não para
+    ///           onde o alvo ia (Heading zero). Vendo o alvo, som é ignorado. Garrafa e corrida são o MESMO som para o
+    ///           cérebro (evento Noise): o treino só tem corrida, então a garrafa atrai o monstro como um barulho de
+    ///           gente (o "lure" que o jogo quer); um tipo próprio, nunca visto no treino, daria reação imprevisível.
+    ///           Até 12/10 isto era o FreeNoise da v9; virou o NoiseEvents para o jogo ter uma API de barulho só.
     /// A pista mais NOVA fica lembrada (Has/Position/Heading/Intensity) até esmaecer, e vira:
     ///   - observação: onde está a pista e para onde o alvo ia (o "seguir o rastro");
     ///   - estado de ALERTA no GraphLocomotion (pista nova = 9.5 m/s), pelo Manager;
@@ -39,7 +43,7 @@ namespace Assets.Scripts.Free
         // Olho acima do PISO (m), como na FreeExplorationMemory.
         [SerializeField, Min(0.1f)] private float _eyeHeight = 2.5f;
 
-        [Header("-----Ouvir (FreeNoise)-----")]
+        [Header("-----Ouvir (NoiseEvents)-----")]
         // Força (0..1) e duração (s) da pista de um som ouvido. Como a pegada de corrida (1, 12 s), mas mais curta:
         // som é um instante, quem faz barulho já saiu dali.
         [SerializeField, Range(0f, 1f)] private float _noiseStrength = 1f;
@@ -90,11 +94,16 @@ namespace Assets.Scripts.Free
         /// <summary>Sons ouvidos no episódio (Hunt/NoisesHeard).</summary>
         public int EpisodeNoisesHeard { get; private set; }
 
+        /// <summary>Um som virou pista neste step (o Manager registra o evento "som" na FreeEventLog).</summary>
+        public bool HeardThisStep { get; private set; }
+
+        private bool _heardEventPending;
+
         private void Awake() => _path = new NavMeshPath();
 
-        private void OnEnable() => FreeNoise.Emitted += Hear;
+        private void OnEnable() => NoiseEvents.Emitted += Hear;
 
-        private void OnDisable() => FreeNoise.Emitted -= Hear;
+        private void OnDisable() => NoiseEvents.Emitted -= Hear;
 
         public void Configure(FreeFootprintTrail trail, LayerMask wallLayer, float floorY)
         {
@@ -113,12 +122,33 @@ namespace Assets.Scripts.Free
             EpisodeTracksSeen = 0;
             EpisodeNoisesHeard = 0;
             _heardPending = false;
+            _heardEventPending = false;
+            HeardThisStep = false;
 
             // Depois do respawn a posição guardada é a do episódio anterior: só ouve de novo depois do 1º Tick.
             _hasListener = false;
         }
 
-        public void ClearStepFlags() => NewTrackThisStep = false;
+        public void ClearStepFlags()
+        {
+            NewTrackThisStep = false;
+            HeardThisStep = false;
+        }
+
+        /// <summary>
+        /// Pista entregue por outro sentido (o clone vendo o alvo, v9): onde e para onde ia. Mesmo caminho do som: vira
+        /// NewTrackThisStep no próximo Tick (Alerta, foco na caça, observação [30..35]).
+        /// </summary>
+        public void Report(Vector3 position, Vector3 heading, float strength, float lifetime)
+        {
+            Position = position;
+            heading.y = 0f;
+            Heading = heading.sqrMagnitude > 1e-6f ? heading.normalized : Vector3.zero;
+            _trackTime = Time.time;
+            _trackStrength = Mathf.Clamp01(strength);
+            _trackLifetime = Mathf.Max(0.1f, lifetime);
+            _heardPending = true;
+        }
 
         /// <summary>Um step de física. Vendo o alvo não olha o chão (a pegada não acrescenta nada).</summary>
         public void Tick(Vector3 position, Vector3 view, bool seeingTarget)
@@ -130,6 +160,12 @@ namespace Assets.Scripts.Free
             {
                 _heardPending = false;
                 NewTrackThisStep = true;
+            }
+
+            if (_heardEventPending)
+            {
+                _heardEventPending = false;
+                HeardThisStep = true;
             }
 
             if (_trail == null || seeingTarget || _tick++ % _scanInterval != 0)
@@ -204,6 +240,7 @@ namespace Assets.Scripts.Free
             _trackStrength = _noiseStrength;
             _trackLifetime = _noiseLifetime;
             _heardPending = true;
+            _heardEventPending = true;
             EpisodeNoisesHeard++;
         }
 
