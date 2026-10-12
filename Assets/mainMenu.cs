@@ -34,6 +34,10 @@ public class mainMenu : MonoBehaviour
     [SerializeField] private CanvasGroup _menuGroup;
     [SerializeField] private int _gameSceneIndex = 1;
 
+    [Header("Créditos")]
+    [SerializeField] private string _creditsScene = "MenuLoading";
+    [SerializeField] private float _creditsFadeTime = 0.6f;
+
     private bool _transitioning;
 
     public void PlayGame()
@@ -46,9 +50,39 @@ public class mainMenu : MonoBehaviour
         StartCoroutine(PlayTransition());
     }
 
+    public void OpenCredits()
+    {
+        if (_transitioning)
+            return;
+
+        _transitioning = true;
+        StartCoroutine(CreditsTransition());
+    }
+
     public void QuitGame()
     {
         Application.Quit();
+    }
+
+    // Sem o voo da câmera: ele é a "entrada no jogo", e os créditos são só um desvio do menu.
+    private IEnumerator CreditsTransition()
+    {
+        if (EventSystem.current != null)
+            EventSystem.current.enabled = false;
+
+        AsyncOperation load = SceneManager.LoadSceneAsync(_creditsScene);
+        load.allowSceneActivation = false;
+
+        Image fade = CreateFadeOverlay();
+
+        for (float t = 0f; t < _creditsFadeTime; t += Time.unscaledDeltaTime)
+        {
+            SetAlpha(fade, t / _creditsFadeTime);
+            yield return null;
+        }
+
+        SetAlpha(fade, 1f);
+        load.allowSceneActivation = true;
     }
 
     private IEnumerator PlayTransition()

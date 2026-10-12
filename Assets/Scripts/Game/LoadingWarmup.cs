@@ -17,7 +17,7 @@ using UnityEngine.UI;
 /// (_ADDITIONAL_LIGHT_SHADOWS, cookies), então o que engasgava era justamente a primeira luz com sombra
 /// aparecendo; o passo 2 pega o que a coleção não tiver.
 ///
-/// Só roda uma vez por sessão: o reload da partida reaproveita o que o driver já compilou.
+/// Só roda uma vez por cena por sessão: o reload da partida reaproveita o que o driver já compilou.
 ///
 /// A tela é um Canvas da cena (<see cref="screen"/>), montado à vontade; daqui ela só recebe progresso e fade.
 /// Vazio = tela preta gerada por código.
@@ -52,7 +52,10 @@ public class LoadingWarmup : MonoBehaviour
     // Fatia do progresso que cabe às coleções; o resto é dos passes de desenho, que têm duração conhecida.
     private const float CollectionsShare = 0.3f;
 
-    private static bool warmedThisSession;
+    // Por cena, não global: os créditos têm materiais que a partida nunca mostrou, e vice-versa.
+    private static readonly HashSet<string> warmedScenes = new HashSet<string>();
+
+    private bool AlreadyWarmed => warmedScenes.Contains(gameObject.scene.path);
 
     private readonly List<(Mesh mesh, Material material, int submesh)> draws = new List<(Mesh, Material, int)>();
     private bool generatedScreen;
@@ -67,7 +70,7 @@ public class LoadingWarmup : MonoBehaviour
 
     private void Awake()
     {
-        if (warmedThisSession)
+        if (AlreadyWarmed)
         {
             if (screen != null)
                 screen.gameObject.SetActive(false);
@@ -100,7 +103,7 @@ public class LoadingWarmup : MonoBehaviour
 
     private void Start()
     {
-        if (!warmedThisSession)
+        if (!AlreadyWarmed)
             StartCoroutine(Run());
     }
 
@@ -145,7 +148,7 @@ public class LoadingWarmup : MonoBehaviour
         }
 
         SetProgress(1f);
-        warmedThisSession = true;
+        warmedScenes.Add(gameObject.scene.path);
         PlayerInputProvider.SetMode(InputMode.Player);
         screen.blocksRaycasts = false;
 
@@ -328,6 +331,6 @@ public class LoadingWarmup : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
     {
-        warmedThisSession = false;
+        warmedScenes.Clear();
     }
 }

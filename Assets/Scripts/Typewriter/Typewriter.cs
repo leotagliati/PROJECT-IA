@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -8,8 +10,11 @@ using UnityEngine.InputSystem.Controls;
 using UnityEngine.InputSystem.Utilities;
 
 /// <summary>
-/// Máquina de escrever do menu: qualquer tecla/botão bate a próxima letra do texto escrito no
-/// <see cref="paperText"/>. O texto é lido no Awake, o componente é zerado e cada tecla acrescenta um caractere.
+/// Máquina de escrever: bate, letra a letra, o texto escrito no <see cref="paperText"/>. O texto é lido no Awake,
+/// o componente é zerado e cada batida acrescenta um caractere. Com <see cref="autoType"/> ela digita sozinha e
+/// qualquer tecla/botão acelera; sem, só digita quando apertam.
+///
+/// Uma linha contendo só "---" separa páginas: no fim de cada uma a folha sai por cima e uma nova entra.
 ///
 /// Lê o dispositivo direto (onAnyButtonPress), não o PlayerInputActions: aqui vale qualquer botão, inclusive
 /// os que não estão mapeados. Desligue o componente para parar de aceitar digitação.
@@ -27,6 +32,35 @@ public class Typewriter : MonoBehaviour
 
     [Tooltip("Multiplica a subida por linha. 1 = exatamente uma altura de linha do texto.")]
     [SerializeField, Min(0f)] private float feedScale = 1f;
+
+    [Header("Troca de página")]
+    [Tooltip("Tempo com a página completa parada, para dar tempo de ler, antes de ela sair.")]
+    [SerializeField, Min(0f)] private float pageHoldTime = 2.5f;
+
+    [Tooltip("Quanto a folha sobe (Y local) ao sair da máquina.")]
+    [SerializeField] private float pageEjectRise = 0.3f;
+
+    [SerializeField, Min(0f)] private float pageEjectTime = 0.7f;
+
+    [Tooltip("A folha nova nasce esse tanto abaixo da posição inicial e sobe até ela.")]
+    [SerializeField, Min(0f)] private float pageInsertDrop = 0.05f;
+
+    [SerializeField, Min(0f)] private float pageInsertTime = 0.6f;
+
+    [Header("Automático")]
+    [SerializeField] private bool autoType = true;
+
+    [Tooltip("Espera antes da primeira letra.")]
+    [SerializeField, Min(0f)] private float autoStartDelay = 0.8f;
+
+    [Tooltip("Intervalo médio entre letras. O jogador apertando soma batidas por cima desse ritmo.")]
+    [SerializeField, Min(0.01f)] private float autoInterval = 0.12f;
+
+    [Tooltip("Variação do intervalo (fração), para soar humano em vez de metrônomo.")]
+    [SerializeField, Range(0f, 1f)] private float autoJitter = 0.4f;
+
+    [Tooltip("Pausa extra depois de pontuação.")]
+    [SerializeField, Min(0f)] private float punctuationPause = 0.25f;
 
     [Header("Injetor")]
     [Tooltip("Cabeça que acompanha a letra. Posicione no editor onde a PRIMEIRA letra da linha é batida; " +
@@ -74,6 +108,8 @@ public class Typewriter : MonoBehaviour
     [SerializeField] private string keySound = "typewriter_key";
     [Tooltip("Sino + alavanca de retorno num clipe só: na troca de linha os dois sempre tocam juntos.")]
     [SerializeField] private string returnSound = "typewriter_return";
+    [Tooltip("Folha saindo / entrando na troca de página.")]
+    [SerializeField] private string pageSound = "typewriter_page";
 
     [Header("Eventos")]
     [SerializeField] private UnityEvent finished;
@@ -92,13 +128,18 @@ public class Typewriter : MonoBehaviour
     private float _injectorTime;
 
     private IDisposable _anyButton;
+    private string[] _pages;
+    private int _page;
     private string _script;
     private int _cursor;
     private int _line;
+    private char _lastChar;
+    private bool _changingPage;
 
     private float _cooldown;
     private int _queued;
     private float _heat;
+    private float _autoTimer;
 
     public bool IsFinished { get; private set; }
 
@@ -130,7 +171,8 @@ public class Typewriter : MonoBehaviour
         }
 
         // No Awake: o texto inteiro não pode aparecer nem no primeiro frame.
-        _script = paperText.text ?? string.Empty;
+        _pages = SplitPages(paperText.text ?? string.Empty);
+        _script = _pages[0];
         paperText.text = string.Empty;
 
         foreach (Transform key in keys)
@@ -166,6 +208,7 @@ public class Typewriter : MonoBehaviour
     private void Start()
     {
         WarnMissingSounds();
+        _autoTimer = autoStartDelay;
     }
 
     private void OnEnable()
@@ -188,22 +231,40 @@ public class Typewriter : MonoBehaviour
         if (control.device is Gamepad pad && control == pad.startButton)
             return;
 
+        if (_changingPage || IsFinished)
+            return;
+
         // Livre: bate na hora, sem esperar o Update (latência zero na digitação calma).
         if (_cooldown <= 0f && _queued == 0)
-            Fire();
+            Fire(true);
         else if (_queued < maxQueued)
             _queued++;
     }
 
-    private void Fire()
+    private void Fire(bool fromPlayer)
     {
+        // Só o jogador esquenta: o ritmo automático é calmo por definição e tem que soar sempre cheio.
+        if (fromPlayer)
+            _heat = Mathf.Min(1f, _heat + 1f / rampStrikes);
+
         _cooldown = minStrikeInterval;
         TypeNext();
+        _autoTimer = NextAutoDelay();
+    }
+
+    private float NextAutoDelay()
+    {
+        float delay = autoInterval * (1f + UnityEngine.Random.Range(-autoJitter, autoJitter));
+
+        if (".,;:!?".IndexOf(_lastChar) >= 0)
+            delay += punctuationPause;
+
+        return delay;
     }
 
     public void TypeNext()
     {
-        if (IsFinished || _script == null)
+        if (IsFinished || _changingPage || _script == null)
             return;
 
         int start = _cursor;
@@ -238,11 +299,72 @@ public class Typewriter : MonoBehaviour
             }
         }
 
-        if (_cursor >= _script.Length)
+        if (_cursor < _script.Length)
+            return;
+
+        if (_page + 1 < _pages.Length)
         {
-            IsFinished = true;
-            finished.Invoke();
+            StartCoroutine(ChangePage());
+            return;
         }
+
+        IsFinished = true;
+        finished.Invoke();
+    }
+
+    private IEnumerator ChangePage()
+    {
+        _changingPage = true;
+        _queued = 0;
+
+        yield return new WaitForSeconds(pageHoldTime);
+
+        Play(pageSound, transform.position);
+        _sheetTargetY += pageEjectRise;
+        yield return new WaitForSeconds(pageEjectTime);
+
+        // Folha nova: texto limpo e nasce por baixo, já parada (velocidade zerada, senão herda o embalo da saída).
+        _page++;
+        _script = _pages[_page];
+        _cursor = 0;
+        _line = 0;
+        _lastChar = default;
+        paperText.text = string.Empty;
+
+        if (sheet != null)
+        {
+            Vector3 p = sheet.localPosition;
+            p.y = _sheetRestY - pageInsertDrop;
+            sheet.localPosition = p;
+            _sheetVelocity = 0f;
+        }
+
+        _sheetTargetY = _sheetRestY;
+        _injectorTarget = _injectorRest;
+        _injectorTime = injectorReturnTime;
+
+        Play(pageSound, transform.position);
+        yield return new WaitForSeconds(pageInsertTime);
+
+        _changingPage = false;
+        _autoTimer = autoStartDelay;
+    }
+
+    private static string[] SplitPages(string text)
+    {
+        var pages = new List<string>();
+
+        foreach (string page in Regex.Split(text, @"\r?\n[ \t]*---[ \t]*(?=\r?\n|$)"))
+        {
+            string trimmed = page.Trim('\r', '\n');
+            if (trimmed.Length > 0)
+                pages.Add(trimmed);
+        }
+
+        if (pages.Count == 0)
+            pages.Add(string.Empty);
+
+        return pages.ToArray();
     }
 
     // Tag de rich text entra inteira numa tecla só; senão "<b>" apareceria digitado letra a letra.
@@ -269,9 +391,9 @@ public class Typewriter : MonoBehaviour
         if (keyIndex >= 0)
             _keyPressAge[keyIndex] = 0f;
 
-        // Mashing vira chiado de fundo em vez de metralhadora; digitação calma nunca esquenta.
-        _heat = Mathf.Min(1f, _heat + 1f / rampStrikes);
+        _lastChar = c;
 
+        // Mashing vira chiado de fundo em vez de metralhadora; digitação calma nunca esquenta.
         Vector3 soundAt = keyIndex >= 0 ? _allKeys[keyIndex].position : transform.position;
         Play(keySound, soundAt, Mathf.Lerp(1f, fastVolume, _heat));
     }
@@ -332,7 +454,14 @@ public class Typewriter : MonoBehaviour
         if (_cooldown <= 0f && _queued > 0)
         {
             _queued--;
-            Fire();
+            Fire(true);
+        }
+        else if (autoType && !_changingPage && !IsFinished)
+        {
+            _autoTimer -= dt;
+
+            if (_autoTimer <= 0f && _cooldown <= 0f)
+                Fire(false);
         }
 
         for (int i = 0; i < _allKeys.Count; i++)
@@ -392,6 +521,7 @@ public class Typewriter : MonoBehaviour
         var missing = new List<string>();
         keySound = Validate(library, keySound, missing);
         returnSound = Validate(library, returnSound, missing);
+        pageSound = Validate(library, pageSound, missing);
 
         if (missing.Count > 0)
             Debug.LogWarning("[Typewriter] Sem clipe na AudioLibrary para: " + string.Join(", ", missing), this);
