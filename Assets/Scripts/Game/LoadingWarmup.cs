@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Rendering;
@@ -19,21 +18,16 @@ using UnityEngine.UI;
 ///
 /// Só roda uma vez por cena por sessão: o reload da partida reaproveita o que o driver já compilou.
 ///
-/// A tela é um Canvas da cena (<see cref="screen"/>), montado à vontade; daqui ela só recebe progresso e fade.
-/// Vazio = tela preta gerada por código.
+/// A tela (<see cref="screen"/>) é montada à vontade, num prefab ou direto na cena; daqui ela só é exibida,
+/// recebe progresso e some com fade. Vazio = tela preta gerada por código.
 /// </summary>
 [DefaultExecutionOrder(-200)]
 public class LoadingWarmup : MonoBehaviour
 {
     [Header("Tela")]
-    [Tooltip("Raiz da tela de loading na cena, ATIVA (o primeiro frame já tem que sair coberto). O alpha dela faz " +
-             "o fade de saída e ela é desligada no fim. Vazio = tela preta gerada.")]
-    [SerializeField] private CanvasGroup screen;
-
-    [Tooltip("Opcional. Recebe o texto base com reticências animadas (\"Carregando.\", \"..\", \"...\").")]
-    [SerializeField] private TMP_Text label;
-
-    [SerializeField] private string labelText = "Carregando";
+    [Tooltip("Prefab (instanciado aqui) ou objeto da cena. Não precisa de Canvas nem CanvasGroup na raiz: o que " +
+             "faltar é adicionado. Vazio = tela preta gerada.")]
+    [SerializeField] private GameObject screen;
 
     [Tooltip("Progresso 0..1 a cada frame. Ligue em Slider.value ou Image.fillAmount (Dynamic float).")]
     [SerializeField] private UnityEvent<float> progressChanged;
@@ -58,7 +52,8 @@ public class LoadingWarmup : MonoBehaviour
     private bool AlreadyWarmed => warmedScenes.Contains(gameObject.scene.path);
 
     private readonly List<(Mesh mesh, Material material, int submesh)> draws = new List<(Mesh, Material, int)>();
-    private bool generatedScreen;
+    private CanvasGroup group;
+    private bool ownsScreen;
     private bool running;
     private float previousVolume;
     private Mesh quad;
@@ -70,10 +65,12 @@ public class LoadingWarmup : MonoBehaviour
 
     private void Awake()
     {
+        bool isPrefab = screen != null && !screen.scene.IsValid();
+
         if (AlreadyWarmed)
         {
-            if (screen != null)
-                screen.gameObject.SetActive(false);
+            if (screen != null && !isPrefab)
+                screen.SetActive(false);
             enabled = false;
             return;
         }
@@ -82,23 +79,39 @@ public class LoadingWarmup : MonoBehaviour
         if (screen == null)
         {
             screen = BuildScreen();
-            generatedScreen = true;
+            ownsScreen = true;
+        }
+        else if (isPrefab)
+        {
+            screen = Instantiate(screen);
+            ownsScreen = true;
         }
 
-        screen.gameObject.SetActive(true);
-        screen.alpha = 1f;
-        screen.blocksRaycasts = true;
+        screen.SetActive(true);
+
+        // Sem Canvas acima, uma tela montada como prefab solto não renderizaria.
+        Canvas canvas = screen.GetComponentInParent<Canvas>();
+        if (canvas == null)
+        {
+            canvas = screen.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            screen.AddComponent<CanvasScaler>();
+        }
 
         // Por cima de tudo, inclusive do HUD e das dicas que nascem nesta cena.
-        Canvas canvas = screen.GetComponentInParent<Canvas>();
-        if (canvas != null && canvas.isRootCanvas)
+        if (canvas.isRootCanvas)
             canvas.sortingOrder = short.MaxValue;
+
+        if (!screen.TryGetComponent(out group))
+            group = screen.AddComponent<CanvasGroup>();
+
+        group.alpha = 1f;
+        group.blocksRaycasts = true;
 
         running = true;
         previousVolume = AudioListener.volume;
         AudioListener.volume = 0f;
         SetProgress(0f);
-        UpdateLabel();
     }
 
     private void Start()
@@ -122,7 +135,6 @@ public class LoadingWarmup : MonoBehaviour
 
             while (!collections[i].WarmUpProgressively(variantsPerFrame))
             {
-                UpdateLabel();
                 yield return null;
             }
 
@@ -150,12 +162,12 @@ public class LoadingWarmup : MonoBehaviour
         SetProgress(1f);
         warmedScenes.Add(gameObject.scene.path);
         PlayerInputProvider.SetMode(InputMode.Player);
-        screen.blocksRaycasts = false;
+        group.blocksRaycasts = false;
 
         for (float t = 0f; t < fadeOutTime; t += Time.unscaledDeltaTime)
         {
             float k = t / fadeOutTime;
-            screen.alpha = 1f - k;
+            group.alpha = 1f - k;
             AudioListener.volume = Mathf.Lerp(0f, previousVolume, k);
             yield return null;
         }
@@ -163,10 +175,10 @@ public class LoadingWarmup : MonoBehaviour
         running = false;
         AudioListener.volume = previousVolume;
 
-        if (generatedScreen)
-            Destroy(screen.gameObject);
+        if (ownsScreen)
+            Destroy(screen);
         else
-            screen.gameObject.SetActive(false);
+            screen.SetActive(false);
     }
 
     private void OnDestroy()
@@ -182,7 +194,6 @@ public class LoadingWarmup : MonoBehaviour
 
         for (int i = 0; i < frames; i++)
         {
-            UpdateLabel();
             DrawAll(cam);
             drawFramesDone++;
             SetProgress(Mathf.Lerp(CollectionsShare, 1f, (float)drawFramesDone / totalFrames));
@@ -286,8 +297,8 @@ public class LoadingWarmup : MonoBehaviour
                 light.enabled = enabled;
     }
 
-    // Fallback sem tela configurada: fundo preto e o texto no canto, como o fade do menu termina.
-    private CanvasGroup BuildScreen()
+    // Fallback sem tela configurada: fundo preto, como o fade do menu termina.
+    private GameObject BuildScreen()
     {
         var root = new GameObject("LoadingOverlay", typeof(Canvas), typeof(CanvasGroup));
         root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
@@ -297,27 +308,7 @@ public class LoadingWarmup : MonoBehaviour
         background.color = Color.black;
         Stretch(background.rectTransform);
 
-        if (label == null)
-        {
-            var text = new GameObject("Label", typeof(TextMeshProUGUI)).GetComponent<TextMeshProUGUI>();
-            text.transform.SetParent(root.transform, false);
-            text.alignment = TextAlignmentOptions.BottomRight;
-            text.fontSize = 28f;
-            text.color = new Color(1f, 1f, 1f, 0.6f);
-            text.raycastTarget = false;
-            Stretch(text.rectTransform);
-            text.rectTransform.offsetMin = new Vector2(48f, 40f);
-            text.rectTransform.offsetMax = new Vector2(-48f, -40f);
-            label = text;
-        }
-
-        return root.GetComponent<CanvasGroup>();
-    }
-
-    private void UpdateLabel()
-    {
-        if (label != null)
-            label.text = labelText + new string('.', 1 + (int)(Time.unscaledTime * 2f) % 3);
+        return root;
     }
 
     private static void Stretch(RectTransform rect)
