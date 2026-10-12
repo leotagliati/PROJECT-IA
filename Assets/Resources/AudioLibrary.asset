@@ -145,6 +145,7 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 9168c7ebf5ea1d5488d91657f2f383eb, type: 3}
     Volume: 0.5
     PitchJitter: 0
+    MaxDistance: 0
   - Id: suspenseStart
     Clips:
     - {fileID: 8300000, guid: ccfac6ce2ee13aa4f92ef030d580fcc5, type: 3}
@@ -180,4 +181,17 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 6177b6d968cec104b8aeab7ea543f471, type: 3}
     Volume: 1
     PitchJitter: 0.08
+    MaxDistance: 0
+  - Id: typewriter_hit
+    Clips:
+    - {fileID: 8300000, guid: 2f986b5f79dc5604f94a9c64940be610, type: 3}
+    - {fileID: 8300000, guid: 1fa31eea7aab8334987e14cf243291bc, type: 3}
+    Volume: 0.791
+    PitchJitter: 0.186
+    MaxDistance: 0
+  - Id: typewriter_return
+    Clips:
+    - {fileID: 8300000, guid: 2e547f619a08d2c4396925b992234543, type: 3}
+    Volume: 0.733
+    PitchJitter: 0.23
     MaxDistance: 0
