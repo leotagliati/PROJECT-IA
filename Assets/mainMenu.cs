@@ -35,7 +35,7 @@ public class mainMenu : MonoBehaviour
     [SerializeField] private int _gameSceneIndex = 1;
 
     [Header("Créditos")]
-    [SerializeField] private string _creditsScene = "MenuLoading";
+    [SerializeField] private string _creditsScene = "Credits";
     [SerializeField] private float _creditsFadeTime = 0.6f;
 
     private bool _transitioning;

@@ -195,3 +195,9 @@ MonoBehaviour:
     Volume: 0.733
     PitchJitter: 0.23
     MaxDistance: 0
+  - Id: typewriter_page
+    Clips:
+    - {fileID: 8300000, guid: a9be45d92fef6824badf8f92efeb9deb, type: 3}
+    Volume: 0.733
+    PitchJitter: 0.23
+    MaxDistance: 0

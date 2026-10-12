@@ -14,7 +14,8 @@ using UnityEngine.InputSystem.Utilities;
 /// o componente é zerado e cada batida acrescenta um caractere. Com <see cref="autoType"/> ela digita sozinha e
 /// qualquer tecla/botão acelera; sem, só digita quando apertam.
 ///
-/// Uma linha contendo só "---" separa páginas: no fim de cada uma a folha sai por cima e uma nova entra.
+/// Uma linha contendo só "---" separa páginas: no fim de cada uma a folha voa até o ponto de saída, reaparece
+/// limpa no ponto de spawn e sobe até a posição inicial.
 ///
 /// Lê o dispositivo direto (onAnyButtonPress), não o PlayerInputActions: aqui vale qualquer botão, inclusive
 /// os que não estão mapeados. Desligue o componente para parar de aceitar digitação.
@@ -37,13 +38,15 @@ public class Typewriter : MonoBehaviour
     [Tooltip("Tempo com a página completa parada, para dar tempo de ler, antes de ela sair.")]
     [SerializeField, Min(0f)] private float pageHoldTime = 2.5f;
 
-    [Tooltip("Quanto a folha sobe (Y local) ao sair da máquina.")]
-    [SerializeField] private float pageEjectRise = 0.3f;
+    [Tooltip("Para onde a folha pronta voa. Posição E rotação são usadas: crie o ponto como cópia da Sheet " +
+             "e gire se quiser que ela saia girando.")]
+    [SerializeField] private Transform pageExitPoint;
 
     [SerializeField, Min(0f)] private float pageEjectTime = 0.7f;
 
-    [Tooltip("A folha nova nasce esse tanto abaixo da posição inicial e sobe até ela.")]
-    [SerializeField, Min(0f)] private float pageInsertDrop = 0.05f;
+    [Tooltip("Onde a folha nova aparece (teleportada, já limpa) antes de subir até a posição inicial. " +
+             "Posição e rotação, como o de saída.")]
+    [SerializeField] private Transform pageSpawnPoint;
 
     [SerializeField, Min(0f)] private float pageInsertTime = 0.6f;
 
@@ -118,6 +121,8 @@ public class Typewriter : MonoBehaviour
     private Vector3[] _keyRest;
     private float[] _keyPressAge;
 
+    private Vector3 _sheetRestPosition;
+    private Quaternion _sheetRestRotation;
     private float _sheetRestY;
     private float _sheetTargetY;
     private float _sheetVelocity;
@@ -193,7 +198,9 @@ public class Typewriter : MonoBehaviour
 
         if (sheet != null)
         {
-            _sheetRestY = sheet.localPosition.y;
+            _sheetRestPosition = sheet.localPosition;
+            _sheetRestRotation = sheet.localRotation;
+            _sheetRestY = _sheetRestPosition.y;
             _sheetTargetY = _sheetRestY;
         }
 
@@ -320,10 +327,12 @@ public class Typewriter : MonoBehaviour
         yield return new WaitForSeconds(pageHoldTime);
 
         Play(pageSound, transform.position);
-        _sheetTargetY += pageEjectRise;
-        yield return new WaitForSeconds(pageEjectTime);
 
-        // Folha nova: texto limpo e nasce por baixo, já parada (velocidade zerada, senão herda o embalo da saída).
+        // Ease-in na saída (arranca e acelera, voando), ease-out na entrada (assenta no rolo).
+        if (sheet != null && pageExitPoint != null)
+            yield return MoveSheet(sheet.position, sheet.rotation, pageExitPoint.position, pageExitPoint.rotation,
+                                   pageEjectTime, t => t * t);
+
         _page++;
         _script = _pages[_page];
         _cursor = 0;
@@ -331,23 +340,44 @@ public class Typewriter : MonoBehaviour
         _lastChar = default;
         paperText.text = string.Empty;
 
-        if (sheet != null)
-        {
-            Vector3 p = sheet.localPosition;
-            p.y = _sheetRestY - pageInsertDrop;
-            sheet.localPosition = p;
-            _sheetVelocity = 0f;
-        }
-
-        _sheetTargetY = _sheetRestY;
         _injectorTarget = _injectorRest;
         _injectorTime = injectorReturnTime;
 
-        Play(pageSound, transform.position);
-        yield return new WaitForSeconds(pageInsertTime);
+        if (sheet != null)
+        {
+            Transform parent = sheet.parent;
+            Vector3 restPosition = parent != null ? parent.TransformPoint(_sheetRestPosition) : _sheetRestPosition;
+            Quaternion restRotation = parent != null ? parent.rotation * _sheetRestRotation : _sheetRestRotation;
+
+            Play(pageSound, transform.position);
+
+            if (pageSpawnPoint != null)
+                yield return MoveSheet(pageSpawnPoint.position, pageSpawnPoint.rotation, restPosition, restRotation,
+                                       pageInsertTime, t => 1f - (1f - t) * (1f - t));
+
+            // Pose exata no fim (sem resíduo da interpolação) e a subida por linha recomeça do zero.
+            sheet.localPosition = _sheetRestPosition;
+            sheet.localRotation = _sheetRestRotation;
+            _sheetTargetY = _sheetRestY;
+            _sheetVelocity = 0f;
+        }
 
         _changingPage = false;
         _autoTimer = autoStartDelay;
+    }
+
+    private IEnumerator MoveSheet(Vector3 fromPosition, Quaternion fromRotation, Vector3 toPosition,
+                                  Quaternion toRotation, float duration, Func<float, float> ease)
+    {
+        for (float t = 0f; t < duration; t += Time.deltaTime)
+        {
+            float k = ease(t / duration);
+            sheet.SetPositionAndRotation(Vector3.LerpUnclamped(fromPosition, toPosition, k),
+                                         Quaternion.SlerpUnclamped(fromRotation, toRotation, k));
+            yield return null;
+        }
+
+        sheet.SetPositionAndRotation(toPosition, toRotation);
     }
 
     private static string[] SplitPages(string text)
@@ -486,7 +516,8 @@ public class Typewriter : MonoBehaviour
             _keyPressAge[i] = age;
         }
 
-        if (sheet != null)
+        // Na troca de página quem move a folha é o ChangePage; o SmoothDamp brigaria com ele.
+        if (sheet != null && !_changingPage)
         {
             Vector3 p = sheet.localPosition;
             p.y = Mathf.SmoothDamp(p.y, _sheetTargetY, ref _sheetVelocity, feedTime);

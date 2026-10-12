@@ -2041,6 +2041,37 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
   m_PrefabInstance: {fileID: 1116324714}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &520479744
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 520479745}
+  m_Layer: 0
+  m_Name: SpawnPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 7148428337604731935, guid: 0000000000000000d000000000000000, type: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &520479745
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 520479744}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0.13052598, z: 0, w: 0.99144495}
+  m_LocalPosition: {x: 0, y: -0.60588235, z: 0}
+  m_LocalScale: {x: 0.5882353, y: 0.58823526, z: 0.5882353}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 784841222}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &528096013
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2998,6 +3029,11 @@ PrefabInstance:
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
   m_PrefabInstance: {fileID: 767071719}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &784841222 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 4098172115076910141, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+  m_PrefabInstance: {fileID: 8741684142831927823}
   m_PrefabAsset: {fileID: 0}
 --- !u!1 &837455397
 GameObject:
@@ -6447,6 +6483,37 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
   m_PrefabInstance: {fileID: 2073491504}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &2090962686
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2090962687}
+  m_Layer: 0
+  m_Name: ExitPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 7148428337604731935, guid: 0000000000000000d000000000000000, type: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2090962687
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2090962686}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0.13052598, z: 0, w: 0.99144495}
+  m_LocalPosition: {x: 0, y: 1.5117645, z: 0}
+  m_LocalScale: {x: 0.5882353, y: 0.58823526, z: 0.5882353}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 784841222}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &2126589723
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -22968,6 +23035,26 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1796040134414277422, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      propertyPath: m_text
+      value: "Lorem Ipsum is simply dummy text of the printing and typesetting industry.
+        Lorem Ipsum has been the industry's standard dummy text ever since 1966,
+        when designers at Letraset and James Mosley, the librarian at St Bride Printing
+        Library in London, took a 1914 Cicero translation and scrambled it to make
+        dummy text for Letraset's Body Type sheets. \n---\nIt has survived not only
+        many decades, but also the leap into electronic typesetting, remaining essentially
+        unchanged. It was popularised thanks to these sheets and more recently with
+        desktop publishing software like Aldus PageMaker and Microsoft Word including
+        versions of Lorem Ipsum."
+      objectReference: {fileID: 0}
+    - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      propertyPath: pageExitPoint
+      value: 
+      objectReference: {fileID: 2090962687}
+    - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      propertyPath: pageSpawnPoint
+      value: 
+      objectReference: {fileID: 520479745}
     - target: {fileID: 3716720386002540167, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: m_Name
       value: Typewriter
@@ -23014,7 +23101,13 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 4098172115076910141, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2090962687}
+    - targetCorrespondingSourceObject: {fileID: 4098172115076910141, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 520479745}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 8019026777257780531, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       insertIndex: -1
