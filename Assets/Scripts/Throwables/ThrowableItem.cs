@@ -45,8 +45,12 @@ public class ThrowableItem : MonoBehaviour, IInteractable
 
     [SerializeField] private string impactSoundId = "throwable_impact";
 
-    [Tooltip("Vazio = este item não quebra, a batida forte usa o som de impacto.")]
+    [Tooltip("Vazio = este item não quebra, a batida forte usa o som de impacto. Com smash, o item é destruído " +
+             "(cacos se tiver GlassShatter).")]
     [SerializeField] private string smashSoundId = "throwable_smash";
+
+    [Tooltip("Vazio = procura nos filhos (inclusive desligados). Sem nenhum, o item só some no smash.")]
+    [SerializeField] private GlassShatter shatter;
 
     private Rigidbody body;
     private Collider[] colliders;
@@ -63,6 +67,9 @@ public class ThrowableItem : MonoBehaviour, IInteractable
         body = GetComponent<Rigidbody>();
         colliders = GetComponentsInChildren<Collider>();
         worldScale = transform.lossyScale;
+
+        if (shatter == null)
+            shatter = GetComponentInChildren<GlassShatter>(true);
     }
 
     public bool TryGetPrompt(InteractionController interactor, out InteractionPrompt result)
@@ -143,7 +150,9 @@ public class ThrowableItem : MonoBehaviour, IInteractable
         if (!airborne)
             return;
 
-        Vector3 point = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
+        bool hasContact = collision.contactCount > 0;
+        ContactPoint contact = hasContact ? collision.GetContact(0) : default;
+        Vector3 point = hasContact ? contact.point : transform.position;
 
         // A altura recomeça a cada toque, inclusive os do cooldown: senão o quique seguinte herdaria a
         // queda inteira e viraria smash.
@@ -166,6 +175,7 @@ public class ThrowableItem : MonoBehaviour, IInteractable
         {
             AudioProvider.PlayAt(smashSoundId, point);
             NoiseEvents.Emit(point, hearingMeters);
+            Break(point, hasContact ? contact.normal : Vector3.up);
             return;
         }
 
@@ -174,6 +184,18 @@ public class ThrowableItem : MonoBehaviour, IInteractable
 
         if (speed >= minImpactSpeed)
             NoiseEvents.Emit(point, hearingMeters * Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(minImpactSpeed, loudImpactSpeed, speed)));
+    }
+
+    // Destroy só vale no fim do frame: sem desligar já, outro contato do mesmo step quebraria de novo.
+    private void Break(Vector3 point, Vector3 normal)
+    {
+        airborne = false;
+        SetCollidersEnabled(false);
+
+        if (shatter != null)
+            shatter.Shatter(point, normal);
+
+        Destroy(gameObject);
     }
 
     private static Vector3 DivideByScale(Vector3 value, Vector3 scale)
