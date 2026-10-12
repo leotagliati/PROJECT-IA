@@ -9,6 +9,12 @@ using UnityEngine.UI;
 public class PauseControler : MonoBehaviour
 {
     [SerializeField] private GameObject pauseMenuUI;
+    [SerializeField] private GameObject pauseScreen;
+    [SerializeField] private GameObject settingsScreen;
+    [Tooltip("Recebe o foco ao voltar das configurações.")]
+    [SerializeField] private Selectable settingsButton;
+
+    private GameObject activeScreen;
 
     private GameObject lastSelected;
 
@@ -34,6 +40,7 @@ public class PauseControler : MonoBehaviour
     private void Start()
     {
         pauseMenuUI.SetActive(false);
+        settingsScreen.SetActive(false);
     }
 
     private void OnDestroy()
@@ -71,17 +78,7 @@ public class PauseControler : MonoBehaviour
             eventSystem.SetSelectedGameObject(target);
     }
 
-    // Ordem da hierarquia = ordem visual do menu; botão desabilitado não pode receber o foco.
-    private GameObject FirstSelectable()
-    {
-        foreach (var selectable in pauseMenuUI.GetComponentsInChildren<Selectable>())
-        {
-            if (selectable.IsInteractable())
-                return selectable.gameObject;
-        }
-
-        return null;
-    }
+    private GameObject FirstSelectable() => FirstSelectableIn(activeScreen);
 
     // Lê a mesma action que o módulo usa para mover a seleção: assets diferentes com
     // bindings diferentes fariam o menu acordar com uma tecla e navegar com outra.
@@ -115,12 +112,10 @@ public class PauseControler : MonoBehaviour
         PlayerInputProvider.SetMode(InputMode.UI);
         Time.timeScale = 0f;
         SetCursor(false);
-        pauseMenuUI.SetActive(true);
 
-        // Sem seleção inicial: só WASD/joystick ou o mouse (PointerSelectable) selecionam.
-        lastSelected = null;
-        if (EventSystem.current != null)
-            EventSystem.current.SetSelectedGameObject(null);
+        // Sempre abre no Pause, mesmo se o menu foi fechado estando nas configurações.
+        pauseMenuUI.SetActive(true);
+        ShowScreen(pauseScreen, null, false);
 
         OnPaused?.Invoke();
     }
@@ -132,6 +127,52 @@ public class PauseControler : MonoBehaviour
 
         ApplyResume();
         OnResumed?.Invoke();
+    }
+
+    public void OpenSettings() => ShowScreen(settingsScreen, FirstSelectableIn(settingsScreen), true);
+
+    public void CloseSettings() =>
+        ShowScreen(pauseScreen, settingsButton != null ? settingsButton.gameObject : null, true);
+
+    // Troca de tela dentro do menu. Aberto por Submit (teclado/controle), o foco já cai no
+    // destino; por clique, fica sem seleção para o mouse não ver dois destaques — o destino
+    // vira lastSelected e a primeira navegação acorda nele.
+    private void ShowScreen(GameObject screen, GameObject focus, bool allowSubmitFocus)
+    {
+        pauseScreen.SetActive(screen == pauseScreen);
+        settingsScreen.SetActive(screen == settingsScreen);
+        activeScreen = screen;
+
+        var eventSystem = EventSystem.current;
+        lastSelected = focus;
+
+        if (eventSystem == null)
+            return;
+
+        bool bySubmit = allowSubmitFocus && SubmitPressed(eventSystem);
+        eventSystem.SetSelectedGameObject(bySubmit ? focus : null);
+    }
+
+    // Ordem da hierarquia = ordem visual do menu; botão desabilitado não pode receber o foco.
+    // includeInactive: a tela de destino ainda está desligada quando o foco é escolhido.
+    private static GameObject FirstSelectableIn(GameObject screen)
+    {
+        foreach (var selectable in screen.GetComponentsInChildren<Selectable>(true))
+        {
+            if (selectable.IsInteractable())
+                return selectable.gameObject;
+        }
+
+        return null;
+    }
+
+    private static bool SubmitPressed(EventSystem eventSystem)
+    {
+        if (eventSystem.currentInputModule is not InputSystemUIInputModule module)
+            return false;
+
+        var action = module.submit != null ? module.submit.action : null;
+        return action != null && action.WasPressedThisFrame();
     }
 
     // O OnDestroy daqui e o PauseAudio.OnDisable já desfazem pausa, input e áudio no reload.

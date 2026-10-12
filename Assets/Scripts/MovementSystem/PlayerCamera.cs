@@ -46,6 +46,7 @@ public class PlayerCamera : MonoBehaviour
         Vector2 degrees = isDelta
             ? lookInput * pointerSensitivity
             : lookInput * (stickSensitivity * Time.deltaTime);
+        degrees *= LookSensitivity.Multiplier;
 
         xRotation -= degrees.y;
 
