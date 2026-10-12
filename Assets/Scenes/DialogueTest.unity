@@ -1463,6 +1463,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!4 &46226872 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
@@ -2230,6 +2233,7 @@ GameObject:
   - component: {fileID: 63214865}
   - component: {fileID: 63214864}
   - component: {fileID: 63214863}
+  - component: {fileID: 63214866}
   m_Layer: 5
   m_Name: VolumeSlider
   m_TagString: Untagged
@@ -2334,6 +2338,26 @@ MonoBehaviour:
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &63214866
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 63214861}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 8300000, guid: 823c6696ff38bc6449f6e1f1f619a033, type: 3}
+  sliderSoundVolume: 1
 --- !u!1001 &65243785
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -24613,6 +24637,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!1001 &784736040
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -26016,7 +26043,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 298, y: -20}
+  m_AnchoredPosition: {x: 298, y: -29}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &818373626
@@ -26981,8 +27008,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0.00012715656, y: -187.69994}
-  m_SizeDelta: {x: 800, y: 100}
+  m_AnchoredPosition: {x: 0.00012715656, y: -169}
+  m_SizeDelta: {x: 800, y: 800}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!4 &847941663 stripped
 Transform:
@@ -31356,6 +31383,7 @@ GameObject:
   - component: {fileID: 1010682999}
   - component: {fileID: 1010682998}
   - component: {fileID: 1010683000}
+  - component: {fileID: 1010683001}
   m_Layer: 0
   m_Name: DialogueManager
   m_TagString: Untagged
@@ -31500,6 +31528,41 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!114 &1010683001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1010682997}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba8c442823edd1a44ab3f623713328f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  view: {fileID: 0}
+  highlightColor: {r: 1, g: 0.85, b: 0.55, a: 1}
+  schemes:
+  - bindingGroup: Keyboard&Mouse
+    icons: {fileID: 0}
+  - bindingGroup: Gamepad
+    icons: {fileID: 0}
+  forceScheme: 
+  keyFormat: "<mark=#EDE6D6F0 padding=\"0,0,12,12\"><color=#141414><b>\_{0}\_</b></color></mark>"
+  keySeparator: <space=0.15em>
+  keyLabels:
+  - path: <Mouse>/delta
+    label: Mouse
+  - path: <Pointer>/delta
+    label: Mouse
+  - path: <Mouse>/leftButton
+    label: Clique
+  - path: <Keyboard>/leftShift
+    label: Shift
+  - path: <Keyboard>/leftCtrl
+    label: Ctrl
+  - path: <Keyboard>/space
+    label: "Espa\xE7o"
 --- !u!1 &1010685250
 GameObject:
   m_ObjectHideFlags: 0
@@ -61193,6 +61256,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!4 &1943022475 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}

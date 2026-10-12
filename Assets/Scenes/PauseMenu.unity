@@ -6378,6 +6378,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!1001 &42770925
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -9684,6 +9687,7 @@ GameObject:
   - component: {fileID: 63214865}
   - component: {fileID: 63214864}
   - component: {fileID: 63214863}
+  - component: {fileID: 63214866}
   m_Layer: 5
   m_Name: VolumeSlider
   m_TagString: Untagged
@@ -9788,6 +9792,26 @@ MonoBehaviour:
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &63214866
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 63214861}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverScale: 1.2
+  animationSpeed: 0.15
+  brightness: 2
+  hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
+  soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 8300000, guid: 823c6696ff38bc6449f6e1f1f619a033, type: 3}
+  sliderSoundVolume: 1
 --- !u!1001 &63452206
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -115851,6 +115875,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!1001 &782057809
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -286759,6 +286786,9 @@ MonoBehaviour:
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
+  sliderHandleScale: 1.2
+  sliderMoveSound: {fileID: 0}
+  sliderSoundVolume: 1
 --- !u!1001 &1942633804
 PrefabInstance:
   m_ObjectHideFlags: 0
