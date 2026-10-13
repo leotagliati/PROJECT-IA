@@ -1,0 +1,150 @@
+# ================================================================================================
+# GraphExplorer - mapa v4 (prefab NodeTraining - V6 Training, cena Arthur/V6 - Training) - V5.3: CACA HERDANDO A V5.2 - HIDER LONGE DO CENTRO DOS NOS, PROCURA VE O NO INTEIRO, VIZINHO = AREA, VISAO MAIOR
+#
+#   mlagents-learn config/graph_v5.3_caca.yaml --run-id=v5.3_caca_01 --initialize-from=v5.2_caca_01 --env="Builds/V6/PROJECT-IA.exe" --no-graphics --num-envs=3
+#   (build: perfil "V6 - Training" em Assets/Settings/Build Profiles, saida em Builds/V6/PROJECT-IA.exe)
+#
+# GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
+# Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.
+#
+# HERDA o v5.2_caca_01 (8M; pega 99.8%, ~25 s da 1a vista a captura). No jogo ele ainda anda de centro em
+# centro de no: a captura e a 2.5 m e o hider de treino ficava a < 2.5 m de algum centro, entao parar no
+# centro bastava. O que mudou no codigo:
+#   - HIDER LONGE DE TODO CENTRO (GraphHider._centerClearance 3.5 m = captura + 1 m): esconderijo fora dos nos
+#     so a >= 3.5 m do centro de no mais proximo com linha livre; dentro do no, os pontos assim tem prioridade
+#     (cantos de no grande), andando ou se escondendo. Porta fica de fora (estreita, e passagem).
+#   - NASCE FORA DOS NOS (_spawnOffNode) e 70% dos esconderijos fora dos nos (_offNodeChance, era 40%).
+#   - PROCURA VE O NO INTEIRO (GraphSuspicionMap._checkNodeCorners): a suspeita de um no so zera com o centro,
+#     os 4 cantos e o entorno fora dos nos (8 pontos a 2.5 m da borda) a vista. Antes bastava o centro, e o
+#     hider no canto de um no grande ficava com suspeita zero. Limpar agora exige olhar os cantos.
+#   - VISAO MAIOR (GraphHiderPerception): cone 140 / 35 m para avistar (era 100 / 22), 200 / 45 m ja vendo
+#     (era 160 / 30). Tambem conclui salas de mais longe.
+#   - VIZINHO = AREA, NAO CENTRO (GraphObservations.NeighborAim): direcao/distancia de cada vizinho apontam para o
+#     ponto do retangulo dele mais perto do agente (recuado 1 m), nao para o centro; porta segue no centro. Era a
+#     unica geografia que a rede via, e ela andava de centro em centro. Mesmo vetor 188 (o comeco oscila).
+#
+#   #  Licao         hider  corre  folego barulho desc ping$ solto
+#   1  HiderJogador  foge   10.2   10     0.3     0.0  0     1      (unica)
+#
+# HIPERPARAMETROS: os da v5.2 (LR 1e-4, beta 0.003, lineares); o schedule recomeca do zero no run novo.
+#
+# PASSA QUANDO: Exploration/OffNodeFraction sobe (0.14 no fim da v5.2); Hunt/Caught volta a > 0.95 depois da
+#   queda do comeco (o hider fica mais dificil de alcancar); Hunt/SightToCatchSeconds sem explodir (~25 na
+#   v5.2); Hunt/Seen sem cair (se cair, a procura nao acha o canto). No jogo (V6 - Test): sai do centro do
+#   no para ir atras do jogador e olha os cantos.
+# 4M steps ~ 4-5 h no build com 3 envs (~1M/h). Checkpoint a cada 500k, todos guardados.
+# ================================================================================================
+
+behaviors:
+  GraphExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0001
+      # 0.003: ajuste fino de uma politica pronta (o 50M ja tinha entropia ~-0.04); 0.012 a faria
+      # voltar a experimentar como no comeco. Decai linear ate max_steps.
+      beta: 0.003
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.998
+        strength: 1.0
+    keep_checkpoints: 10
+    checkpoint_interval: 500000
+    max_steps: 4000000
+    time_horizon: 256
+    summary_freq: 10000
+
+environment_parameters:
+  # ---- Constantes ----
+  ping_single_room_chance: 0.5
+
+  # ---- Curriculo ----
+  # Fracao dos nos de uma sala que precisam ser VISTOS para concluir.
+  room_complete_threshold:
+    curriculum:
+      - name: HiderJogador
+        value: 1.0
+
+  # Acima de 1 = sem fim por cobertura (caca).
+  coverage_target:
+    curriculum:
+      - name: HiderJogador
+        value: 1.1
+
+  # Salas que ja nascem concluidas.
+  previsited_fraction:
+    curriculum:
+      - name: HiderJogador
+        value: 0.0
+
+  # 0 = salas nao voltam (so a patrulha usava).
+  release_fraction:
+    curriculum:
+      - name: HiderJogador
+        value: 0.0
+
+  # 0: com hider, os pings vem dos passos dele.
+  ping_interval:
+    curriculum:
+      - name: HiderJogador
+        value: 0
+
+  # 3 = foge.
+  hider_mode:
+    curriculum:
+      - name: HiderJogador
+        value: 3
+
+  # m/s do hider CORRENDO (anda a 0.588 x). 10.2 = o jogador.
+  hider_speed:
+    curriculum:
+      - name: HiderJogador
+        value: 10.2
+
+  # Segundos de corrida do hider (10 = PlayerStamina.sprintDuration do PlayerDummy).
+  hider_stamina:
+    curriculum:
+      - name: HiderJogador
+        value: 10.0
+
+  # Chance de cada chegada do hider num no de ping virar ping.
+  hider_noise:
+    curriculum:
+      - name: HiderJogador
+        value: 0.3
+
+  # 0: na caca explorar so serve para achar.
+  discovery_reward_scale:
+    curriculum:
+      - name: HiderJogador
+        value: 0.0
+
+  # 0: o rastro do hider so informa.
+  ping_reward_scale:
+    curriculum:
+      - name: HiderJogador
+        value: 0.0
+
+  # 1 = o que ele VE conta como visto.
+  vision_explores:
+    curriculum:
+      - name: HiderJogador
+        value: 1
+
+  # 1 = hider fora do centro dos nos (nunca no centro desde 08/10) e se escondendo.
+  hider_loose:
+    curriculum:
+      - name: HiderJogador
+        value: 1

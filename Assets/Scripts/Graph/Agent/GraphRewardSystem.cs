@@ -34,6 +34,7 @@ namespace Assets.Scripts.Graph
     ///   aproximar vendo (1.0/m, só batendo o RECORDE de proximidade do episódio)  teto ~+20-30
     ///   avistar (2, só a 1ª vista do episódio)     +2
     ///   hider em vista (0.00086/step)              +30 o episódio todo
+    ///   pressa caçando (0.0008/step, vendo ou procurando)  ~-3 por caça de 80 s (v5.2; vendo, líquido ~0)
     ///   suspeita zerada (2 x massa de 0 a 1)       ~2 por crença inteira limpa
     ///   captura (20 + 25 x fração restante)        20 a 45 (encerra)
     /// NodeTraining5 (27 salas, 37 portas desde o corte do anel S24) coberto por inteiro: ~25 de exploração + 5 da cobertura.
@@ -143,6 +144,14 @@ namespace Assets.Scripts.Graph
         // sempre pagaria mais que capturar (0.0015 com 400 s, 0.004 com 160 s).
         [SerializeField, Min(0f)] private float _hiderInViewReward = 0.00086f;
 
+        // PRESSA (v5.2, 08/10): custo por step de física CAÇANDO (vendo o alvo ou procurando ele há < 20 s,
+        // GraphHiderPerception.IsSearching). Vendo, quase cancela o _hiderInViewReward (líquido ~0): seguir o
+        // jogador a distância deixa de render, e o que paga é encurtar (recorde de proximidade) e pegar. Procurando,
+        // cada segundo custa 0.04. Teto: uma caça de 80 s (o 50M levava isso da 1ª vista à captura) = -3.2, bem
+        // abaixo da captura (20-45); 20 s mais rápido = +0.8, mais o bônus de pegar cedo. Não paga evitar ver: sem
+        // ver não há captura, e na caça a exploração vale 0.
+        [SerializeField, Min(0f)] private float _huntPressurePenalty = 0.0008f;
+
         // Paga a massa de crença zerada (fração de 1) ao ver ou pisar onde o hider poderia estar
         // (GraphSuspicionMap.ClearedMass). A carência de 10 s por nó (_reclearCooldownSteps) segue
         // contra ficar olhando o mesmo lugar. 2 na v4.4 (era 1): procurar onde ele PODE estar é o
@@ -208,6 +217,9 @@ namespace Assets.Scripts.Graph
 
             if (context.HiderInView)
                 reward += _hiderInViewReward;
+
+            if (context.HuntingTarget)
+                reward -= _huntPressurePenalty;
 
             reward += _suspicionClearedReward * context.SuspicionClearedMass;
 

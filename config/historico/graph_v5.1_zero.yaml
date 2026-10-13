@@ -1,7 +1,7 @@
 # ================================================================================================
 # GraphExplorer - mapa v4 (prefab NodeTraining - V5 training, cena Arthur/V5 - Training) - V5.1: DO ZERO - SALA E PORTA PAGAM UMA VEZ, MAPA INTEIRO, GAMMA 0.998
 #
-#   mlagents-learn config/graph_v5.1_zero.yaml --run-id=v5.1_zero_01
+#   mlagents-learn config/historico/graph_v5.1_zero.yaml --run-id=v5.1_zero_01
 #
 # GERADO por tools/gen_full_curriculum.py - edite la, nao aqui. Arquitetura: docs/graph/arquitetura.md.
 # Vetor 188 (Behavior Parameters > Vector Observation Space Size), 4 acoes continuas, Decision Period 5.

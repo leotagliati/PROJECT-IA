@@ -38,7 +38,9 @@ namespace Assets.Scripts.Graph
         //   [11]     está num vão (a âncora é uma porta)
         //   [12]     nº de portas da sala atual / 8
         //   [13..15] PING: ativo, distância pelo grafo / diâmetro, quente/frio (-1/0/+1)
-        //   [16..20] VISÃO: vendo, já viu, direção X/Z + distância à última posição vista do hider
+        //   [16..20] VISÃO: vendo (inclui o rastro depois de ver), já viu, direção X/Z + distância até o hider: a
+        //            posição real vendo; sem ver, a PREVISÃO (última conhecida + velocidade vista, até 2 s; v5.2).
+        //            Direção = próxima quina do caminho NavMesh, distância = metros pelo caminho (09/10)
         //   [21]     CALOR: a sala atual é a do último ping (0..1)
         //   [22..23] para onde o CORPO está virado (X/Z no mundo; o corpo segue o movimento)
         //   [24..25] VELOCIDADE do hider enquanto vê (X/Z, / hiderVelocityScale)
@@ -57,7 +59,7 @@ namespace Assets.Scripts.Graph
         // Depois: vizinhos (8 x 10) e portas (8 x 9). Total 36 + 80 + 72 = 188 (v5; até a v4.x eram 182).
         public const int GlobalObservations = 36;
 
-        // Por vizinho (10): [0..1] direção X/Z, [2] distância, [3] visitado, [4] quanto resta por essa saída
+        // Por vizinho (10): [0..1] direção X/Z e [2] distância até a ÁREA dele (NeighborAim; porta: o centro), [3] visitado, [4] quanto resta por essa saída
         // (dentro da sala), [5] vim daqui, [6] quantas vezes passei (satura em revisitSaturation), [7] quão
         // perto está o que falta por essa saída (dentro da sala), [8] suspeita por essa saída, [9] válido.
         public const int FloatsPerNeighbor = 10;
@@ -193,12 +195,22 @@ namespace Assets.Scripts.Graph
             sensor.AddObservation(pingActive ? _ping.HotCold : 0f);
 
             // ---- Visão (5) ----
-            // Direção + distância à ÚLTIMA POSIÇÃO VISTA (a atual enquanto vê; congelada ao perder).
+            // Rumo + distância até o alvo (a posição real enquanto vê ou rastreia; sem ver, a previsão a partir da
+            // última conhecida): direção da próxima quina do caminho NavMesh e metros pelo caminho
+            // (GraphHiderPerception.ChaseAim, 09/10).
             bool seeing = _perception.IsSeeing;
             bool hasSeen = _perception.HasSeen;
             sensor.AddObservation(seeing ? 1f : 0f);
             sensor.AddObservation(hasSeen ? 1f : 0f);
-            AddDirectionAndDistance(sensor, position, hasSeen ? _perception.LastSeenPosition : position, hasSeen);
+            if (hasSeen)
+            {
+                Vector3 aim = _perception.ChaseAim(position, out float routeDistance);
+                AddDirectionAndDistance(sensor, position, aim, routeDistance);
+            }
+            else
+            {
+                AddDirectionAndDistance(sensor, position, position, false);
+            }
 
             // ---- Calor da sala atual (1): quão perto do último ping, 0..1 (esfria com o tempo) ----
             sensor.AddObservation(Clue(_rooms.CurrentRoomHeat));
@@ -246,7 +258,7 @@ namespace Assets.Scripts.Graph
                 }
 
                 int neighbor = _neighborBuffer[slot];
-                AddDirectionAndDistance(sensor, position, _graph.NodePosition(neighbor), true);
+                AddDirectionAndDistance(sensor, position, NeighborAim(position, neighbor), true);
                 sensor.AddObservation(Explore(_memory.VisitedObservation(neighbor)));
 
                 // O que há ATRÁS desta saída, dentro da sala (para na porta).
@@ -336,6 +348,35 @@ namespace Assets.Scripts.Graph
         private float Clue(float value) => _focus == FocusLevel.Chase ? 0f : value;
 
         // Direção planar X/Z no referencial do MUNDO (o das ações) + distância normalizada; zeros se !valid.
+        // Recuo (m) do ponto mirado para dentro do retângulo do vizinho: na borda exata a direção gira em cima dela.
+        private const float NeighborAimInset = 1f;
+
+        /// <summary>
+        /// Para onde o vizinho "fica" (v5.3, 10/10): o ponto do retângulo dele mais perto do agente, recuado
+        /// NeighborAimInset para dentro. Era o CENTRO, e a política andava de centro em centro: com ladrilhos colados,
+        /// a direção agora é atravessar a borda comum, e o corpo flui pelo chão. Porta segue no centro (vão estreito, o
+        /// meio é o caminho). Com a reta até o ponto batendo em parede (vizinho depois de uma quina), o centro, cuja
+        /// ligação é garantida livre.
+        /// </summary>
+        private Vector3 NeighborAim(Vector3 from, int node)
+        {
+            Vector3 center = _graph.NodePosition(node);
+            if (_graph.IsDoor(node))
+                return center;
+
+            NavNode navNode = _graph.GetNode(node);
+            Vector3 area = _graph.AreaCenterOf(navNode);
+            Vector2 half = _graph.HalfExtentsOf(navNode);
+            float insetX = Mathf.Min(NeighborAimInset, half.x);
+            float insetZ = Mathf.Min(NeighborAimInset, half.y);
+            var aim = new Vector3(
+                Mathf.Clamp(from.x, area.x - half.x + insetX, area.x + half.x - insetX),
+                center.y,
+                Mathf.Clamp(from.z, area.z - half.y + insetZ, area.z + half.y - insetZ));
+
+            return _graph.IsSegmentClear(new Vector3(from.x, center.y, from.z), aim) ? aim : center;
+        }
+
         private void AddDirectionAndDistance(VectorSensor sensor, Vector3 from, Vector3 to, bool valid)
         {
             if (!valid)
@@ -350,6 +391,18 @@ namespace Assets.Scripts.Graph
             Vector2 planar = new(delta.x, delta.z);
             float distance = planar.magnitude;
             Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+
+            sensor.AddObservation(unit.x);
+            sensor.AddObservation(unit.y);
+            sensor.AddObservation(Mathf.Clamp01(distance / _maxNodeDistance));
+        }
+
+        // Direção até aim (uma quina do caminho) e a distância do caminho inteiro, não a da quina.
+        private void AddDirectionAndDistance(VectorSensor sensor, Vector3 from, Vector3 aim, float distance)
+        {
+            Vector2 planar = new(aim.x - from.x, aim.z - from.z);
+            float length = planar.magnitude;
+            Vector2 unit = length > 1e-4f ? planar / length : Vector2.zero;
 
             sensor.AddObservation(unit.x);
             sensor.AddObservation(unit.y);

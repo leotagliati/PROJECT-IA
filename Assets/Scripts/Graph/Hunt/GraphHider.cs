@@ -12,8 +12,9 @@ namespace Assets.Scripts.Graph
     /// (com o seeker perto, escolhe a saída que mais aumenta a distância PELO GRAFO em metros).
     /// Velocidade (v4.4): anda a _walkFraction da velocidade e CORRE só fugindo, enquanto houver
     /// estamina (GraphStamina, o mesmo modelo do seeker); a fuga da v4.5 dá a ele mais estamina.
-    /// Solto (hider_loose): vai a pontos aleatórios dentro do nó e, às vezes, a um esconderijo
-    /// (ponto pouco visível das portas da sala), onde fica parado mais tempo.
+    /// Solto (hider_loose): vai a pontos aleatórios dentro do nó, longe do centro (portas inclusive), e, às
+    /// vezes, a um esconderijo (ponto pouco visível das portas da sala), onde fica parado mais tempo. O centro
+    /// do nó atual só é usado como passagem quando a reta até o ponto bate em parede.
     ///
     /// Um por arena. Não use o HiderAgent.cs antigo com o grafo: ele não conhece nós, logo sem ping.
     /// </summary>
@@ -79,12 +80,22 @@ namespace Assets.Scripts.Graph
         // vista é testada nessa altura sobre o X/Z dos dois pontos, como a visão do monstro.
         [SerializeField] private float _seekerEyeHeight = 1.67f;
 
-        // Até onde (m) o seeker vê, para "está à vista": além disso conta como escondido (GraphHiderPerception, 22).
-        [SerializeField, Min(1f)] private float _seekerViewDistance = 22f;
+        // Até onde (m) o seeker vê, para "está à vista": além disso conta como escondido (GraphHiderPerception, 35).
+        [SerializeField, Min(1f)] private float _seekerViewDistance = 35f;
 
         [Header("-----Solto e escondido (hider_loose)-----")]
-        // Margem (m) entre o ponto sorteado e a borda do retângulo do nó.
+        // Margem (m) entre o ponto sorteado e a borda do retângulo do nó. Em porta e em nó pequeno demais para ela,
+        // vale só o raio do corpo (NavGraph.LinkClearance): com 0.6 o retângulo encolhia a zero e sobrava o centro.
         [SerializeField, Min(0f)] private float _looseMargin = 0.6f;
+
+        // Distância mínima (m) do ponto sorteado ao centro do nó (08/10). O jogador nunca anda pelos centros, e o
+        // seeker treinado contra um hider que parava neles ia até o NÓ do jogador e ficava no meio dele. Ponto mais
+        // perto que isto só entra se nenhum sorteio passar; o centro exato, só se nem isso.
+        [SerializeField, Min(0f)] private float _minCenterOffset = 0.6f;
+
+        // Pontos sorteados por destino quando não está se escondendo (era 2: com parede e móvel no nó, os dois
+        // falhavam com frequência e o destino caía no centro).
+        [SerializeField, Min(1)] private int _looseCandidates = 8;
 
         // Chance de o próximo ponto ser um esconderijo (o menos visível das portas da sala).
         [SerializeField, Range(0f, 1f)] private float _hideChance = 0.5f;
@@ -95,9 +106,29 @@ namespace Assets.Scripts.Graph
         // Multiplicador da pausa quando escondido.
         [SerializeField, Min(1f)] private float _hidePauseMultiplier = 3f;
 
+        // FORA DOS NÓS (09/10): chance de um esconderijo ficar FORA da área de qualquer nó (canto de corredor sem nó,
+        // atrás de móvel), até _offNodeReach metros além do retângulo do nó. O jogador se esconde aí, e o seeker
+        // treinado só contra pontos dentro dos nós não sabia chegar (a rota NavMesh da GraphHiderPerception mostra o
+        // caminho; isto ensina a política a segui-la até um canto). Precisa de linha livre do centro do nó (mesmo
+        // espaço, sem atravessar parede); sem ponto assim, fica o esconderijo normal dentro do nó.
+        // 0.7 (10/10; era 0.4): no jogo o v5.2 ainda andava de centro em centro de nó.
+        [SerializeField, Range(0f, 1f)] private float _offNodeChance = 0.7f;
+        [SerializeField, Min(0f)] private float _offNodeReach = 4f;
+
+        // Onde o hider para (esconderijo fora dos nós, e dentro do nó quando dá) fica a pelo menos isto (m) do centro
+        // de nó mais próximo com linha livre (10/10). A captura é a 2.5 m (GraphHiderPerception._captureDistance): com
+        // o hider a 0.6 m do centro ou logo além da borda do nó, o seeker parado no CENTRO ainda pegava, e nada o fazia
+        // sair dele. 3.5 = captura + 1 m. Dentro do nó sobram os cantos de ladrilho grande; porta fica de fora.
+        [SerializeField, Min(0f)] private float _centerClearance = 3.5f;
+
         [Header("-----Spawn-----")]
         // Distância mínima (m pelo grafo) do nó de spawn do hider ao nó do seeker.
         [SerializeField, Min(0f)] private float _minSpawnDistanceMeters = 40f;
+
+        // Solto, NASCE num esconderijo fora dos nós (10/10; antes só com _offNodeChance): o primeiro alvo do episódio
+        // é sempre um que o seeker não alcança do centro de um nó. Sem ponto assim perto do nó sorteado, o esconderijo
+        // normal dentro dele.
+        [SerializeField] private bool _spawnOffNode = true;
 
         [Header("-----Referências-----")]
         // Fallback: o grafo da arena.
@@ -210,7 +241,8 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
-            Place(_loose ? PointInNode(_currentNode, hide: true, from: _graph.NodePosition(_currentNode)) : _graph.NodePosition(_currentNode));
+            Vector3 spawnCenter = _graph.NodePosition(_currentNode);
+            Place(_loose ? PointInNode(_currentNode, hide: true, from: spawnCenter, forceOffNode: _spawnOffNode) : spawnCenter);
 
             MakeNoiseAt(_currentNode);
 
@@ -335,30 +367,52 @@ namespace Assets.Scripts.Graph
                 return;
             }
 
+            // O centro do nó atual é só passagem (sem pausa). O destino final é refeito a partir dele em vez de cair
+            // no centro do nó de destino, como antes.
+            Vector3 currentCenter = _graph.NodePosition(_currentNode);
             _viaCenter = true;
-            _finalGoal = _graph.IsSegmentClear(_graph.NodePosition(_currentNode), point) ? point : _graph.NodePosition(_targetNode);
-            _goal = _graph.NodePosition(_currentNode);
+            _finalGoal = _graph.IsSegmentClear(currentCenter, point) ? point : PointInNode(_targetNode, false, currentCenter);
+            _goalIsHiding = hide && _finalGoal == point;
+            _goal = currentCenter;
         }
 
-        // Ponto livre no retângulo do nó (porta: sempre o centro). Escondendo, o visto por menos portas
-        // da sala entre _hideCandidates sorteados. Sem ponto válido, o centro.
-        private Vector3 PointInNode(int node, bool hide, Vector3 from)
+        // Ponto livre no retângulo do nó, a >= _minCenterOffset do centro (porta também: o vão inteiro, não só o
+        // meio), de preferência a >= _centerClearance de todo centro de nó. Andando, o primeiro assim (senão o mais
+        // longe dos centros); escondendo, entre os longe, o visto por menos portas da sala. Sem ponto válido longe do
+        // centro, o primeiro válido mais perto; sem nenhum, o centro. forceOffNode: escondendo, tenta fora dos nós sempre (spawn).
+        private Vector3 PointInNode(int node, bool hide, Vector3 from, bool forceOffNode = false)
         {
             Vector3 center = _graph.NodePosition(node);
-            if (_graph.IsDoor(node))
-                return center;
+            float radius = _graph.LinkClearance;
+            bool isDoor = _graph.IsDoor(node);
 
             NavNode navNode = _graph.GetNode(node);
             Vector3 areaCenter = _graph.AreaCenterOf(navNode);
-            Vector2 half = _graph.HalfExtentsOf(navNode);
-            half = new Vector2(Mathf.Max(0f, half.x - _looseMargin), Mathf.Max(0f, half.y - _looseMargin));
+            Vector2 fullHalf = _graph.HalfExtentsOf(navNode);
+            float margin = isDoor ? radius : _looseMargin;
+            Vector2 half = new Vector2(Mathf.Max(0f, fullHalf.x - margin), Mathf.Max(0f, fullHalf.y - margin));
+            if (half.x < _minCenterOffset && half.y < _minCenterOffset)
+                half = new Vector2(Mathf.Max(0f, fullHalf.x - radius), Mathf.Max(0f, fullHalf.y - radius));
+
+            // Esconder só faz sentido em chão de sala; na porta o ponto é só para não passar pelo meio do vão.
+            hide = hide && !isDoor;
 
             int room = _graph.RoomOf(node);
             int[] doors = room >= 0 ? _graph.DoorsOfRoom(room) : null;
-            int tries = hide ? _hideCandidates : 2;
+
+            if (hide && (forceOffNode || Random.value < _offNodeChance)
+                && TryOffNodePoint(center, areaCenter, fullHalf, radius, doors, out Vector3 offNode))
+                return offNode;
+
+            int tries = hide ? Mathf.Max(_hideCandidates, _looseCandidates) : _looseCandidates;
             Vector3 best = center;
+            bool found = false;
+            bool bestFar = false;
             int bestSeen = int.MaxValue;
-            float radius = _graph.LinkClearance;
+            Vector3 near = center;
+            bool haveNear = false;
+            Vector3 farthest = center;
+            float farthestDistance = -1f;
 
             for (int k = 0; k < tries; k++)
             {
@@ -370,8 +424,42 @@ namespace Assets.Scripts.Graph
                 if (!_graph.IsBodyClear(point, radius) || !_graph.IsSegmentClear(from, point))
                     continue;
 
+                Vector3 offset = point - center;
+                offset.y = 0f;
+                if (offset.magnitude < _minCenterOffset)
+                {
+                    if (!haveNear)
+                    {
+                        near = point;
+                        haveNear = true;
+                    }
+
+                    continue;
+                }
+
+                // LONGE DE TODO CENTRO (10/10): fora do alcance de captura de quem para no centro de qualquer nó. A
+                // porta é estreita demais para isso (e é passagem): lá vale qualquer ponto.
+                bool far = isDoor || _centerClearance <= 0f;
+                float centerDistance = 0f;
+                if (!far)
+                {
+                    centerDistance = NearestCenterDistance(point);
+                    far = centerDistance >= _centerClearance;
+                }
+
                 if (!hide)
-                    return point;
+                {
+                    if (far)
+                        return point;
+
+                    if (centerDistance > farthestDistance)
+                    {
+                        farthest = point;
+                        farthestDistance = centerDistance;
+                    }
+
+                    continue;
+                }
 
                 int seen = 0;
                 if (doors != null)
@@ -383,14 +471,86 @@ namespace Assets.Scripts.Graph
                     }
                 }
 
-                if (seen < bestSeen)
+                // Escondendo: longe de todo centro primeiro; empatado nisso, o visto por menos portas.
+                if (!found || (far && !bestFar) || (far == bestFar && seen < bestSeen))
                 {
                     bestSeen = seen;
+                    bestFar = far;
                     best = point;
+                    found = true;
                 }
             }
 
-            return best;
+            if (found)
+                return best;
+
+            // Andando sem nenhum ponto longe o bastante: o mais longe dos centros entre os válidos.
+            if (farthestDistance >= 0f)
+                return farthest;
+
+            return haveNear ? near : center;
+        }
+
+        // Esconderijo FORA de toda área de nó, no anel de até _offNodeReach em volta do retângulo do nó: corpo cabe, reta
+        // livre do centro do nó (mesmo espaço), longe de todo centro de nó (_centerClearance) e, entre os válidos, o
+        // visto por menos portas da sala.
+        private bool TryOffNodePoint(Vector3 center, Vector3 areaCenter, Vector2 half, float radius, int[] doors, out Vector3 point)
+        {
+            point = center;
+            bool found = false;
+            int bestSeen = int.MaxValue;
+            Vector2 outer = half + Vector2.one * _offNodeReach;
+
+            // x4 (era x2): o _centerClearance descarta boa parte do anel, sobretudo em sala ladrilhada de ponta a ponta.
+            int tries = Mathf.Max(_hideCandidates, _looseCandidates) * 4;
+
+            for (int k = 0; k < tries; k++)
+            {
+                var candidate = new Vector3(
+                    areaCenter.x + Random.Range(-outer.x, outer.x),
+                    center.y,
+                    areaCenter.z + Random.Range(-outer.y, outer.y));
+
+                if (_graph.FindNodeAt(candidate) >= 0)
+                    continue;
+
+                if (!_graph.IsBodyClear(candidate, radius) || !_graph.IsSegmentClear(center, candidate))
+                    continue;
+
+                // Por último, é o teste caro (raios até os nós mais próximos).
+                if (_centerClearance > 0f && NearestCenterDistance(candidate) < _centerClearance)
+                    continue;
+
+                int seen = 0;
+                if (doors != null)
+                {
+                    foreach (int door in doors)
+                    {
+                        if (_graph.CanSeeFromNode(_graph.NodePosition(door), candidate))
+                            seen++;
+                    }
+                }
+
+                if (seen < bestSeen)
+                {
+                    bestSeen = seen;
+                    point = candidate;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        // Distância planar (m) ao centro de nó mais próximo com linha livre (a captura também exige linha livre).
+        private float NearestCenterDistance(Vector3 point)
+        {
+            int nearest = _graph.FindNearestReachableNode(point);
+            if (nearest < 0)
+                return float.MaxValue;
+
+            Vector3 delta = _graph.NodePosition(nearest) - point;
+            return new Vector2(delta.x, delta.z).magnitude;
         }
 
         // Fugir com memória: perto do seeker liga e recarrega _fleeMemorySeconds; longe, gasta a memória antes de
@@ -578,7 +738,9 @@ namespace Assets.Scripts.Graph
             if (_rigidbody != null)
             {
                 _rigidbody.position = position;
-                _rigidbody.linearVelocity = Vector3.zero;
+                // Cinemático (o PlayerDummy de treino) não tem velocidade, e o Unity 6 avisa a cada reset se zerar.
+                if (!_rigidbody.isKinematic)
+                    _rigidbody.linearVelocity = Vector3.zero;
             }
 
             transform.position = position;
