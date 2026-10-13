@@ -45,6 +45,12 @@ Shader "Hidden/Xenon/OutlineComposite"
 
             static const float BackgroundDepth = 1e4;
 
+            static const int2 Directions[8] =
+            {
+                int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1),
+                int2(1, 1), int2(-1, 1), int2(1, -1), int2(-1, -1)
+            };
+
             struct Tap
             {
                 bool isObject;
@@ -85,23 +91,46 @@ Shader "Hidden/Xenon/OutlineComposite"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
                 int2 center = int2(input.positionCS.xy);
-                int h = max(1, (int)round(_OutlineScale));
+                int h = clamp((int)round(_OutlineScale), 1, 8);
+                Tap self = SampleTap(center);
 
-                // Roberts cross: diagonais (a, d) e (b, c).
-                Tap a = SampleTap(center + int2(-h, -h));
-                Tap b = SampleTap(center + int2(h, -h));
-                Tap c = SampleTap(center + int2(-h, h));
-                Tap d = SampleTap(center + int2(h, h));
+                float nearest = BackgroundDepth;
+                bool edge = false;
 
-                int objectCount = (int)a.isObject + (int)b.isObject + (int)c.isObject + (int)d.isObject;
-                if (objectCount == 0)
-                    return 0;
+                if (self.isObject)
+                {
+                    // Dentro do objeto só existe quina (Roberts cross nas diagonais). A silhueta é
+                    // desenhada do lado de fora.
+                    Tap a = SampleTap(center + int2(-1, -1));
+                    Tap b = SampleTap(center + int2(1, -1));
+                    Tap c = SampleTap(center + int2(-1, 1));
+                    Tap d = SampleTap(center + int2(1, 1));
 
-                float nearest = min(min(a.depth, b.depth), min(c.depth, d.depth));
+                    nearest = self.depth;
+                    edge = IsCrease(a, d, nearest) || IsCrease(b, c, nearest);
+                }
+                else
+                {
+                    // Anel por FORA: algum vizinho a até h pixels é objeto. Amostrar só os cantos a
+                    // ±h (como antes) pulava peças com menos de 2h px, e na RenderTexture de 512 px
+                    // isso virava duas linhas paralelas com a peça sem contorno no meio.
+                    [loop]
+                    for (int r = 1; r <= h; r++)
+                    {
+                        [unroll]
+                        for (int i = 0; i < 8; i++)
+                        {
+                            Tap tap = SampleTap(center + Directions[i] * r);
+                            if (tap.isObject)
+                            {
+                                edge = true;
+                                nearest = min(nearest, tap.depth);
+                            }
+                        }
+                    }
+                }
 
-                bool silhouette = objectCount < 4;
-                bool crease = IsCrease(a, d, nearest) || IsCrease(b, c, nearest);
-                if (!silhouette && !crease)
+                if (!edge)
                     return 0;
 
                 float centerSceneDepth = LinearEyeDepth(LoadSceneDepth(center), _ZBufferParams);

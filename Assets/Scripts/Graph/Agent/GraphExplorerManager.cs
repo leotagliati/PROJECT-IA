@@ -565,6 +565,7 @@ namespace Assets.Scripts.Graph
         ///   Ping/ReachedFraction         atendidos / (atendidos + expirados); com hider o rastro troca sem expirar
         ///   Ping/Silenced                pings apagados por o alvo estar à vista
         ///   Ping/Heard                   vezes que ouviu o alvo correndo (início de cada trecho ouvido)
+        ///   Ping/Lured                   barulhos de NoiseEvents ouvidos (item arremessado); 0 no treino
         ///   Hunt/Seen, Hunt/Caught       só com hider: viu alguma vez / pegou
         ///   Hunt/Sightings, LostSight    vezes que passou a ver / perdeu de vista por >= 1 s
         ///   Hunt/SightToCatchSeconds     da primeira vez que viu até pegar (só episódios com captura)
@@ -626,6 +627,7 @@ namespace Assets.Scripts.Graph
                 stats.Add("Ping/Missed", _ping.EpisodeMissed);
                 stats.Add("Ping/Silenced", _ping.EpisodeSilenced);
                 stats.Add("Ping/Heard", _ping.EpisodeHeard);
+                stats.Add("Ping/Lured", _ping.EpisodeLured);
                 int resolved = _ping.EpisodeReached + _ping.EpisodeMissed;
                 if (resolved > 0)
                     stats.Add("Ping/ReachedFraction", (float)_ping.EpisodeReached / resolved);
