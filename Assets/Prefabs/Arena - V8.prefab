@@ -9289,12 +9289,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e400d7c82eeb42c5922e87e269b84474, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _viewAngle: 140
-  _viewDistance: 35
+  _viewAngle: 105
+  _viewDistance: 25
   _eyeHeight: 2.78
-  _lockedViewAngle: 200
-  _lockedViewDistance: 45
-  _closeSenseDistance: 4
+  _lockedViewAngle: 150
+  _lockedViewDistance: 37
+  _closeSenseDistance: 2
   _targetHalfWidth: 0.35
   _targetHeadOffset: 0.15
   _trackMemorySeconds: 3
@@ -13182,7 +13182,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _viewDistance: 18
-  _viewAngle: 140
+  _viewAngle: 105
   _eyeHeight: 2.5
   _touchRadius: 2
   _wallLayer:
@@ -13231,7 +13231,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _viewDistance: 12
-  _viewAngle: 140
+  _viewAngle: 105
   _minIntensity: 0.05
   _scanInterval: 5
   _maxRaycasts: 12
@@ -13671,13 +13671,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _patrolSpeed: 7
-  _alertSpeed: 9.5
-  _chaseSpeed: 11.5
+  _alertSpeed: 9
+  _chaseSpeed: 10.55
   _alertSeconds: 10
   _chaseHoldSeconds: 3
   _moveDeadzone: 0.1
-  _acceleration: 20
-  _braking: 40
+  _acceleration: 1000
+  _braking: 1000
   _turnSpeed: 540
   _chaseTurnSpeed: 540
   _lockHeight: 1
@@ -367032,7 +367032,7 @@ MonoBehaviour:
   _fleeMaxDistance: 16
   _fleeReplanSeconds: 0.5
   _seekerEyeHeight: 1.67
-  _seekerViewDistance: 35
+  _seekerViewDistance: 25
   _hideChance: 0.5
   _hideCandidates: 8
   _spotSpread: 1.5

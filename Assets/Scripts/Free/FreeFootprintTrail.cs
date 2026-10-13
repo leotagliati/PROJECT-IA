@@ -43,7 +43,9 @@ namespace Assets.Scripts.Free
         [SerializeField, Range(0f, 1f)] private float _walkStrength = 0.55f;
         [SerializeField, Min(0.1f)] private float _walkLifetime = 6f;
         [SerializeField, Range(0f, 1f)] private float _crouchStrength = 0.2f;
-        [SerializeField, Min(0.1f)] private float _crouchLifetime = 2.5f;
+        // 1.2 s (12/10, pedido do Arthur; era 2.5): agachado quase não deixa rastro. O componente nasce em runtime no
+        // alvo (FreeExplorerManager), então vale este padrão, não um valor de prefab.
+        [SerializeField, Min(0.1f)] private float _crouchLifetime = 1.2f;
 
         [Header("-----Barulho dos passos (NoiseEvents)-----")]
         // Raio (m, pelo NavMesh) em que o passo é OUVIDO pelo monstro. Correndo faz barulho: a audição de corrida da

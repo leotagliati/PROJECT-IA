@@ -63,13 +63,21 @@ public static class FreeV81FurnishedTest
         if (!CanRun())
             return;
 
-        if (!(Selection.activeObject is ModelAsset model))
+        // Pelo CAMINHO e não pelo tipo de Selection.activeObject: na coluna da direita do Project o objeto
+        // selecionado nem sempre chega como o ModelAsset (12/10, "selecione um .onnx" com o .onnx selecionado).
+        string path = Selection.assetGUIDs.Select(AssetDatabase.GUIDToAssetPath)
+            .FirstOrDefault(p => p.EndsWith(".onnx", System.StringComparison.OrdinalIgnoreCase));
+        ModelAsset model = path != null ? AssetDatabase.LoadAssetAtPath<ModelAsset>(path) : null;
+        if (model == null)
         {
-            Debug.LogError("[FreeV81FurnishedTest] selecione um .onnx na janela Project antes.");
+            string selected = string.Join(", ", Selection.assetGUIDs.Select(AssetDatabase.GUIDToAssetPath));
+            Debug.LogError("[FreeV81FurnishedTest] selecione um .onnx na janela Project antes " +
+                           $"(selecionado: {(selected.Length > 0 ? selected : "nada")}" +
+                           (path != null ? $"; {path} não carregou como modelo — ainda importando?" : "") + ").");
             return;
         }
 
-        Build(model, AssetDatabase.GetAssetPath(model));
+        Build(model, path);
     }
 
     private static void CreateScreen(Scene scene, RenderTexture texture)
