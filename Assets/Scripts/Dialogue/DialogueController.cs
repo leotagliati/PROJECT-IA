@@ -25,6 +25,8 @@ public class DialogueController : MonoBehaviour
     [Header("Jogo")]
     [SerializeField] private bool pauseGame = true;
 
+    private const float MaxTypingStep = 1f / 30f;
+
     private static int closedFrame = -1;
 
     private DialogueAsset dialogue;
@@ -114,7 +116,13 @@ public class DialogueController : MonoBehaviour
             return;
 
         if (typing)
-            CompleteLine();
+        {
+            // A primeira fala não se pula: o clique que abre a conversa (Interact divide o botão esquerdo com o
+            // avançar) chega como avanço e a revelava inteira na hora. Guardas por frame e por soltura do botão não
+            // seguraram — a causa exata no Input System não foi isolada.
+            if (line > 0)
+                CompleteLine();
+        }
         else if (line + 1 < dialogue.Lines.Count)
             ShowLine(line + 1);
         else
@@ -126,7 +134,7 @@ public class DialogueController : MonoBehaviour
         line = index;
         DialogueAsset.Line current = dialogue.Lines[index];
 
-        total = view.SetLine(current.speaker, current.text);
+        total = view.SetLine(current.speaker, current.text, canSkip: index > 0);
         visible = 0;
         typed = 0f;
         typing = true;
@@ -140,8 +148,10 @@ public class DialogueController : MonoBehaviour
         if (!typing)
             return;
 
-        // Não escalado: com o jogo pausado o deltaTime é zero.
-        typed += Time.unscaledDeltaTime * charactersPerSecond;
+        // Não escalado (com o jogo pausado o deltaTime é zero), mas limitado: o unscaled não respeita o Maximum Delta
+        // Time, e a primeira abertura da caixa trava (shader/atlas do TMP) — o frame seguinte chegava com ~1 s e
+        // revelava a primeira fala inteira de uma vez.
+        typed += Mathf.Min(Time.unscaledDeltaTime, MaxTypingStep) * charactersPerSecond;
         int target = Mathf.Min((int)typed, total);
 
         while (visible < target)

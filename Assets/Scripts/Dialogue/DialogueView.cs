@@ -29,6 +29,7 @@ public class DialogueView : MonoBehaviour
 
     private InputAction advance;
     private bool lineComplete;
+    private bool skippable;
     private bool shown;
 
     public event Action AdvancePressed;
@@ -74,8 +75,11 @@ public class DialogueView : MonoBehaviour
         InputIcons.SchemeChanged -= RefreshPrompt;
     }
 
-    /// <summary>Monta a fala inteira, ainda invisível. Devolve quantos caracteres há para revelar.</summary>
-    public int SetLine(string speaker, string text)
+    /// <summary>
+    /// Monta a fala inteira, ainda invisível. Devolve quantos caracteres há para revelar. Sem <paramref name="canSkip"/>,
+    /// o prompt some enquanto ela é digitada, em vez de prometer um pulo que não acontece.
+    /// </summary>
+    public int SetLine(string speaker, string text, bool canSkip = true)
     {
         if (speakerText != null)
         {
@@ -88,6 +92,7 @@ public class DialogueView : MonoBehaviour
         bodyText.maxVisibleCharacters = 0;
         bodyText.ForceMeshUpdate();
 
+        skippable = canSkip;
         SetLineComplete(false);
         return bodyText.textInfo.characterCount;
     }
@@ -117,7 +122,9 @@ public class DialogueView : MonoBehaviour
             : $"[{advance.GetBindingDisplayString(InputBinding.MaskByGroup(InputIcons.ActiveBindingGroup))}]";
 
         promptText.spriteAsset = InputIcons.Icons;
-        promptText.text = string.Format(lineComplete ? waitingPrompt : typingPrompt, key);
+        promptText.text = lineComplete ? string.Format(waitingPrompt, key)
+                        : skippable ? string.Format(typingPrompt, key)
+                        : string.Empty;
     }
 
     // Só desassina: o asset de input e o InputIcons sobrevivem à cena e segurariam a view destruída.
