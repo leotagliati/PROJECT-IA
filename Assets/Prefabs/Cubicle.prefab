@@ -9,7 +9,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8272123504814428384}
-  - component: {fileID: 523686055640707783}
   m_Layer: 7
   m_Name: Cubicle
   m_TagString: Untagged
@@ -36,27 +35,6 @@ Transform:
   - {fileID: 4298480705852945510}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!65 &523686055640707783
-BoxCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 63234897769378380}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Size: {x: 4.9, y: 4.9, z: 2.26}
-  m_Center: {x: 0, y: 2.14, z: 0.34}
 --- !u!1 &1074177911660634549
 GameObject:
   m_ObjectHideFlags: 0
@@ -336,7 +314,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 3.060393, y: 0.52298665, z: 2.5}
+  m_Size: {x: 3.060393, y: 0.2, z: 2.5}
   m_Center: {x: 0, y: 0.042913944, z: 1.25}
 --- !u!1 &2491665554512716702
 GameObject:
@@ -530,7 +508,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 3.060393, y: 0.52298665, z: 2.5}
+  m_Size: {x: 3.060393, y: 0.2, z: 2.5}
   m_Center: {x: 0, y: 0.042913944, z: 1.25}
 --- !u!1 &3851979301965070110
 GameObject:
@@ -849,6 +827,7 @@ GameObject:
   - component: {fileID: 6134305420017753507}
   - component: {fileID: 9129132611796090803}
   - component: {fileID: 6847506165132583061}
+  - component: {fileID: 2736973228274659208}
   m_Layer: 7
   m_Name: desk1_alt
   m_TagString: Untagged
@@ -924,6 +903,27 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!65 &2736973228274659208
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7388978089854543118}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 2.2905746, y: 1.2, z: 0.89}
+  m_Center: {x: -0.0000014305115, y: -0.0000038146973, z: 0.44555542}
 --- !u!1 &7392433360260220938
 GameObject:
   m_ObjectHideFlags: 0
@@ -1058,6 +1058,7 @@ GameObject:
   - component: {fileID: 1030006340617791276}
   - component: {fileID: 3041074767886133704}
   - component: {fileID: 5752313638377658647}
+  - component: {fileID: 3293612149758723263}
   m_Layer: 7
   m_Name: office_chair_grey
   m_TagString: Untagged
@@ -1133,3 +1134,24 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!65 &3293612149758723263
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9210631026421582084}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.6, y: 0.7, z: 1.0347886}
+  m_Center: {x: -0.0054574907, y: -0.03960679, z: 0.35895184}
