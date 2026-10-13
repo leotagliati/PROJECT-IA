@@ -8610,7 +8610,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -429.5, y: -35}
+  m_AnchoredPosition: {x: -393.5, y: -35}
   m_SizeDelta: {x: 400, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!82 &218287457
@@ -21815,7 +21815,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -429.5, y: -135.4}
+  m_AnchoredPosition: {x: -393.5, y: -135.4}
   m_SizeDelta: {x: 400, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!82 &532864844
@@ -36870,6 +36870,7 @@ MonoBehaviour:
   _playSfxVolume: 1
   _menuGroup: {fileID: 0}
   _gameSceneIndex: 1
+  _loadingScreen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
   _creditsScene: Credits
   _creditsFadeTime: 0.6
 --- !u!114 &947511566
@@ -75694,7 +75695,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -429.5, y: 69.19998}
+  m_AnchoredPosition: {x: -393.5, y: 69.19998}
   m_SizeDelta: {x: 400, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!82 &2081534685

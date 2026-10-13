@@ -88,19 +88,7 @@ public class LoadingWarmup : MonoBehaviour
         }
 
         screen.SetActive(true);
-
-        // Sem Canvas acima, uma tela montada como prefab solto não renderizaria.
-        Canvas canvas = screen.GetComponentInParent<Canvas>();
-        if (canvas == null)
-        {
-            canvas = screen.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            screen.AddComponent<CanvasScaler>();
-        }
-
-        // Por cima de tudo, inclusive do HUD e das dicas que nascem nesta cena.
-        if (canvas.isRootCanvas)
-            canvas.sortingOrder = short.MaxValue;
+        PutOnTop(screen);
 
         if (!screen.TryGetComponent(out group))
             group = screen.AddComponent<CanvasGroup>();
@@ -295,6 +283,25 @@ public class LoadingWarmup : MonoBehaviour
         foreach ((Light light, bool enabled) in lights)
             if (light != null)
                 light.enabled = enabled;
+    }
+
+    /// <summary>
+    /// Garante que a tela renderiza por cima de tudo, inclusive do HUD e das dicas da cena. Público porque o
+    /// menu exibe o mesmo prefab enquanto a cena carrega, e os dois precisam sair idênticos para a emenda sumir.
+    /// </summary>
+    public static void PutOnTop(GameObject screen)
+    {
+        // Sem Canvas acima, uma tela montada como prefab solto não renderizaria.
+        Canvas canvas = screen.GetComponentInParent<Canvas>();
+        if (canvas == null)
+        {
+            canvas = screen.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            screen.AddComponent<CanvasScaler>();
+        }
+
+        if (canvas.isRootCanvas)
+            canvas.sortingOrder = short.MaxValue;
     }
 
     // Fallback sem tela configurada: fundo preto, como o fade do menu termina.
