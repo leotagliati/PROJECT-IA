@@ -201,3 +201,9 @@ MonoBehaviour:
     Volume: 0.733
     PitchJitter: 0.23
     MaxDistance: 0
+  - Id: dialogue_type
+    Clips:
+    - {fileID: 8300000, guid: bffe3bfe41668a748be91cd0daa0c063, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.05
+    MaxDistance: 0

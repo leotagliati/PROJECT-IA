@@ -151,7 +151,8 @@ determinístico durante o treino.
   registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
-  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
+  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
@@ -180,6 +181,13 @@ determinístico durante o treino.
   usada também pelo `HintController`. Portas são `SwingDoor` + `Lockable` +
   `SwingDoorAudio` (perfis em `Assets/Audio/SwingDoor/`), todos opcionais exceto o núcleo.
   `LockedDoor` é legado e só segura a porta de saída da `Cena FInal`.
+- **Diálogo**: view-controller. `DialogueController` (um por cena, **fora** do root da view) é o comportamento:
+  fala atual, ritmo da digitação, o que o avançar faz, e pausa + input no mapa UI enquanto a conversa dura.
+  `DialogueView` só exibe (textos, caracteres revelados, prompt "Aperte [ícone] para pular") e lê o input, que
+  repassa em `AdvancePressed`. As falas vêm de um `DialogueAsset` (ScriptableObject). O avançar é a action
+  `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
+  `DialogueTrigger` é a única ponte com a interação; pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
+  não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.

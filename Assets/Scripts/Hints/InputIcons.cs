@@ -57,12 +57,16 @@ public static class InputIcons
         return control.Replace('/', '_');
     }
 
-    /// <summary>Ícone da tecla principal da action no esquema ativo, como Sprite de UI. Null se não houver.</summary>
-    public static Sprite GetActionIcon(string actionName)
+    /// <summary>
+    /// Nome do sprite (no <see cref="Icons"/>) da tecla principal da action no esquema ativo, para usar em
+    /// &lt;sprite name=...&gt; num TMP. Aceita "Interact" (procura em todos os mapas) ou "UI/DialogueAdvance".
+    /// Null se a action não existir ou a tecla não tiver ícone.
+    /// </summary>
+    public static string GetActionIconName(string actionName)
     {
         TMP_SpriteAsset icons = Icons;
-        InputAction action = PlayerInputProvider.Player.Get().FindAction(actionName);
-        if (icons == null || action == null || !(icons.spriteSheet is Texture2D sheet))
+        InputAction action = PlayerInputProvider.Actions.asset.FindAction(actionName);
+        if (icons == null || action == null)
             return null;
 
         InputBinding mask = InputBinding.MaskByGroup(ActiveBindingGroup);
@@ -71,22 +75,30 @@ public static class InputIcons
             if (binding.isComposite || binding.isPartOfComposite || !mask.Matches(binding))
                 continue;
 
+            // Só o primeiro binding do grupo: é a tecla principal.
             string name = IconName(binding.effectivePath);
-            if (sprites.TryGetValue((icons, name), out Sprite cached))
-                return cached;
-
-            int index = icons.GetSpriteIndexFromName(name);
-            if (index < 0)
-                return null;
-
-            GlyphRect r = icons.spriteCharacterTable[index].glyph.glyphRect;
-            Sprite sprite = Sprite.Create(sheet, new Rect(r.x, r.y, r.width, r.height), new Vector2(0.5f, 0.5f), 100f);
-            sprite.name = name;
-            sprites.Add((icons, name), sprite);
-            return sprite;
+            return icons.GetSpriteIndexFromName(name) >= 0 ? name : null;
         }
 
         return null;
+    }
+
+    /// <summary>Ícone da tecla principal da action no esquema ativo, como Sprite de UI. Null se não houver.</summary>
+    public static Sprite GetActionIcon(string actionName)
+    {
+        TMP_SpriteAsset icons = Icons;
+        string name = GetActionIconName(actionName);
+        if (name == null || !(icons.spriteSheet is Texture2D sheet))
+            return null;
+
+        if (sprites.TryGetValue((icons, name), out Sprite cached))
+            return cached;
+
+        GlyphRect r = icons.spriteCharacterTable[icons.GetSpriteIndexFromName(name)].glyph.glyphRect;
+        Sprite sprite = Sprite.Create(sheet, new Rect(r.x, r.y, r.width, r.height), new Vector2(0.5f, 0.5f), 100f);
+        sprite.name = name;
+        sprites.Add((icons, name), sprite);
+        return sprite;
     }
 
     private static void Initialize()

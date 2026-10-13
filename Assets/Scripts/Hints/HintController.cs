@@ -152,7 +152,7 @@ public class HintController : MonoBehaviour
         float now = Time.time;
         active.RemoveAll(entry => entry.expiresAt <= now);
 
-        bool hidden = PauseControler.IsPaused || active.Count == 0;
+        bool hidden = PauseControler.IsPaused || DialogueController.IsOpen || active.Count == 0;
         view.SetText(hidden ? null : Format(active[active.Count - 1].text));
     }
 
