@@ -10,6 +10,10 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
     [SerializeField] private DialogueAsset dialogue;
     [SerializeField] private string prompt = "Conversar";
 
+    [Tooltip("Opcional. Onde a câmera para durante a conversa (posição e rotação: o eixo azul é para onde ela " +
+             "olha). Precisa de um DialogueCamera na câmera do player.")]
+    [SerializeField] private Transform cameraPoint;
+
     [Tooltip("Depois da primeira conversa completa, o objeto deixa de ser interagível.")]
     [SerializeField] private bool once;
 
@@ -42,7 +46,7 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
         if ((once && done) || DialogueController.IsOpen)
             return InteractionResult.Success;
 
-        controller.Play(dialogue, OnFinished);
+        controller.Play(dialogue, OnFinished, cameraPoint);
         return InteractionResult.Success;
     }
 
@@ -50,5 +54,18 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
     {
         done = true;
         finished.Invoke();
+    }
+
+    // Prévia do enquadramento: o frustum da câmera principal saindo do ponto.
+    private void OnDrawGizmosSelected()
+    {
+        if (cameraPoint == null)
+            return;
+
+        Camera cam = Camera.main;
+        Gizmos.color = Color.cyan;
+        Gizmos.matrix = Matrix4x4.TRS(cameraPoint.position, cameraPoint.rotation, Vector3.one);
+        Gizmos.DrawFrustum(Vector3.zero, cam != null ? cam.fieldOfView : 60f, 1.5f, 0.05f,
+                           cam != null ? cam.aspect : 16f / 9f);
     }
 }

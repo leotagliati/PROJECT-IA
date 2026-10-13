@@ -151,7 +151,8 @@ determinístico durante o treino.
   registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
-  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
+  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento

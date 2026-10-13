@@ -75,8 +75,12 @@ public class DialogueController : MonoBehaviour
             Current = null;
     }
 
-    /// <summary>Abre a conversa. False se já houver uma aberta, o jogo estiver pausado ou não houver falas.</summary>
-    public bool Play(DialogueAsset asset, Action finished = null)
+    /// <summary>
+    /// Abre a conversa. False se já houver uma aberta, o jogo estiver pausado ou não houver falas.
+    /// </summary>
+    /// <param name="cameraPoint">Opcional: pose (posição e rotação) da câmera durante a conversa. Precisa de um
+    /// <see cref="DialogueCamera"/> na câmera do player; sem ele, é ignorado.</param>
+    public bool Play(DialogueAsset asset, Action finished = null, Transform cameraPoint = null)
     {
         if (open || asset == null || asset.Lines.Count == 0 || PauseControler.IsPaused)
             return false;
@@ -95,6 +99,9 @@ public class DialogueController : MonoBehaviour
         previousMode = PlayerInputProvider.Mode;
         PlayerInputProvider.Acquire();
         PlayerInputProvider.SetMode(InputMode.UI);
+
+        if (cameraPoint != null && DialogueCamera.Current != null)
+            DialogueCamera.Current.Focus(cameraPoint);
 
         view.Show();
         ShowLine(0);
@@ -168,6 +175,9 @@ public class DialogueController : MonoBehaviour
         // Na troca de cena a view pode ter sido destruída antes deste OnDisable.
         if (view != null)
             view.Hide();
+
+        if (DialogueCamera.Current != null)
+            DialogueCamera.Current.Release();
 
         PlayerInputProvider.SetMode(previousMode);
         PlayerInputProvider.Release();
