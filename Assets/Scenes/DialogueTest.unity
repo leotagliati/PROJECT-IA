@@ -2019,36 +2019,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b60acf4172fbb28498e3ab2fee6ead36, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hingeLocalAxis: {x: 0, y: 1, z: 0}
   minAngle: 0
   maxAngle: 100
   startAngle: 0
-  dragGain: 1
+  followSharpness: 12
+  minReachFraction: 0.3
   maxAngularSpeed: 400
   friction: 3
   limitBounce: 0.15
+  latchRange: 6
+  latchPull: 400
   autoSpeed: 110
   autoAcceleration: 360
   autoArriveSpeed: 30
-  locks:
-  - {fileID: 884628124}
-  - {fileID: 680513385}
-  - {fileID: 1044424976}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  prompt: Segurar para mover
-  lockedSoundId: lockedDoor
-  creakSoundId: 
-  creakMinSpeed: 8
-  creakFullSpeed: 120
-  creakPitchRange: {x: 0.85, y: 1.15}
-  creakResponse: 0.08
-  slamSoundId: 
-  slamSpeed: 150
-  latchSoundId: 
-  latchMinSpeed: 5
-  openStopSoundId: 
-  openStopMinSpeed: 100
-  impactVolumeRange: {x: 0.5, y: 1}
+  openLabel: Abrir
+  closeLabel: Fechar
   contactRearmAngle: 2
+  lockable: {fileID: 0}
 --- !u!54 &62317064
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -2356,7 +2344,7 @@ MonoBehaviour:
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
   soundVolume: 1
   sliderHandleScale: 1.2
-  sliderMoveSound: {fileID: 8300000, guid: 823c6696ff38bc6449f6e1f1f619a033, type: 3}
+  sliderMoveSound: {fileID: 0}
   sliderSoundVolume: 1
 --- !u!1001 &65243785
 PrefabInstance:
@@ -11142,13 +11130,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   controller: {fileID: 0}
-  hints: {fileID: 0}
   label: {fileID: 0}
-  promptMarkup: '{Interact} {0}'
-  bindingGroup: Keyboard&Mouse
-  failureDuration: 1.5
+  buttonSize: 28
+  discColor: {r: 0.08, g: 0.08, b: 0.08, a: 0.85}
+  glyphColor: {r: 0.93, g: 0.9, b: 0.84, a: 1}
+  ringColor: {r: 1, g: 0.85, b: 0.55, a: 1}
   failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
   fadeTime: 0.08
+  failureDuration: 1.5
+  shakeDuration: 0.4
+  shakeAmplitude: 5
 --- !u!225 &348561900
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -21335,7 +21326,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar
   noKeyMessage: Requer chave azul
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!1001 &681556591
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -25657,57 +25652,6 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
   m_PrefabInstance: {fileID: 809435174}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &811159388
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 811159389}
-  - component: {fileID: 811159390}
-  m_Layer: 0
-  m_Name: DialogueDummy
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &811159389
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 811159388}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 510890706084926952}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &811159390
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 811159388}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2bc1f2fdc5f344e41aa09426580a97f7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  prompt: Conversar
-  dialogueSystem: {fileID: 1010682998}
-  characterName: 
-  dialogueLines:
-  - "Ol\xE1! Este \xE9 um di\xE1logo de teste."
-  - "O sistema est\xE1 funcionando corretamente."
-  - Pressione para continuar e finalizar a conversa.
 --- !u!1001 &811276317
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -28333,7 +28277,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave vermelha
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!1001 &887027922
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -31403,19 +31351,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 987cdf0afd69eb24c930dc8f583bd129, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  dialoguePanel: {fileID: 1273371361}
-  dialogueText: {fileID: 177724859}
-  characterNameText: {fileID: 0}
-  continueIndicator: {fileID: 0}
-  continueButton: {fileID: 847847659}
+  view: {fileID: 1010683001}
   charactersPerSecond: 45
   soundEveryCharacters: 2
-  audioSource: {fileID: 1010683000}
-  typingSound: {fileID: 8300000, guid: bffe3bfe41668a748be91cd0daa0c063, type: 3}
-  typingVolume: 0.5
-  dialogueEndSound: {fileID: 0}
-  dialogueLines: []
-  characterName: 
+  typingSound: 
+  pauseGame: 1
 --- !u!4 &1010682999
 Transform:
   m_ObjectHideFlags: 0
@@ -31537,32 +31477,15 @@ MonoBehaviour:
   m_GameObject: {fileID: 1010682997}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ba8c442823edd1a44ab3f623713328f4, type: 3}
+  m_Script: {fileID: 11500000, guid: 96e28551637af7248899492dec6effc2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  view: {fileID: 0}
-  highlightColor: {r: 1, g: 0.85, b: 0.55, a: 1}
-  schemes:
-  - bindingGroup: Keyboard&Mouse
-    icons: {fileID: 0}
-  - bindingGroup: Gamepad
-    icons: {fileID: 0}
-  forceScheme: 
-  keyFormat: "<mark=#EDE6D6F0 padding=\"0,0,12,12\"><color=#141414><b>\_{0}\_</b></color></mark>"
-  keySeparator: <space=0.15em>
-  keyLabels:
-  - path: <Mouse>/delta
-    label: Mouse
-  - path: <Pointer>/delta
-    label: Mouse
-  - path: <Mouse>/leftButton
-    label: Clique
-  - path: <Keyboard>/leftShift
-    label: Shift
-  - path: <Keyboard>/leftCtrl
-    label: Ctrl
-  - path: <Keyboard>/space
-    label: "Espa\xE7o"
+  root: {fileID: 1273371361}
+  speakerText: {fileID: 0}
+  bodyText: {fileID: 177724859}
+  promptText: {fileID: 818373626}
+  typingPrompt: Aperte {0} para pular
+  waitingPrompt: Aperte {0} para continuar
 --- !u!1 &1010685250
 GameObject:
   m_ObjectHideFlags: 0
@@ -31612,36 +31535,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b60acf4172fbb28498e3ab2fee6ead36, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hingeLocalAxis: {x: 0, y: 1, z: 0}
   minAngle: 0
   maxAngle: 100
   startAngle: 0
-  dragGain: 4
+  followSharpness: 12
+  minReachFraction: 0.3
   maxAngularSpeed: 400
   friction: 3
   limitBounce: 0.15
+  latchRange: 6
+  latchPull: 400
   autoSpeed: 110
   autoAcceleration: 360
   autoArriveSpeed: 30
-  locks:
-  - {fileID: 884628124}
-  - {fileID: 680513385}
-  - {fileID: 1044424976}
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  prompt: Segurar para mover
-  lockedSoundId: lockedDoor
-  creakSoundId: creakingDoor
-  creakMinSpeed: 8
-  creakFullSpeed: 120
-  creakPitchRange: {x: 0.85, y: 1.15}
-  creakResponse: 0.08
-  slamSoundId: doorSlam
-  slamSpeed: 150
-  latchSoundId: doorShut
-  latchMinSpeed: 5
-  openStopSoundId: 
-  openStopMinSpeed: 100
-  impactVolumeRange: {x: 0.5, y: 1}
+  openLabel: Abrir
+  closeLabel: Fechar
   contactRearmAngle: 2
+  lockable: {fileID: 0}
 --- !u!54 &1010685253
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -32313,33 +32224,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b60acf4172fbb28498e3ab2fee6ead36, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hingeLocalAxis: {x: 0, y: 1, z: 0}
   minAngle: 0
   maxAngle: 100
   startAngle: 0
-  dragGain: 4
+  followSharpness: 12
+  minReachFraction: 0.3
   maxAngularSpeed: 400
   friction: 3
   limitBounce: 0.15
+  latchRange: 6
+  latchPull: 400
   autoSpeed: 110
   autoAcceleration: 360
   autoArriveSpeed: 30
-  locks: []
-  lockedMessageFormat: "Ainda h\xE1 {0} cadeado(s)"
-  prompt: Segurar para mover
-  lockedSoundId: lockedDoor
-  creakSoundId: creakingDoor
-  creakMinSpeed: 8
-  creakFullSpeed: 120
-  creakPitchRange: {x: 0.85, y: 1.15}
-  creakResponse: 0.08
-  slamSoundId: doorSlam
-  slamSpeed: 150
-  latchSoundId: doorShut
-  latchMinSpeed: 5
-  openStopSoundId: 
-  openStopMinSpeed: 100
-  impactVolumeRange: {x: 0.5, y: 1}
+  openLabel: Abrir
+  closeLabel: Fechar
   contactRearmAngle: 2
+  lockable: {fileID: 0}
 --- !u!54 &1040809373
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -32561,7 +32463,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Destrancar cadeado
   noKeyMessage: Requer chave verde
+  holdDuration: 1.2
+  wiggleAngle: 4
+  wiggleFrequency: 22
   openSoundId: padlock_open
+  workingSoundId: 
 --- !u!65 &1044424977
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -39256,13 +39162,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2bc1f2fdc5f344e41aa09426580a97f7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  dialogue: {fileID: 11400000, guid: 4fd74cfb887f5c745a94535df2f24b78, type: 2}
   prompt: Conversar
-  dialogueSystem: {fileID: 1010682998}
-  characterName: DICA
-  dialogueLines:
-  - "Ol\xE1! Este \xE9 um di\xE1logo de teste."
-  - "O sistema est\xE1 funcionando corretamente."
-  - Pressione para continuar e finalizar a conversa.
+  once: 0
+  finished:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!65 &1256713840
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -93700,7 +93605,6 @@ Transform:
   - {fileID: 2889384038091839508}
   - {fileID: 6661881434491538207}
   - {fileID: 681556592}
-  - {fileID: 811159389}
   - {fileID: 1256713837}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

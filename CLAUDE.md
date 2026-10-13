@@ -180,6 +180,13 @@ determinístico durante o treino.
   usada também pelo `HintController`. Portas são `SwingDoor` + `Lockable` +
   `SwingDoorAudio` (perfis em `Assets/Audio/SwingDoor/`), todos opcionais exceto o núcleo.
   `LockedDoor` é legado e só segura a porta de saída da `Cena FInal`.
+- **Diálogo**: view-controller. `DialogueController` (um por cena, **fora** do root da view) é o comportamento:
+  fala atual, ritmo da digitação, o que o avançar faz, e pausa + input no mapa UI enquanto a conversa dura.
+  `DialogueView` só exibe (textos, caracteres revelados, prompt "Aperte [ícone] para pular") e lê o input, que
+  repassa em `AdvancePressed`. As falas vêm de um `DialogueAsset` (ScriptableObject). O avançar é a action
+  `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
+  `DialogueTrigger` é a única ponte com a interação; pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
+  não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
