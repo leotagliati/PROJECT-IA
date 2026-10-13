@@ -59,7 +59,8 @@ public class GameManager : MonoBehaviour
                 break;
         }
     }
-    
+
+    [ContextMenu("Iniciar partida")]
     public void StartMainLoop()
     {
         if (State != GameState.Preparing)

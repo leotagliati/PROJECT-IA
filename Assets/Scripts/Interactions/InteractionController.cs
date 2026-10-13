@@ -64,6 +64,8 @@ public class InteractionController : MonoBehaviour
 
     public PlayerInventory Inventory { get; private set; }
 
+    public PlayerThrow Thrower { get; private set; }
+
     public Camera ViewCamera => cam;
 
     void Awake()
@@ -72,6 +74,7 @@ public class InteractionController : MonoBehaviour
         if (cam == null) cam = Camera.main;
 
         Inventory = GetComponentInParent<PlayerInventory>();
+        Thrower = GetComponentInParent<PlayerThrow>();
 
         if (blockingMask.value == 0)
             blockingMask = LayerMask.GetMask("Wall");
@@ -206,6 +209,9 @@ public class InteractionController : MonoBehaviour
     private void OnInteractPerformed(InputAction.CallbackContext ctx)
     {
         if (!HasPrompt || !IsInRange || activeDrag != null || holdTarget != null)
+            return;
+
+        if (Thrower != null && Thrower.IsBusy)
             return;
 
         IInteractable target = currentInteractable;

@@ -15,6 +15,10 @@ namespace Assets.Scripts.Graph
     /// _targetPingHalfLifeSteps desde a última renovação, e ele só some quando outro barulho o substitui, quando o
     /// seeker chega nele ou quando o alvo é visto. O ping aleatório (sem alvo) segue com força 1 e expira em _duration.
     ///
+    /// LURE: barulho de <see cref="NoiseEvents"/> (item arremessado) dentro do alcance pelo grafo vira ping de alvo
+    /// no nó mais próximo, igual ao de quem correu, mas sem pôr o seeker em Perseguição. Por _lureHoldSteps os
+    /// passos do jogador não tiram o ping da garrafa (todo passo andando toca); correr ao alcance tira.
+    ///
     /// Observação [13..15]: ativo, distância em metros pelo grafo (normalizada por
     /// NavGraph.PathDiameter) e quente/frio (-1/0/+1 na última troca de nó). Sem direção nem
     /// caminho, de propósito: o agente descobre a saída em que a distância cai.
@@ -53,6 +57,12 @@ namespace Assets.Scripts.Graph
         // última renovação: 500 = 10 s (força 0.5 aos 10 s, 0.25 aos 20 s...). Não expira: um rastro velho é
         // fraco, não inexistente, e só some quando outro barulho toca, o seeker chega ou o alvo é visto.
         [SerializeField, Min(1)] private int _targetPingHalfLifeSteps = 500;
+
+        [Header("-----Lure (NoiseEvents)-----")]
+        // Barulho a mais que isto (m, no plano) do nó mais próximo é de outra arena ou fora do mapa: ignorado.
+        [SerializeField, Min(0f)] private float _lureSnapMeters = 3f;
+        // Sem isto o lure não servia: o próximo nó pisado andando já devolvia o ping ao jogador.
+        [SerializeField, Min(0)] private int _lureHoldSteps = 250;
 
         // O hider no treino, o jogador no modo de jogo (GraphArenaController.Target). Ativo, ele dá os
         // pings (cada chegada toca) e o sorteio aleatório fica desligado.
@@ -115,6 +125,7 @@ namespace Assets.Scripts.Graph
         public int EpisodeMissed { get; private set; }
         public int EpisodeSilenced { get; private set; }
         public int EpisodeHeard { get; private set; }
+        public int EpisodeLured { get; private set; }
 
         /// <summary>
         /// Ouviu o alvo correndo na última checagem de audição (vale até a próxima). O Manager usa para pôr o
@@ -123,6 +134,37 @@ namespace Assets.Scripts.Graph
         public bool HeardRunning { get; private set; }
 
         private int _ticks;
+
+        // Barulho de NoiseEvents esperando o próximo Tick: o ping só muda dentro do step, como os outros.
+        private bool _hasPendingLure;
+        private Vector3 _pendingLurePosition;
+        private float _pendingLureMeters;
+
+        private int _lureNode = -1;
+        private int _lureHoldUntilStep;
+
+        // Vale só enquanto o ping ainda é o da garrafa: chegou lá, ouviu correr ou viu, a trava cai sozinha.
+        private bool LureHolding(int elapsedSteps) =>
+            IsActive && TargetNode == _lureNode && elapsedSteps < _lureHoldUntilStep;
+
+        private void OnEnable()
+        {
+            NoiseEvents.Emitted += OnNoise;
+        }
+
+        private void OnDisable()
+        {
+            NoiseEvents.Emitted -= OnNoise;
+            _hasPendingLure = false;
+        }
+
+        // Dois barulhos no mesmo step: o mais recente vence, como no resto do ping.
+        private void OnNoise(Vector3 position, float hearingMeters)
+        {
+            _hasPendingLure = true;
+            _pendingLurePosition = position;
+            _pendingLureMeters = hearingMeters;
+        }
 
         /// <summary>
         /// Nó em que um ping COMEÇOU desde a última consulta, ou -1. O manager consome a cada step
@@ -158,8 +200,11 @@ namespace Assets.Scripts.Graph
             EpisodeMissed = 0;
             EpisodeSilenced = 0;
             EpisodeHeard = 0;
+            EpisodeLured = 0;
             HeardRunning = false;
             _ticks = 0;
+            _hasPendingLure = false;
+            _lureNode = -1;
             ClearStepFlags();
 
             _nextPingStep = _interval > 0 ? _firstPingDelay + Jittered(_interval) : int.MaxValue;
@@ -186,6 +231,11 @@ namespace Assets.Scripts.Graph
             _ticks++;
             _lastElapsedStep = elapsedSteps;
 
+            // Consumido já aqui: com o alvo à vista o Tick sai antes, e o lure não pode virar ping atrasado
+            // no instante em que ele some.
+            bool lured = _hasPendingLure;
+            _hasPendingLure = false;
+
             if (HiderDrivesPings)
             {
                 int arrival = _target.ConsumeArrival();
@@ -202,12 +252,16 @@ namespace Assets.Scripts.Graph
                 }
 
                 // Chegada do hider substitui o ping ativo (o rastro se moveu) sem contar como perdido.
-                if (arrival >= 0 && arrival != TargetNode)
+                if (arrival >= 0 && arrival != TargetNode && !LureHolding(elapsedSteps))
                     StartPingAt(arrival, currentNode, elapsedSteps, duration: -1);
 
                 if (_ticks % _hearCheckSteps == 0)
                     HearRunning(currentNode, elapsedSteps);
             }
+
+            // Ouvindo o alvo correr, a garrafa perde: senão o seeker iria em Perseguição até ela.
+            if (lured && !targetVisible && !HeardRunning)
+                TryStartLure(currentNode, elapsedSteps);
 
             if (IsActive)
             {
@@ -272,6 +326,40 @@ namespace Assets.Scripts.Graph
 
             if (IsActive && TargetNode == node)
                 _renewedAtStep = elapsedSteps;
+            else
+                StartPingAt(node, currentNode, elapsedSteps, duration: -1);
+        }
+
+        // Mesmo ping do alvo (esmaece, não expira): a política já sabe o que fazer com ele, sem retreino.
+        // Não liga HeardRunning, então investiga sem entrar em Perseguição.
+        private void TryStartLure(int currentNode, int elapsedSteps)
+        {
+            int node = _graph.FindNearestReachableNode(_pendingLurePosition);
+            if (node < 0)
+                return;
+
+            Vector3 offset = _graph.NodePosition(node) - _pendingLurePosition;
+            if (new Vector2(offset.x, offset.z).magnitude > _lureSnapMeters)
+                return;
+
+            // No próprio nó contaria chegada e reaqueceria a sala sem ele ter ido a lugar nenhum.
+            if (node == currentNode)
+                return;
+
+            if (currentNode >= 0
+                && (!_graph.TryFindPathTo(currentNode, node, out _, out float distance) || distance > _pendingLureMeters))
+                return;
+
+            EpisodeLured++;
+            _lureNode = node;
+            _lureHoldUntilStep = elapsedSteps + _lureHoldSteps;
+
+            if (IsActive && TargetNode == node)
+            {
+                // Cada batida realerta (sala quente + NotifyHeard), diferente do HearRunning, que só renova.
+                _renewedAtStep = elapsedSteps;
+                _startedNode = node;
+            }
             else
                 StartPingAt(node, currentNode, elapsedSteps, duration: -1);
         }

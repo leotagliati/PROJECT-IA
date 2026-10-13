@@ -96,6 +96,10 @@ public class PauseControler : MonoBehaviour
 
     private void OnToggleInput(InputAction.CallbackContext context)
     {
+        // Pausar por cima do diálogo devolveria timeScale e mapa Player com a caixa ainda aberta.
+        if (DialogueController.IsOpen)
+            return;
+
         if (IsPaused)
             Resume();
         else

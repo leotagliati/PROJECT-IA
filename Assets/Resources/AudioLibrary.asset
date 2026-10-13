@@ -145,6 +145,7 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 9168c7ebf5ea1d5488d91657f2f383eb, type: 3}
     Volume: 0.5
     PitchJitter: 0
+    MaxDistance: 0
   - Id: suspenseStart
     Clips:
     - {fileID: 8300000, guid: ccfac6ce2ee13aa4f92ef030d580fcc5, type: 3}
@@ -162,4 +163,47 @@ MonoBehaviour:
     - {fileID: 8300000, guid: cc5f4ed4af5c81a4785b570e9132ea1d, type: 3}
     Volume: 1
     PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: throwable_pickup
+    Clips:
+    - {fileID: 8300000, guid: 401d026114c279f439eac0917db8a0a2, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.1
+    MaxDistance: 5
+  - Id: throwable_impact
+    Clips:
+    - {fileID: 8300000, guid: bfd4c5c5d2ba73a4c9d4ad9c2009accb, type: 3}
+    Volume: 0.8
+    PitchJitter: 0.15
+    MaxDistance: 0
+  - Id: throwable_smash
+    Clips:
+    - {fileID: 8300000, guid: 6177b6d968cec104b8aeab7ea543f471, type: 3}
+    Volume: 1
+    PitchJitter: 0.08
+    MaxDistance: 0
+  - Id: typewriter_hit
+    Clips:
+    - {fileID: 8300000, guid: 2f986b5f79dc5604f94a9c64940be610, type: 3}
+    - {fileID: 8300000, guid: 1fa31eea7aab8334987e14cf243291bc, type: 3}
+    Volume: 0.791
+    PitchJitter: 0.186
+    MaxDistance: 0
+  - Id: typewriter_return
+    Clips:
+    - {fileID: 8300000, guid: 2e547f619a08d2c4396925b992234543, type: 3}
+    Volume: 0.733
+    PitchJitter: 0.23
+    MaxDistance: 0
+  - Id: typewriter_page
+    Clips:
+    - {fileID: 8300000, guid: a9be45d92fef6824badf8f92efeb9deb, type: 3}
+    Volume: 0.733
+    PitchJitter: 0.23
+    MaxDistance: 0
+  - Id: dialogue_type
+    Clips:
+    - {fileID: 8300000, guid: bffe3bfe41668a748be91cd0daa0c063, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.05
     MaxDistance: 0

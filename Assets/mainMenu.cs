@@ -34,6 +34,16 @@ public class mainMenu : MonoBehaviour
     [SerializeField] private CanvasGroup _menuGroup;
     [SerializeField] private int _gameSceneIndex = 1;
 
+    [Header("Loading")]
+    [Tooltip("O mesmo prefab da tela do LoadingWarmup da cena de destino. Entra quando o fade fecha e cobre o " +
+             "resto do load e a ativação da cena, que congela o frame; o LoadingWarmup de lá continua com a " +
+             "mesma tela e a emenda some. Vazio = fica no preto.")]
+    [SerializeField] private GameObject _loadingScreen;
+
+    [Header("Créditos")]
+    [SerializeField] private string _creditsScene = "Credits";
+    [SerializeField] private float _creditsFadeTime = 0.6f;
+
     private bool _transitioning;
 
     public void PlayGame()
@@ -46,9 +56,58 @@ public class mainMenu : MonoBehaviour
         StartCoroutine(PlayTransition());
     }
 
+    public void OpenCredits()
+    {
+        if (_transitioning)
+            return;
+
+        _transitioning = true;
+        StartCoroutine(CreditsTransition());
+    }
+
     public void QuitGame()
     {
         Application.Quit();
+    }
+
+    // Sem o voo da câmera: ele é a "entrada no jogo", e os créditos são só um desvio do menu.
+    private IEnumerator CreditsTransition()
+    {
+        if (EventSystem.current != null)
+            EventSystem.current.enabled = false;
+
+        AsyncOperation load = SceneManager.LoadSceneAsync(_creditsScene);
+        load.allowSceneActivation = false;
+
+        Image fade = CreateFadeOverlay();
+
+        for (float t = 0f; t < _creditsFadeTime; t += Time.unscaledDeltaTime)
+        {
+            SetAlpha(fade, t / _creditsFadeTime);
+            yield return null;
+        }
+
+        SetAlpha(fade, 1f);
+        yield return FinishLoad(load, fade);
+    }
+
+    private IEnumerator FinishLoad(AsyncOperation load, Image fade)
+    {
+        if (_loadingScreen != null)
+        {
+            LoadingWarmup.PutOnTop(Instantiate(_loadingScreen));
+
+            // Mesmo sortingOrder dos dois daria ordem indefinida; o preto fica logo abaixo, como fundo.
+            fade.canvas.sortingOrder = short.MaxValue - 1;
+        }
+
+        // Com allowSceneActivation desligado o progress para em 0.9: carregou, só falta ativar.
+        while (load.progress < 0.9f)
+            yield return null;
+
+        // Um frame com a tela já desenhada: a ativação trava o main thread e o que estiver na tela fica congelado.
+        yield return null;
+        load.allowSceneActivation = true;
     }
 
     private IEnumerator PlayTransition()
@@ -95,7 +154,7 @@ public class mainMenu : MonoBehaviour
         transform.SetPositionAndRotation(endPos, endRot);
         SetAlpha(fade, 1f);
 
-        load.allowSceneActivation = true;
+        yield return FinishLoad(load, fade);
     }
 
     private Vector3 FocusPoint()
