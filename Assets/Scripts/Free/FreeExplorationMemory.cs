@@ -90,7 +90,7 @@ namespace Assets.Scripts.Free
         /// <summary>Steps de física desde o último ponto ou porta novos (a estagnação lê isto).</summary>
         public int StepsSinceProgress { get; private set; }
 
-        /// <summary>Na mesma sala há mais tempo que o limite dela, sem estar caçando (FreeStepContext.RoomCamping).</summary>
+        /// <summary>Na mesma sala há mais tempo que o limite dela, sem o alvo à vista nem pista fresca (FreeStepContext.RoomCamping).</summary>
         public bool IsRoomCamping { get; private set; }
 
         // Métricas do episódio.
@@ -238,8 +238,8 @@ namespace Assets.Scripts.Free
         }
 
         /// <summary>
-        /// Relógio de campar, um step de física depois do Tick. <paramref name="counting"/> falso (caçando: vendo,
-        /// procurando ou com pista) não soma na sala atual: ficar na sala atrás da presa não é campar.
+        /// Relógio de campar, um step de física depois do Tick. <paramref name="counting"/> falso (alvo à vista ou pista
+        /// fresca) não soma na sala atual: ficar na sala atrás da presa não é campar. Procurando (perdeu de vista) SOMA.
         /// </summary>
         public void TickRoomTime(bool counting)
         {

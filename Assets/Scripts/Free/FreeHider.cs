@@ -15,6 +15,8 @@ namespace Assets.Scripts.Free
     ///   FOGE     com o monstro a menos de _fleeRadius ou à vista (até _fleeSightDistance): sorteia pontos em volta e
     ///            corre para o que fica mais longe DO MONSTRO pelo NavMesh, valendo mais o que ele não vê; refaz a cada
     ///            _fleeReplanSeconds. Corre só com estamina (GraphStamina, o modelo do jogador).
+    ///   FOGE E SE ESCONDE (v8.2)  despistou o monstro (a fuga acabou): com _hideAfterFleeChance vai a um esconderijo
+    ///            que ele não vê de onde está e fica agachada _hideAfterFleeMin..MaxSeconds, só fugindo com ele colado.
     ///   ESCONDERIJO  ponto perto de parede (canto, atrás de móvel) visto pelo menor número de portas da sala.
     ///   ESCONDIDA  (hider_mode 4, e parte dos episódios no 5): o jogador agachado num canto. Só vai a esconderijos,
     ///            fica em cada um _hiddenPauseMin..MaxSeconds e só foge com o monstro colado ou vendo-o de perto. Anda e
@@ -108,6 +110,19 @@ namespace Assets.Scripts.Free
         // Andar agachada = andar x isto. 0.45 = o crouchSpeedMultiplier do PlayerDummy (2.7 m/s com o andar de 6).
         [SerializeField, Range(0.1f, 1f)] private float _crouchSpeedMultiplier = 0.45f;
 
+        [Header("-----Fugir e se esconder (v8.2)-----")]
+        // Chance de, ao DESPISTAR o monstro (a fuga acaba), ir até um esconderijo que ele não vê de onde está e ficar lá
+        // agachada, como o jogador faz: corre para quebrar a linha de visão e se esconde. 0 = volta a passear (até a
+        // v8.1, a presa que fugia só voltava a andar, e achá-la era questão de olhar o corredor certo).
+        [SerializeField, Range(0f, 1f)] private float _hideAfterFleeChance = 0.8f;
+
+        // Quanto tempo (s) fica nesse esconderijo; lá só foge com o monstro colado (os limites da escondida).
+        [SerializeField, Min(0f)] private float _hideAfterFleeMinSeconds = 8f;
+        [SerializeField, Min(0f)] private float _hideAfterFleeMaxSeconds = 25f;
+
+        // Esconderijos sorteados (na sala atual e nas vizinhas) até achar um fora da vista do monstro.
+        [SerializeField, Min(1)] private int _hideAfterFleeTries = 4;
+
         [Header("-----Chaves (lições finais)-----")]
         // Chance de o próximo destino ser a chave mais perto (o resto é esconderijo ou passeio, como sem chaves): o
         // jogador vai atrás delas, mas se esconde no caminho.
@@ -146,6 +161,33 @@ namespace Assets.Scripts.Free
         private bool _fleeing;
         private int _fleeMemoryLeft;
         private float _replanLeft;
+
+        // Depois da fuga: indo ao esconderijo (anda em pé) e parada nele (agachada, foge só com o monstro colado).
+        private bool _goingToHide;
+        private bool _hiddenAfterFlee;
+
+        // Escondida agora: a de sempre (lição Escondida) ou a que se escondeu depois de fugir.
+        private bool Concealed => _hides || _hiddenAfterFlee;
+
+        // Métricas do episódio (Hider/* no TensorBoard): conferir que ela foge e se esconde de verdade.
+        private int _episodeSteps;
+        private int _hiddenSteps;
+
+        /// <summary>Fugas começadas no episódio.</summary>
+        public int EpisodeFlees { get; private set; }
+
+        /// <summary>Vezes que despistou e foi se esconder (achou esconderijo fora da vista do monstro).</summary>
+        public int EpisodeHidesAfterFlee { get; private set; }
+
+        /// <summary>Fração do episódio agachada num esconderijo (escondida ou depois da fuga), sem fugir.</summary>
+        public float HiddenFraction => _episodeSteps > 0 ? (float)_hiddenSteps / _episodeSteps : 0f;
+
+        /// <summary>O que ela está fazendo agora, para o painel de debug.</summary>
+        public string StateLabel =>
+            _fleeing ? (IsRunning ? "fugindo (correndo)" : "fugindo (sem fôlego)")
+            : _goingToHide ? "indo se esconder"
+            : Concealed && _corners.Count == 0 ? "escondida"
+            : Concealed ? "escondida, trocando de esconderijo" : "passeando";
 
         // Criados na primeira consulta: o construtor do NavMeshPath é nativo e não deve rodar na serialização.
         private NavMeshPath _path;
@@ -209,6 +251,12 @@ namespace Assets.Scripts.Free
             _fleeing = false;
             _fleeMemoryLeft = 0;
             _replanLeft = 0f;
+            _goingToHide = false;
+            _hiddenAfterFlee = false;
+            _episodeSteps = 0;
+            _hiddenSteps = 0;
+            EpisodeFlees = 0;
+            EpisodeHidesAfterFlee = 0;
             if (_animationSystem != null)
                 _animationSystem.ResetEpisode();
 
@@ -258,8 +306,24 @@ namespace Assets.Scripts.Free
             // Antes da pausa: parado também recupera estamina.
             IsRunning = _stamina.Step(_fleeing, Time.fixedDeltaTime);
 
+            // Despistou: vai se esconder fora da vista dele (ou, sem sorte no sorteio, volta a passear).
+            if (_fleeing)
+            {
+                if (!wasFleeing)
+                    EpisodeFlees++;
+                _goingToHide = false;
+                _hiddenAfterFlee = false;
+            }
+            else if (wasFleeing && !_hides && Random.value < _hideAfterFleeChance)
+            {
+                StartHidingAfterFlee();
+            }
+
             // Escondida fica agachada até ser achada; fugindo, levanta.
-            SetCrouching(_hides && !_fleeing);
+            SetCrouching(Concealed && !_fleeing);
+            _episodeSteps++;
+            if (Concealed && !_fleeing && !_goingToHide)
+                _hiddenSteps++;
 
             // Passou pela chave, pegou (fugindo também: no caminho, leva).
             if (_keys != null && _keys.Remaining > 0)
@@ -285,6 +349,8 @@ namespace Assets.Scripts.Free
 
             if (_corners.Count == 0)
             {
+                // Acabou o tempo no esconderijo de depois da fuga: levanta e volta a passear.
+                _hiddenAfterFlee = false;
                 ChooseWanderGoal();
                 return false;
             }
@@ -312,6 +378,15 @@ namespace Assets.Scripts.Free
         private void Arrive()
         {
             _corners.Clear();
+            if (_goingToHide)
+            {
+                _goingToHide = false;
+                _hiddenAfterFlee = true;
+                float seconds = Random.Range(_hideAfterFleeMinSeconds, Mathf.Max(_hideAfterFleeMinSeconds, _hideAfterFleeMaxSeconds));
+                _pauseLeft = Mathf.RoundToInt(seconds / Time.fixedDeltaTime);
+                return;
+            }
+
             _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
             if (_goalIsHiding)
                 _pauseLeft = _hides && !_fleeing ? HiddenPauseSteps() : Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
@@ -360,6 +435,37 @@ namespace Assets.Scripts.Free
 
             if (!SetPathTo(goal))
                 _goalIsHiding = false;
+        }
+
+        // Depois da fuga: um esconderijo da sala atual ou de uma vizinha que o monstro NÃO vê de onde está. Nenhum fora
+        // da vista = segue passeando (esconder-se à vista dele não adianta).
+        private void StartHidingAfterFlee()
+        {
+            int room = RoomAt(Ground);
+            if (room < 0 || _seeker == null)
+                return;
+
+            IReadOnlyList<int> doors = _map.DoorsOfRoom(room);
+            for (int k = 0; k < _hideAfterFleeTries; k++)
+            {
+                int target = room;
+                if (k > 0 && doors.Count > 0)
+                {
+                    int other = _map.GetDoor(doors[Random.Range(0, doors.Count)]).OtherRoom(room);
+                    if (other >= 0)
+                        target = other;
+                }
+
+                Vector3 spot = HidingSpot(target);
+                if (SeekerCanSee(spot) || !SetPathTo(spot))
+                    continue;
+
+                _pauseLeft = 0;
+                _goalIsHiding = true;
+                _goingToHide = true;
+                EpisodeHidesAfterFlee++;
+                return;
+            }
         }
 
         // Fugindo: entre pontos sorteados em volta, o mais longe DO MONSTRO pelo NavMesh (+ bônus se ele não vê), sem
@@ -510,12 +616,12 @@ namespace Assets.Scripts.Free
         private bool SeekerIsNear()
         {
             Vector3 toSeeker = _seeker.position - transform.position;
-            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= (_hides ? _hiddenFleeRadius : _fleeRadius);
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= (Concealed ? _hiddenFleeRadius : _fleeRadius);
         }
 
         private bool SeesSeeker()
         {
-            float sight = _hides ? _hiddenFleeSightDistance : _fleeSightDistance;
+            float sight = Concealed ? _hiddenFleeSightDistance : _fleeSightDistance;
             if (sight <= 0f)
                 return false;
 

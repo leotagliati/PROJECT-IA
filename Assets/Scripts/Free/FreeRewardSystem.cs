@@ -24,8 +24,8 @@ namespace Assets.Scripts.Free
     ///   captura (20 + 25 x fração restante)           20 a 45 (encerra)
     ///   existencial (2 / steps do episódio)           -2.0
     ///   contato com parede (0.00034/step)             -12 encostado o tempo todo (o valor da v5.1)
-    ///   batida (0.06 x batidas recentes, até x5)      -1.8 (30 isoladas) a -9 (rajada)
-    ///   PRESA na parede (0.0006/step, após 0.5 s)     -21 presa o tempo todo; ~-0.03 por segundo preso
+    ///   batida (0.1 x batidas recentes, até x10)      -3 (30 isoladas) a -30 (rajada); a 10ª em 5 s custa 1.0
+    ///   PRESA na parede (0.0012/step, após 0.5 s)     -42 presa o tempo todo; ~-0.06 por segundo preso
     ///   estagnação (0.0001/step após 1500 sem nada)   -3.5 parado o episódio todo; ~0 explorando
     ///   suavidade (0.0002 andar, 0.0001 olhar, x|Δ|²) -0.3 típico; patológico ~-8
     ///   CHAVES (só nas lições finais, com o FreeKeyField):
@@ -33,7 +33,7 @@ namespace Assets.Scripts.Free
     ///   chave levada (-1 quando o monstro fica sabendo) -3 (as 3)
     ///   presa escapou (-5, levou todas; encerra)       -5, e perde a captura (20-45)
     ///   campar (0.0005/step perto da mesma chave > 15 s) ~-0.025 por segundo campando
-    ///   CAMPAR NA SALA (v8.2, 0.0005/step na mesma sala além de 15 s + 0.25 s/ponto, sem caçar)
+    ///   CAMPAR NA SALA (v8.2, 0.0005/step na mesma sala além de 15 s + 0.25 s/ponto, sem alvo à vista nem pista)
     ///                                                 ~-0.025 por segundo; ~-17 parado numa sala o episódio todo
     /// Na caça a exploração vale x 0.3 (discovery_reward_scale): ~4 no mapa todo, bem abaixo da captura (20-45),
     /// para pegar mandar em tudo, e ainda o bastante para procurar sala por sala. E CAÇANDO (vendo o alvo,
@@ -72,14 +72,17 @@ namespace Assets.Scripts.Free
         // (teto -12 com 35000 steps). Ao mudar o episódio, reescale pelo teto.
         [SerializeField, Min(0f)] private float _wallContactPenalty = 0.00034f;
 
-        // Por BATIDA (início de contato, GraphBodyTracker) x batidas nos últimos 5 s, até _wallHitEscalationCap.
-        [SerializeField, Min(0f)] private float _wallHitPenalty = 0.06f;
-        [SerializeField, Min(1)] private int _wallHitEscalationCap = 5;
+        // Por BATIDA (início de contato, GraphBodyTracker) x batidas nos últimos 5 s, até _wallHitEscalationCap. 0.1 e
+        // até x10 (v8.2, 14/10; eram 0.06 e x5): bater em SEGUIDA no mesmo canto cresce rápido (a 5ª batida em 5 s custa
+        // 0.5, a 10ª 1.0) e passa a valer dar a volta; batida isolada continua barata (0.1).
+        [SerializeField, Min(0f)] private float _wallHitPenalty = 0.1f;
+        [SerializeField, Min(1)] private int _wallHitEscalationCap = 10;
 
         // Por step PRESO: encostado, pedindo para andar e quase parado há mais de 0.5 s (FreeStuckTracker). Quase o
         // dobro do contato, somado a ele: raspar a parede andando é tolerável, empacar contra ela (quina, batente)
-        // não. ~-0.03/s preso, além do contato.
-        [SerializeField, Min(0f)] private float _wallStuckPenalty = 0.0006f;
+        // não. 0.0012 (v8.2, 14/10; era 0.0006, e o tempo preso subiu de 0.6% para 2% no v8.2_mapa_04): ~-0.06/s preso,
+        // além do contato.
+        [SerializeField, Min(0f)] private float _wallStuckPenalty = 0.0012f;
 
         [Header("-----Chaves (lições finais)-----")]
         // Conferir (ver) uma chave que ficou mais de 60 s sem ser vista (FreeKeyField): a GUARDA é passar por elas de
@@ -97,7 +100,8 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0f)] private float _campPenalty = 0.0005f;
 
         [Header("-----Campar numa sala (v8.2)-----")]
-        // Por step de física na MESMA sala além do limite dela (15 s + 0.25 s por ponto da sala), sem estar caçando:
+        // Por step de física na MESMA sala além do limite dela (15 s + 0.25 s por ponto da sala), sem o alvo à vista
+        // nem pista fresca (PROCURANDO conta: esperar no lugar em que o perdeu de vista era tocaia de graça):
         // o monstro tem que rondar, não esperar de tocaia. O mesmo valor do campar na chave (~-0.025 por segundo);
         // somado à estagnação (que já cobra 0.0001 parado num lugar visto) passa a valer sair da sala.
         [SerializeField, Min(0f)] private float _roomCampPenalty = 0.0005f;

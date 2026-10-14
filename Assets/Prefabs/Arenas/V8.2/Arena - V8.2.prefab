@@ -156,6 +156,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3257910425381085536, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3257910425381085536, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
       propertyPath: m_NavMeshData
       value: 
       objectReference: {fileID: 23800000, guid: 6eeda3bc04445cf4eaeff9f6dfd29433, type: 2}
@@ -233,9 +237,9 @@ MonoBehaviour:
   _walkLifetime: 0.5
   _crouchStrength: 0.012
   _crouchLifetime: 0.25
-  _runNoiseRadius: 18
-  _walkNoiseRadius: 6
-  _noiseInterval: 1
+  _runNoiseRadius: 25
+  _walkNoiseRadius: 15
+  _noiseInterval: 0.5
 --- !u!4 &4193097940060719984 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4795858660059452718, guid: ce9c05c48801ce444909c24b680afa49, type: 3}

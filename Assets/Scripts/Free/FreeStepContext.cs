@@ -44,7 +44,7 @@ namespace Assets.Scripts.Free
         public bool HiderEscaped;
         public bool Camping;
 
-        // Na mesma sala há mais que o limite dela (FreeExplorationMemory.TickRoomTime), sem estar caçando (v8.2).
+        // Na mesma sala há mais que o limite dela (FreeExplorationMemory.TickRoomTime), sem o alvo à vista nem pista fresca; procurando conta (v8.2).
         public bool RoomCamping;
     }
 }

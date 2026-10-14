@@ -11,8 +11,16 @@
 #     um movel o alvo some de verdade), segura a perseguicao 1 s (era 3). A presa corre a 10.2 (a rapida a 12.5).
 #   - MAPA MUDOU DE FORMA: 23 salas e 29 portas (eram 28 e 35), 927 pontos. Cabe no cerebro (ate 32 salas, 8 portas
 #     por sala); as Rooms/S## do TensorBoard sao outras salas, nao compare com as do v8.1.
-#   - CAMPAR NA SALA custa 0.0005/step (mesma sala alem de 15 s + 0.25 s por ponto, sem estar cacando).
+#   - CAMPAR NA SALA custa 0.0005/step (mesma sala alem de 15 s + 0.25 s por ponto, sem o alvo a vista nem pista
+#     fresca). Ate 14/10 (v8.2_mapa_01) PROCURANDO tambem pausava o relogio: esperar onde perdeu o alvo era de graca.
 #     Metrica: Exploration/RoomCampFraction. Sem observacao nova (o vetor fica 126, o --initialize-from exige).
+#   - PRESA (v8.2_mapa_03 em diante, 14/10): sem a presa RAPIDA (12.5 m/s; o monstro a 9 nunca a alcancava, pegava
+#     ~20%), folego de 8 s, igual ao do jogador no Map - V8 (era 10), e a que foge agora SE ESCONDE ao despistar (80%: esconderijo fora
+#     da vista do monstro, agachada 8-25 s). Misto = 40% escondida, 60% foge-e-esconde. Olho do monstro que a presa
+#     usa para julgar "ele me ve" = 2.78 m, o real (era 1.67).
+#   - CHAVE PEGA FAZ BARULHO (14/10, depois do v8.2_mapa_03 comecar): 50 m pelo NavMesh, e o alarme sai na hora (era 3 s).
+#   - PASSOS (14/10): correndo 25 m, andando 15 m, no maximo um barulho a cada 0.5 s (eram 18, 6 e 1 s; 30 e 20 ate 2M do v8.2_mapa_04).
+#   - PAREDE (14/10, 1.8M do v8.2_mapa_04): batida 0.1 ate x10 (era 0.06 ate x5), presa 0.0012/step (era 0.0006).
 #   - ESCONDERIJOS: moveis novos para a presa (e o jogador) se esconder; so tapam a visao nas layers Wall/Obstacle/Door
 #     (o menu da v8.2 lista os que a visao atravessa).
 #   - RASTRO: a presa usa o rastro do jogador (FreeV82Map copia): pegada andando/agachado invisivel, correndo ~0.6 s;

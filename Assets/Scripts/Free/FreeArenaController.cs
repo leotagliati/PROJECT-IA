@@ -177,6 +177,35 @@ namespace Assets.Scripts.Free
 
 #if UNITY_EDITOR
         private void Reset() => _wallLayer = LayerMask.GetMask("Wall", "Obstacle", "Door");
+
+        private NoiseRadiusPreview _keyNoisePreview;
+
+        // Com a arena selecionada, SEM Play: o barulho de pegar a chave no ponto de chave (KeySpots) mais perto do
+        // centro da aba Scene (são ~200 pontos; todos juntos virariam borrão). Ande com a câmera para ver outro.
+        private void OnDrawGizmosSelected()
+        {
+            Transform spots = transform.Find("KeySpots");
+            UnityEditor.SceneView view = UnityEditor.SceneView.lastActiveSceneView;
+            if (spots == null || spots.childCount == 0 || view == null)
+                return;
+
+            Transform nearest = null;
+            float best = float.MaxValue;
+            foreach (Transform spot in spots)
+            {
+                float distance = (spot.position - view.pivot).sqrMagnitude;
+                if (distance < best)
+                {
+                    best = distance;
+                    nearest = spot;
+                }
+            }
+
+            FreeKeyField keys = GetComponent<FreeKeyField>();
+            float radius = keys != null ? keys.PickupNoiseRadius : FreeKeyField.DefaultPickupNoiseRadius;
+            _keyNoisePreview ??= new NoiseRadiusPreview();
+            _keyNoisePreview.Draw(nearest.position, radius, new Color(0.65f, 0.45f, 1f, 0.9f), $"chave ({nearest.name})");
+        }
 #endif
 
         private void Awake() => SaveFloorColor();

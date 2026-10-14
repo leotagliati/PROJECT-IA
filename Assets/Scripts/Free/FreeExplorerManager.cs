@@ -406,7 +406,11 @@ namespace Assets.Scripts.Free
 
             _locomotion.UpdateAwareness(_perception.IsSeeing);
             _memory.Tick(transform.position, _locomotion.ViewDirection);
-            _memory.TickRoomTime(counting: !IsHunting);
+            // Campar conta também PROCURANDO (perdeu de vista há < 20 s): parar no último lugar em que viu o alvo e
+            // esperar ele voltar era de graça (o relógio ficava parado os 20 s e só depois andava). Pausa só com o alvo
+            // à vista ou com pista fresca (pegada, barulho), que é quando ficar ali tem motivo.
+            bool hasLead = _settings.HasHider && (_perception.IsSeeing || _trackSense.HasTrack);
+            _memory.TickRoomTime(counting: !hasLead);
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -588,6 +592,9 @@ namespace Assets.Scripts.Free
                 hunt += $"   pegada a {Vector3.Distance(transform.position, _trackSense.Position):0} m ({_trackSense.Intensity:P0})";
             if (IsHunting)
                 hunt += "   [CAÇANDO: exploração em 0]";
+            FreeHider hiderNow = _settings.HasHider && !IsGameMode ? _arenaController.Hider : null;
+            if (hiderNow != null)
+                hunt += $"\nPresa está: {hiderNow.StateLabel}";
             string text =
                 $"<b>v8 FreeExplorer</b>  {name}\n" +
                 $"Tempo: {_elapsedSteps * Time.fixedDeltaTime:0} s / {_maxEpisodeSteps * Time.fixedDeltaTime:0} s\n" +
@@ -715,6 +722,18 @@ namespace Assets.Scripts.Free
                     stats.Add("Hunt/SightToCatchSeconds", _perception.SightToCatchSeconds);
                 stats.Add("Hunt/TracksSeen", _trackSense.EpisodeTracksSeen);
                 stats.Add("Hunt/NoisesHeard", _trackSense.EpisodeNoisesHeard);
+
+                // A presa de treino (v8.2): quantas vezes fugiu, quantas foi se esconder depois, e quanto do episódio
+                // passou escondida. Separado por tipo, como o Caught.
+                FreeHider hider = IsGameMode ? null : _arenaController.Hider;
+                if (hider != null)
+                {
+                    string kind = _settings.HiderHides ? "Hidden" : "Fleeing";
+                    stats.Add($"Hider/Flees{kind}", hider.EpisodeFlees);
+                    stats.Add($"Hider/HiddenFraction{kind}", hider.HiddenFraction);
+                    if (!_settings.HiderHides)
+                        stats.Add("Hider/HidesAfterFlee", hider.EpisodeHidesAfterFlee);
+                }
             }
 
             // Chaves (só episódios com chaves): quantas a presa levou, se escapou, rondas e tempo campando.
