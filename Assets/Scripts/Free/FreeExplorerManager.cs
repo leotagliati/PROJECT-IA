@@ -406,6 +406,7 @@ namespace Assets.Scripts.Free
 
             _locomotion.UpdateAwareness(_perception.IsSeeing);
             _memory.Tick(transform.position, _locomotion.ViewDirection);
+            _memory.TickRoomTime(counting: !IsHunting);
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -474,6 +475,7 @@ namespace Assets.Scripts.Free
                 KeysLost = _keys != null ? _keys.NewlyKnownThisStep : 0,
                 HiderEscaped = escaped,
                 Camping = _keys != null && _keys.IsCamping && !IsHunting,
+                RoomCamping = _memory.IsRoomCamping,
             };
             _lastStepReward = _rewardSystem.EvaluateStep(context);
             AddReward(_lastStepReward);
@@ -697,6 +699,7 @@ namespace Assets.Scripts.Free
                 stats.Add("Movement/ChaseFraction", _locomotion.ChaseFraction);
                 stats.Add("Movement/AlertFraction", _locomotion.AlertFraction);
                 stats.Add("Movement/MeanSpeed", _locomotion.MeanSpeed);
+                stats.Add("Exploration/RoomCampFraction", (float)_memory.EpisodeRoomCampSteps / _elapsedSteps);
             }
 
             if (_settings.HasHider)

@@ -47,6 +47,16 @@ namespace Assets.Scripts.Free
         // Fração dos pontos vistos para a sala contar como "vista" (observação e métricas; nada paga por sala).
         [SerializeField, Range(0.1f, 1f)] private float _roomSeenThreshold = 0.9f;
 
+        [Header("-----Campar numa sala (v8.2)-----")]
+        // Tempo numa sala antes de contar como CAMPAR: base + por ponto da sala, porque sala grande demora mais para
+        // varrer. No mapa da v8.2 (7 a 84 pontos por sala) dá de ~17 s (sala de 7) a ~36 s (a de 84).
+        [SerializeField, Min(0f)] private float _roomCampBaseSeconds = 15f;
+        [SerializeField, Min(0f)] private float _roomCampSecondsPerPoint = 0.25f;
+
+        // Fora da sala, o tempo acumulado nela cai isto x mais rápido do que subiu (2 = ficar fora metade do tempo
+        // zera). Sem isso pisar na porta e voltar zerava o relógio.
+        [SerializeField, Min(0.1f)] private float _roomCampRecovery = 2f;
+
         private FreeMap _map;
         private bool[] _seen;
         private readonly List<int> _unseen = new List<int>();
@@ -54,6 +64,7 @@ namespace Assets.Scripts.Free
         private bool[] _doorCrossed;
         private float[] _seenTime;
         private float[] _doorTime;
+        private float[] _roomTime;
         private float _forgetSeconds;
         private float _nextForget;
         private float _cosHalfAngle;
@@ -79,7 +90,11 @@ namespace Assets.Scripts.Free
         /// <summary>Steps de física desde o último ponto ou porta novos (a estagnação lê isto).</summary>
         public int StepsSinceProgress { get; private set; }
 
+        /// <summary>Na mesma sala há mais tempo que o limite dela, sem estar caçando (FreeStepContext.RoomCamping).</summary>
+        public bool IsRoomCamping { get; private set; }
+
         // Métricas do episódio.
+        public int EpisodeRoomCampSteps { get; private set; }
         public int DoorsCrossed { get; private set; }
         public int Crossings { get; private set; }
         public int RepeatCrossings { get; private set; }
@@ -145,6 +160,7 @@ namespace Assets.Scripts.Free
             _doorCrossed = new bool[_map.DoorCount];
             _seenTime = new float[_map.PointCount];
             _doorTime = new float[_map.DoorCount];
+            _roomTime = new float[_map.RoomCount];
             _cosHalfAngle = Mathf.Cos(_viewAngle * 0.5f * Mathf.Deg2Rad);
 
             // Máscara vazia = visão atravessando parede, e o treino não acusaria nada: cai no padrão com aviso.
@@ -163,6 +179,9 @@ namespace Assets.Scripts.Free
             System.Array.Clear(_seen, 0, _seen.Length);
             System.Array.Clear(_roomSeenCount, 0, _roomSeenCount.Length);
             System.Array.Clear(_doorCrossed, 0, _doorCrossed.Length);
+            System.Array.Clear(_roomTime, 0, _roomTime.Length);
+            IsRoomCamping = false;
+            EpisodeRoomCampSteps = 0;
             _unseen.Clear();
             for (int i = 0; i < _seen.Length; i++)
                 _unseen.Add(i);
@@ -216,6 +235,32 @@ namespace Assets.Scripts.Free
                 StepsSinceProgress = 0;
             else
                 StepsSinceProgress++;
+        }
+
+        /// <summary>
+        /// Relógio de campar, um step de física depois do Tick. <paramref name="counting"/> falso (caçando: vendo,
+        /// procurando ou com pista) não soma na sala atual: ficar na sala atrás da presa não é campar.
+        /// </summary>
+        public void TickRoomTime(bool counting)
+        {
+            float dt = Time.fixedDeltaTime;
+            for (int room = 0; room < _roomTime.Length; room++)
+            {
+                if (room == CurrentRoom)
+                {
+                    if (counting)
+                        _roomTime[room] += dt;
+                }
+                else if (_roomTime[room] > 0f)
+                {
+                    _roomTime[room] = Mathf.Max(0f, _roomTime[room] - dt * _roomCampRecovery);
+                }
+            }
+
+            IsRoomCamping = counting && CurrentRoom >= 0
+                            && _roomTime[CurrentRoom] > _roomCampBaseSeconds + _roomCampSecondsPerPoint * _map.RoomPoints(CurrentRoom).Count;
+            if (IsRoomCamping)
+                EpisodeRoomCampSteps++;
         }
 
         // Travessia = sair da zona pelo lado oposto ao que entrou. Voltar pelo mesmo lado não conta.

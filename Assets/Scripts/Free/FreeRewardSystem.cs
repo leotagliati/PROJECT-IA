@@ -13,10 +13,11 @@ namespace Assets.Scripts.Free
     /// Tudo positivo é evento pago uma vez ou com teto: nada dá para repetir em loop e lucrar.
     ///
     /// ORÇAMENTO por episódio (35000 steps de física = 700 s = 7000 decisões com Decision Period 5). No V8 o
-    /// gerador dá ~925 pontos e 35 portas por arena (o Console do FreeMap diz o número certo):
+    /// gerador dá ~925 pontos e 35 portas por arena; no Map - V8 da v8.2, 927 pontos, 23 salas e 29 portas (o Console
+    /// do FreeMap diz o número certo):
     ///   Termo                                         Teto / total
     ///   ver pontos (8 / nº de pontos, por ponto)      +8 vendo o mapa inteiro (~0.009 por ponto), x escala
-    ///   porta nova (0.15)                             +5.25 (35 portas), x escala; uma porta = ~17 pontos
+    ///   porta nova (0.15)                             +5.25 (35 portas; 4.35 com as 29 da v8.2), x escala; uma porta = ~17 pontos
     ///   cobertura (5, encerra; só sem hider)          +5
     ///   avistar o hider (2, só a 1ª vista)            +2
     ///   aproximar vendo (1.0/m, só batendo o recorde) ~+20 (da 1ª vista, até 22 m, à captura)
@@ -32,6 +33,8 @@ namespace Assets.Scripts.Free
     ///   chave levada (-1 quando o monstro fica sabendo) -3 (as 3)
     ///   presa escapou (-5, levou todas; encerra)       -5, e perde a captura (20-45)
     ///   campar (0.0005/step perto da mesma chave > 15 s) ~-0.025 por segundo campando
+    ///   CAMPAR NA SALA (v8.2, 0.0005/step na mesma sala além de 15 s + 0.25 s/ponto, sem caçar)
+    ///                                                 ~-0.025 por segundo; ~-17 parado numa sala o episódio todo
     /// Na caça a exploração vale x 0.3 (discovery_reward_scale): ~4 no mapa todo, bem abaixo da captura (20-45),
     /// para pegar mandar em tudo, e ainda o bastante para procurar sala por sala. E CAÇANDO (vendo o alvo,
     /// procurando há < 20 s ou com pegada fresca) ela vale ZERO e a estagnação não cobra: com a presa à vista ou o
@@ -93,6 +96,12 @@ namespace Assets.Scripts.Free
         // ele está a captura: com a presa longe, campar não pega ninguém.
         [SerializeField, Min(0f)] private float _campPenalty = 0.0005f;
 
+        [Header("-----Campar numa sala (v8.2)-----")]
+        // Por step de física na MESMA sala além do limite dela (15 s + 0.25 s por ponto da sala), sem estar caçando:
+        // o monstro tem que rondar, não esperar de tocaia. O mesmo valor do campar na chave (~-0.025 por segundo);
+        // somado à estagnação (que já cobra 0.0001 parado num lugar visto) passa a valer sair da sala.
+        [SerializeField, Min(0f)] private float _roomCampPenalty = 0.0005f;
+
         [Header("-----Outras penalidades-----")]
         // Diluída por step (custo total = este valor por episódio): pressa sem punir ação nenhuma.
         [SerializeField, Min(0f)] private float _existentialPenalty = 2f;
@@ -146,6 +155,8 @@ namespace Assets.Scripts.Free
             reward -= _keyLostPenalty * context.KeysLost;
             if (context.Camping)
                 reward -= _campPenalty;
+            if (context.RoomCamping)
+                reward -= _roomCampPenalty;
 
             // Fim: a captura tem prioridade; depois a fuga da presa.
             if (context.HiderCaught)
