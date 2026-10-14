@@ -1,0 +1,72 @@
+# ================================================================================================
+# FreeExplorer - v8.2: O CEREBRO DA v8.1 (35M) NO MAPA NOVO "Map - V8", COM OS NUMEROS DO JOGO
+#
+#   python tools/mlagents_learn_threads.py config/free_v8.2.yaml --run-id=v8.2_mapa_01 --initialize-from=v8.1_zero_01 --env="Builds/V8.2/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   (build: menu PROJECT-IA > "v8.2: preparar mapa, cenas e build"; mudou o Map - V8 = rodar o menu de novo)
+#
+# O que muda em relacao ao v8.1_zero_01 (terminou em 35M no mapa mobiliado da Arena - V9):
+#   - MAPA: o Map - V8 (cena "Map - V8 seeker"): moveis sem clipping, cubiculos abertos (esconderijos), NavMesh proprio.
+#   - NUMEROS DO JOGO no treino (os da cena de teste da v8.1, levados para o Map - V8): perseguicao 9 (era 10.55),
+#     alerta 7.5, patrulha 6.5, visao 80 graus / 30 m (travada 100 / 35), memoria do alvo 0.5 s (era 3: atras de
+#     um movel o alvo some de verdade), segura a perseguicao 1 s (era 3). A presa corre a 10.2 (a rapida a 12.5).
+#   - MAPA MUDOU DE FORMA: 23 salas e 29 portas (eram 28 e 35), 927 pontos. Cabe no cerebro (ate 32 salas, 8 portas
+#     por sala); as Rooms/S## do TensorBoard sao outras salas, nao compare com as do v8.1.
+#   - CAMPAR NA SALA custa 0.0005/step (mesma sala alem de 15 s + 0.25 s por ponto, sem estar cacando).
+#     Metrica: Exploration/RoomCampFraction. Sem observacao nova (o vetor fica 126, o --initialize-from exige).
+#   - ESCONDERIJOS: moveis novos para a presa (e o jogador) se esconder; so tapam a visao nas layers Wall/Obstacle/Door
+#     (o menu da v8.2 lista os que a visao atravessa).
+#   - RASTRO: a presa usa o rastro do jogador (FreeV82Map copia): pegada andando/agachado invisivel, correndo ~0.6 s;
+#     correr faz barulho a 18 m e andar a 6 m.
+# Por isso o run e do --initialize-from (pesos do 35M, contador e curriculo do zero) e SEM curriculo: todo episodio
+# e a licao Final da v8.1 (presa mista, chaves em metade). Com o --initialize-from um curriculo recomecaria na
+# licao Explorar.
+# Esperado: Hunt/Caught cai no comeco (o monstro ficou mais lento e enxerga menos) e volta a subir; olhar
+# Hunt/Caught, Hunt/LostSight, Hunt/SightToCatchSeconds, Exploration/WallHits e as Rooms/S## dos cubiculos.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 (era 3e-4 no v8.1 do zero): ajuste fino de uma politica pronta. O ultimo trecho do v8.1 (27.9-35M, que
+      # absorveu visao/velocidade novas) rodou com 7e-5 caindo a 0 e se ajustou bem; 3e-4 arriscaria desfazer a caca.
+      learning_rate: 0.0001
+      # 0.003 (era 0.008): um pouco de exploracao para os cubiculos e a perseguicao mais lenta, sem embaralhar a politica.
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v8.1 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.997
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 10M: ~11 h a ~40 s por 10k steps (8 jogos). O v8.1 se ajustou ao mapa mobiliado em ~3M; a folga e para os
+    # numeros novos de velocidade e visao.
+    max_steps: 10000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final da v8.1.
+environment_parameters:
+  # 5 = misto (FreeArenaController): sorteia presa que foge, escondida ou rapida.
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  # Pontos e portas valem 0.3: pegar manda em tudo e ainda vale procurar.
+  discovery_reward_scale: 0.3
+  # Metade dos episodios com 3 chaves: o modelo serve com ou sem chaves no jogo.
+  key_chance: 0.5
