@@ -14,8 +14,8 @@ using UnityEngine.InputSystem.Utilities;
 /// o componente é zerado e cada batida acrescenta um caractere. Com <see cref="autoType"/> ela digita sozinha e
 /// qualquer tecla/botão acelera; sem, só digita quando apertam.
 ///
-/// Uma linha contendo só "---" separa páginas: no fim de cada uma a folha voa até o ponto de saída, reaparece
-/// limpa no ponto de spawn e sobe até a posição inicial.
+/// Uma linha contendo só "---" separa páginas. Página completa vem para o ponto de leitura, fica pelo tempo de
+/// leitura (qualquer tecla pula) e voa até o ponto de saída; a nova reaparece limpa no spawn e sobe até o rolo.
 ///
 /// Lê o dispositivo direto (onAnyButtonPress), não o PlayerInputActions: aqui vale qualquer botão, inclusive
 /// os que não estão mapeados. Desligue o componente para parar de aceitar digitação.
@@ -34,10 +34,27 @@ public class Typewriter : MonoBehaviour
     [Tooltip("Multiplica a subida por linha. 1 = exatamente uma altura de linha do texto.")]
     [SerializeField, Min(0f)] private float feedScale = 1f;
 
-    [Header("Troca de página")]
-    [Tooltip("Tempo com a página completa parada, para dar tempo de ler, antes de ela sair.")]
-    [SerializeField, Min(0f)] private float pageHoldTime = 2.5f;
+    [Header("Leitura da página")]
+    [Tooltip("Pausa com a página recém-terminada ainda no rolo, antes de ela vir para a câmera.")]
+    [SerializeField, Min(0f)] private float pageLiftDelay = 0.4f;
 
+    [Tooltip("Opcional. Onde a página pronta fica para ser lida (posição e rotação: de frente para a câmera). " +
+             "Vazio = é lida no próprio rolo.")]
+    [SerializeField] private Transform pageReadPoint;
+
+    [SerializeField, Min(0f)] private float pageShowTime = 0.6f;
+
+    [Tooltip("Tempo de leitura = base + por caractere: página com três nomes passa rápido, agradecimento longo " +
+             "fica mais. Qualquer tecla pula a espera.")]
+    [SerializeField, Min(0f)] private float readTimeBase = 1.5f;
+
+    [SerializeField, Min(0f)] private float readTimePerChar = 0.05f;
+
+    [Tooltip("Tempo mínimo de leitura antes de uma tecla poder pular: quem está martelando para digitar mais " +
+             "rápido pularia a página no mesmo instante em que ela chega.")]
+    [SerializeField, Min(0f)] private float readSkipDelay = 0.6f;
+
+    [Header("Troca de página")]
     [Tooltip("Para onde a folha pronta voa. Posição E rotação são usadas: crie o ponto como cópia da Sheet " +
              "e gire se quiser que ela saia girando.")]
     [SerializeField] private Transform pageExitPoint;
@@ -49,6 +66,15 @@ public class Typewriter : MonoBehaviour
     [SerializeField] private Transform pageSpawnPoint;
 
     [SerializeField, Min(0f)] private float pageInsertTime = 0.6f;
+
+    [Header("Prompt")]
+    [Tooltip("Opcional. Texto na tela que diz o que a tecla faz agora. Sem ícone de propósito: qualquer tecla " +
+             "ou botão vale, e um ícone específico mentiria.")]
+    [SerializeField] private TMP_Text promptText;
+
+    [SerializeField] private string typingPrompt = "Aperte qualquer tecla para digitar o contrato";
+    [SerializeField] private string nextPagePrompt = "Aperte qualquer tecla para a próxima página";
+    [SerializeField] private string lastPagePrompt = "Aperte qualquer tecla para voltar ao menu";
 
     [Header("Automático")]
     [SerializeField] private bool autoType = true;
@@ -140,6 +166,9 @@ public class Typewriter : MonoBehaviour
     private int _line;
     private char _lastChar;
     private bool _changingPage;
+    private bool _reading;
+    private bool _skipRead;
+    private float _readStart;
 
     private float _cooldown;
     private int _queued;
@@ -179,6 +208,7 @@ public class Typewriter : MonoBehaviour
         _pages = SplitPages(paperText.text ?? string.Empty);
         _script = _pages[0];
         paperText.text = string.Empty;
+        SetPrompt(null);
 
         foreach (Transform key in keys)
             if (key != null)
@@ -216,6 +246,7 @@ public class Typewriter : MonoBehaviour
     {
         WarnMissingSounds();
         _autoTimer = autoStartDelay;
+        SetPrompt(typingPrompt);
     }
 
     private void OnEnable()
@@ -237,6 +268,13 @@ public class Typewriter : MonoBehaviour
 
         if (control.device is Gamepad pad && control == pad.startButton)
             return;
+
+        if (_reading)
+        {
+            if (Time.time - _readStart >= readSkipDelay)
+                _skipRead = true;
+            return;
+        }
 
         if (_changingPage || IsFinished)
             return;
@@ -309,23 +347,46 @@ public class Typewriter : MonoBehaviour
         if (_cursor < _script.Length)
             return;
 
-        if (_page + 1 < _pages.Length)
-        {
-            StartCoroutine(ChangePage());
-            return;
-        }
-
-        IsFinished = true;
-        finished.Invoke();
+        StartCoroutine(PageDone());
     }
 
-    private IEnumerator ChangePage()
+    // Página completa: vem para a câmera, fica pelo tempo de leitura (ou até alguém apertar) e, se houver próxima,
+    // sai voando enquanto a nova entra. A última fica parada na leitura até a cena sair.
+    private IEnumerator PageDone()
     {
         _changingPage = true;
         _queued = 0;
+        SetPrompt(null);
 
-        yield return new WaitForSeconds(pageHoldTime);
+        yield return new WaitForSeconds(pageLiftDelay);
 
+        if (sheet != null && pageReadPoint != null)
+        {
+            Play(pageSound, transform.position);
+            yield return MoveSheet(sheet.position, sheet.rotation, pageReadPoint.position, pageReadPoint.rotation,
+                                   pageShowTime, t => t * t * (3f - 2f * t));
+        }
+
+        bool last = _page + 1 >= _pages.Length;
+        _reading = true;
+        _skipRead = false;
+        _readStart = Time.time;
+        SetPrompt(last ? lastPagePrompt : nextPagePrompt);
+
+        for (float t = readTimeBase + readTimePerChar * paperText.textInfo.characterCount; t > 0f && !_skipRead;
+             t -= Time.deltaTime)
+            yield return null;
+
+        _reading = false;
+
+        if (last)
+        {
+            IsFinished = true;
+            finished.Invoke();
+            yield break;
+        }
+
+        SetPrompt(null);
         Play(pageSound, transform.position);
 
         // Ease-in na saída (arranca e acelera, voando), ease-out na entrada (assenta no rolo).
@@ -364,6 +425,14 @@ public class Typewriter : MonoBehaviour
 
         _changingPage = false;
         _autoTimer = autoStartDelay;
+        SetPrompt(typingPrompt);
+    }
+
+    // Vazio esconde: na transição entre páginas a tecla não faz nada, e um prompt ali mentiria.
+    private void SetPrompt(string text)
+    {
+        if (promptText != null)
+            promptText.text = text ?? string.Empty;
     }
 
     private IEnumerator MoveSheet(Vector3 fromPosition, Quaternion fromRotation, Vector3 toPosition,
