@@ -314,10 +314,22 @@ public static class FreeV81FurnitureAudit
         if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
             return;
 
+        WriteRoomReport(Scene, "Logs/furniture_rooms.txt");
+        if (Application.isBatchMode)
+            EditorApplication.Exit(0);
+    }
+
+    /// <summary>
+    /// O relatório por sala da 1ª arena de <paramref name="scene"/> em <paramref name="output"/>. Abre a cena sem
+    /// perguntar (quem chama salva antes). Também usado pela v8.2. Devolve quantas salas nunca chegam a 90%.
+    /// </summary>
+    internal static int WriteRoomReport(string scene, string output)
+    {
         var r = new StringBuilder();
+        int hopeless = 0;
         try
         {
-            EditorSceneManager.OpenScene(Scene, OpenSceneMode.Single);
+            EditorSceneManager.OpenScene(scene, OpenSceneMode.Single);
             FreeArenaController arena = Object.FindObjectsByType<FreeArenaController>(FindObjectsSortMode.InstanceID)
                 .OrderBy(a => a.transform.position.x).First();
             FreeMap map = arena.GetComponentInChildren<FreeMap>(true);
@@ -366,6 +378,8 @@ public static class FreeV81FurnitureAudit
                     LayerMask.GetMask("Obstacle"), QueryTriggerInteraction.Ignore))).Count;
                 near += $" ({furnitureCount} móveis)";
                 float bad = points.Count > 0 ? (float)(inside + unreachable) / points.Count : 0f;
+                if (bad > 0.1f)
+                    hopeless++;
                 r.AppendLine($"S{room:00} {points.Count,4} pts  dentro de colisor {inside,3}  sem caminho {unreachable,3}  " +
                              $"({bad:P0} impossíveis{(bad > 0.1f ? "  <<< NUNCA CHEGA A 90%" : "")})  portas {map.DoorsOfRoom(room).Count}  " +
                              $"centro ({c.x:0},{c.z:0}) perto de '{near}'" +
@@ -377,9 +391,9 @@ public static class FreeV81FurnitureAudit
             r.AppendLine("ERRO: " + e);
         }
 
-        System.IO.File.WriteAllText("Logs/furniture_rooms.txt", r.ToString());
-        if (Application.isBatchMode)
-            EditorApplication.Exit(0);
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(output));
+        System.IO.File.WriteAllText(output, r.ToString());
+        return hopeless;
     }
 
     private static string MaskNames(int mask)

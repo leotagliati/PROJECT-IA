@@ -110,26 +110,30 @@ public static class FreeV81FurnishedTest
         return Application.isBatchMode || EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
     }
 
-    private static void Build(ModelAsset model, string source)
+    private static void Build(ModelAsset model, string source) =>
+        BuildTestScene(model, source, ArenaPrefabPath, SceneFile, "Arena - V8.1 mobiliada (teste)");
+
+    /// <summary>Monta e salva a cena de jogar contra o modelo com UMA instância do prefab de arena. Também usada pela v8.2.</summary>
+    internal static bool BuildTestScene(ModelAsset model, string source, string arenaPrefabPath, string sceneFile, string arenaName)
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath);
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(arenaPrefabPath);
         if (model == null || prefab == null)
         {
-            Debug.LogError($"[FreeV81FurnishedTest] falta {(model == null ? "o modelo" : ArenaPrefabPath)}.");
-            return;
+            Debug.LogError($"[FreeV81FurnishedTest] falta {(model == null ? "o modelo" : arenaPrefabPath)}.");
+            return false;
         }
 
         // Luz e câmera padrão: a câmera sai abaixo (só a do jogador fica), a luz ajuda a enxergar o mapa no teste.
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
         var arenaObject = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
-        arenaObject.name = "Arena - V8.1 mobiliada (teste)";
+        arenaObject.name = arenaName;
 
         FreeArenaController arena = arenaObject.GetComponentInChildren<FreeArenaController>(true);
         FreeExplorerManager agent = arenaObject.GetComponentInChildren<FreeExplorerManager>(true);
         if (arena == null || agent == null)
         {
             Debug.LogError("[FreeV81FurnishedTest] o prefab não tem FreeArenaController ou monstro da v8.");
-            return;
+            return false;
         }
 
         var arenaSettings = new SerializedObject(arena);
@@ -166,7 +170,7 @@ public static class FreeV81FurnishedTest
         if (player == null)
         {
             Debug.LogError($"[FreeV81FurnishedTest] nenhum jogador (PlayerMovement com a tag {PlayerTag}) na arena.");
-            return;
+            return false;
         }
 
         player.gameObject.SetActive(true);
@@ -183,14 +187,15 @@ public static class FreeV81FurnishedTest
         if (playerCamera != null)
             CreateScreen(scene, playerCamera.targetTexture);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(SceneFile));
-        if (!EditorSceneManager.SaveScene(scene, SceneFile))
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneFile));
+        if (!EditorSceneManager.SaveScene(scene, sceneFile))
         {
-            Debug.LogError($"[FreeV81FurnishedTest] não consegui salvar {SceneFile}.");
-            return;
+            Debug.LogError($"[FreeV81FurnishedTest] não consegui salvar {sceneFile}.");
+            return false;
         }
 
-        Debug.Log($"[FreeV81FurnishedTest] {SceneFile} pronta: monstro com {source} (sensor das chaves)," +
+        Debug.Log($"[FreeV81FurnishedTest] {sceneFile} pronta: monstro com {source} (sensor das chaves)," +
                   $"jogador '{player.name}'. Aperte Play.");
+        return true;
     }
 }
