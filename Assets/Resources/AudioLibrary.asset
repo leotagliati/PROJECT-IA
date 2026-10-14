@@ -207,3 +207,9 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0.05
     MaxDistance: 0
+  - Id: fridgeHum
+    Clips:
+    - {fileID: 8300000, guid: 9c711163f3926e4418faec045bdd365c, type: 3}
+    Volume: 0.5
+    PitchJitter: 0
+    MaxDistance: 8
