@@ -1,4 +1,4 @@
-# Pega o MELHOR cérebro do run mais recente e deixa pronto em Assets/ para arrastar no agente.
+# Pega o MELHOR cérebro do run mais recente e deixa pronto em Assets/Brains/<Behavior>/ para arrastar no agente.
 #
 # Uso (Anaconda Prompt, com o ambiente mlagents ativo, na raiz do projeto):
 #   python tools/best_onnx.py                      # run mais recente em results/
@@ -15,7 +15,7 @@
 #      demais (no node4_noarrow_01 ela variava de -6.1 a -2.3 entre checkpoints vizinhos).
 #   3. Empate (diferença < --tie) fica com o mais RECENTE.
 #
-# Saída: Assets/<Behavior>_<run>_<steps>.onnx em arquivo ÚNICO. O exportador do ML-Agents com
+# Saída: Assets/Brains/<Behavior>/<Behavior>_<run>_<steps>.onnx em arquivo ÚNICO. O exportador do ML-Agents com
 # torch novo grava os pesos num .onnx.data separado, que o import do Unity pode não achar — aqui
 # os dois são juntados antes de copiar.
 import argparse, glob, json, os, sys
@@ -118,12 +118,14 @@ def main():
     import onnx
     model = onnx.load(best["path"], load_external_data=True)
     name = f"{args.behavior}_{run}_{best['step'] // 1000}k.onnx"
-    out = os.path.join(ROOT, "Assets", name)
+    folder = os.path.join(ROOT, "Assets", "Brains", args.behavior)
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, name)
     onnx.save_model(model, out, save_as_external_data=False)
     onnx.checker.check_model(onnx.load(out))
 
     inputs = ", ".join(f"{i.name}={[d.dim_value for d in i.type.tensor_type.shape.dim][1:]}" for i in model.graph.input)
-    print(f"\nSalvo: Assets/{name}  ({os.path.getsize(out) // 1024} KB, entradas {inputs})")
+    print(f"\nSalvo: Assets/Brains/{args.behavior}/{name}  ({os.path.getsize(out) // 1024} KB, entradas {inputs})")
     print(f"No Unity: arraste no campo Model do Behavior Parameters do agente ({args.behavior}).")
 
 

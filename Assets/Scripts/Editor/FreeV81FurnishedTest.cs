@@ -21,9 +21,9 @@ using UnityEngine.SceneManagement;
 public static class FreeV81FurnishedTest
 {
     private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V9.prefab";
-    private const string SceneFile = "Assets/Scenes/Arthur/V8.1 - Mobiliada Teste.unity";
+    private const string SceneFile = "Assets/Scenes/Arthur/V8.1/V8.1 - Mobiliada Teste.unity";
     private const string RunFolder = "results/v8.1_zero_01/FreeExplorer";
-    private const string CopiedModel = "Assets/FreeExplorer_v8.1M_teste.onnx";
+    private const string CopiedModel = "Assets/Brains/FreeExplorer/FreeExplorer_v8.1M_teste.onnx";
     private const string PlayerTag = "Goal";
 
     [MenuItem("PROJECT-IA/v8.1: cena de teste mobiliada (checkpoint mais novo)")]

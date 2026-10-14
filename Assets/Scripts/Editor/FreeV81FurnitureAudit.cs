@@ -17,7 +17,7 @@ using UnityEngine.AI;
 /// </summary>
 public static class FreeV81FurnitureAudit
 {
-    private const string Scene = "Assets/Scenes/Arthur/V8.1 - Mobiliada.unity";
+    private const string Scene = "Assets/Scenes/Arthur/V8.1/V8.1 - Mobiliada.unity";
     private const string Output = "Logs/furniture_audit.txt";
 
     [MenuItem("PROJECT-IA/v8.1: auditar móveis (diagnóstico)")]

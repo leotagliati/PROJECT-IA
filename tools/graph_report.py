@@ -1,6 +1,6 @@
 # Relatório do grafo de nós de uma arena, lido direto do .prefab (sem abrir o Unity).
 #
-# Uso:  python tools/graph_report.py Assets/Prefabs/NodeTraining2.prefab
+# Uso:  python tools/graph_report.py Assets/Prefabs/Arenas/_Antigos/NodeTraining2.prefab
 #
 # Mostra, a partir do YAML do prefab (posições no MUNDO resolvidas pela hierarquia):
 #   - altura dos nós e da coluna do corpo, e a laje de cada Wall_01_Door_Hole;
@@ -13,7 +13,7 @@ import re, sys, math, glob, os
 from collections import defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PREFAB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "Assets", "Prefabs", "NodeTraining.prefab")
+PREFAB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "Assets", "Prefabs", "Arenas", "_Antigos", "NodeTraining.prefab")
 
 text = open(PREFAB, encoding="utf-8").read()
 docs = re.split(r"^--- !u!(\d+) &(-?\d+)( stripped)?\s*$", text, flags=re.M)

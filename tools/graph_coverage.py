@@ -1,6 +1,6 @@
 # Cobertura do chão de um grafo SALVO, medida sem abrir o Unity.
 #
-# Uso:  python tools/graph_coverage.py Assets/Prefabs/NodeTraining2.prefab
+# Uso:  python tools/graph_coverage.py Assets/Prefabs/Arenas/_Antigos/NodeTraining2.prefab
 #
 # É uma RÉPLICA offline do mapa do chão do NavGraphPlacer (WalkGrid + CoverageMap), para conferir
 # o critério de aceite de cobertura depois de salvar o prefab. Lê do .prefab:
@@ -20,7 +20,7 @@ import re, sys, os, math, glob, heapq, collections
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PREFAB = sys.argv[1] if len(sys.argv) > 1 else os.path.join("Assets", "Prefabs", "NodeTraining2.prefab")
+PREFAB = sys.argv[1] if len(sys.argv) > 1 else os.path.join("Assets", "Prefabs", "Arenas", "_Antigos", "NodeTraining2.prefab")
 if not os.path.isabs(PREFAB):
     PREFAB = os.path.join(ROOT, PREFAB)
 

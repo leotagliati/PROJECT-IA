@@ -34,14 +34,14 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class FreeV82Map
 {
-    private const string SourceScene = "Assets/Scenes/Map - V8 seeker.unity";
+    private const string SourceScene = "Assets/Scenes/Arthur/V8.2/Map - V8 seeker.unity";
     private const string SourceRoot = "Map - V8";
-    private const string NavMeshAssetPath = "Assets/Prefabs/Arena - V8.2 NavMesh.asset";
-    private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V8.2.prefab";
-    private const string TrainingScene = "Assets/Scenes/Arthur/V8.2 - Training.unity";
-    private const string TestScene = "Assets/Scenes/Arthur/V8.2 - Teste.unity";
+    private const string NavMeshAssetPath = "Assets/Prefabs/Arenas/V8.2/Arena - V8.2 NavMesh.asset";
+    private const string ArenaPrefabPath = "Assets/Prefabs/Arenas/V8.2/Arena - V8.2.prefab";
+    private const string TrainingScene = "Assets/Scenes/Arthur/V8.2/V8.2 - Training.unity";
+    private const string TestScene = "Assets/Scenes/Arthur/V8.2/V8.2 - Teste.unity";
     private const string BuildPath = "Builds/V8.2/PROJECT-IA.exe";
-    private const string DefaultModel = "Assets/FreeExplorer_v8.1M_35M.onnx";
+    private const string DefaultModel = "Assets/Brains/FreeExplorer/FreeExplorer_v8.1M_35M.onnx";
     private const string RoomReport = "Logs/v8.2_rooms.txt";
     private const string PlayerTag = "Goal";
     private const int Arenas = 5;

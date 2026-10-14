@@ -21,7 +21,7 @@ MonoBehaviour:
   m_OverrideGlobalSceneList: 1
   m_Scenes:
   - m_enabled: 1
-    m_path: Assets/Scenes/Arthur/V6 - Training.unity
+    m_path: Assets/Scenes/Arthur/_Antigos/V6 - Training.unity
   m_ScriptingDefines: []
   m_PlayerSettingsYaml:
     m_Settings: []

@@ -39,13 +39,13 @@ using Object = UnityEngine.Object;
 /// </summary>
 public static class FreeV8Setup
 {
-    private const string TrainingScene = "Assets/Scenes/Arthur/V8 - Training.unity";
-    private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V8.prefab";
+    private const string TrainingScene = "Assets/Scenes/Arthur/V8/V8 - Training.unity";
+    private const string ArenaPrefabPath = "Assets/Prefabs/Arenas/V8/Arena - V8.prefab";
     private const string ArenaName = "Arena - V8";
     private const string BuildPath = "Builds/V8/PROJECT-IA.exe";
-    private const string KeysScene = "Assets/Scenes/Arthur/V8.1 - Training.unity";
+    private const string KeysScene = "Assets/Scenes/Arthur/V8.1/V8.1 - Training.unity";
     private const string KeysBuildPath = "Builds/V8.1/PROJECT-IA.exe";
-    private const string WatchModelPath = "Assets/FreeExplorer_v8_watch.onnx";
+    private const string WatchModelPath = "Assets/Brains/FreeExplorer/FreeExplorer_v8_watch.onnx";
 
     // O Python do ambiente conda mlagents nesta máquina; sem ele, o "python" do PATH.
     private const string CondaPython = "C:/Users/55119/miniconda3/envs/mlagents/python.exe";
@@ -483,14 +483,14 @@ public static class FreeV8Setup
     // Cena de teste: jogar contra o modelo
     // ================================================================================
 
-    private const string TestScene = "Assets/Scenes/Arthur/V8 - Test.unity";
+    private const string TestScene = "Assets/Scenes/Arthur/V8/V8 - Test.unity";
 
     // A versão da cena de teste de antes do prefab sem nós, guardada na primeira montagem.
-    private const string TestSceneBackup = "Assets/Scenes/Arthur/V8 - Test (com nós).unity";
+    private const string TestSceneBackup = "Assets/Scenes/Arthur/V8/V8 - Test (com nós).unity";
 
     // O modelo promovido para o teste (results/<run>/FreeExplorer.onnx juntado com o .onnx.data num arquivo só).
     // Trocou de checkpoint: grave o novo aqui e rode o menu de novo.
-    private const string TestModelPath = "Assets/FreeExplorer_v8.0_9.5M.onnx";
+    private const string TestModelPath = "Assets/Brains/FreeExplorer/FreeExplorer_v8.0_9.5M.onnx";
 
     // A tag do jogador no FreeArenaController (_playerTag): o PlayerDummy já vem com ela.
     private const string PlayerTag = "Goal";
