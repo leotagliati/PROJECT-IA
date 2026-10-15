@@ -147508,6 +147508,7 @@ MonoBehaviour:
   pauseScreen: {fileID: 1582305057}
   settingsScreen: {fileID: 1545490591}
   settingsButton: {fileID: 279588714}
+  selectionWaker: {fileID: 7311905142860417002}
 --- !u!1001 &1012996243
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -340117,6 +340118,17 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
   m_PrefabInstance: {fileID: 1931293321}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &7311905142860417002 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 7311905142860417001, guid: 110d6071ea92b56468efcdaab0d88d0c, type: 3}
+  m_PrefabInstance: {fileID: 7258250339944304169}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1885611740}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8c3f1a52d7e44b9a9b1e6d40a2f7c5e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!4 &7314371575943216776 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5504880785392913253, guid: 37f533e1990504f4496d50abc0803119, type: 3}
