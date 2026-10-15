@@ -18,6 +18,10 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
 
     private Coroutine currentAnimation;
 
+    // Escala do próprio botão no layout: o hover multiplica em cima dela em vez de assumir 1,
+    // senão um botão esticado no prefab voltaria para 1 ao abrir o menu.
+    private Vector3 originalScale;
+
     private Color originalColor;
     private TMP_Text text;
 
@@ -29,6 +33,8 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
 
     private void Awake()
     {
+        originalScale = transform.localScale;
+
         text = GetComponentInChildren<TMP_Text>();
 
         if (text != null)
@@ -56,7 +62,7 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
         }
 
         isHovered = false;
-        transform.localScale = Vector3.one;
+        transform.localScale = originalScale;
 
         if (text != null)
             text.color = originalColor;
@@ -199,7 +205,7 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
             // Scale
             go.transform.localScale = Vector3.Lerp(
                 startScale,
-                Vector3.one * targetScale,
+                originalScale * targetScale,
                 t
             );
 
@@ -217,7 +223,7 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
         }
 
         go.transform.localScale =
-            Vector3.one * targetScale;
+            originalScale * targetScale;
 
         if (targetText != null)
         {
