@@ -18,6 +18,8 @@ namespace Assets.Scripts.Free
 
         // Exploração (FreeExplorationMemory).
         public int NewPoints;
+        // Soma da raridade (0 a 1, FreeArenaController.SeenRarity) dos pontos novos deste step: o bônus contra a ronda fixa.
+        public float NewPointsRarity;
         public int NewDoors;
         public int StepsSinceProgress;
         public bool CoverageReached;

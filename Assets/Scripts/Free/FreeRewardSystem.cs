@@ -17,6 +17,7 @@ namespace Assets.Scripts.Free
     /// do FreeMap diz o número certo):
     ///   Termo                                         Teto / total
     ///   ver pontos (8 / nº de pontos, por ponto)      +8 vendo o mapa inteiro (~0.009 por ponto), x escala
+    ///     x (1 + 1.5 x raridade do ponto)             até +20 se nada do mapa fosse visto antes; ~+3 a +4 a mais típico
     ///   porta nova (0.15)                             +5.25 (35 portas; 4.35 com as 29 da v8.2), x escala; uma porta = ~17 pontos
     ///   cobertura (5, encerra; só sem hider)          +5
     ///   avistar o hider (2, só a 1ª vista)            +2
@@ -35,7 +36,8 @@ namespace Assets.Scripts.Free
     ///   campar (0.0005/step perto da mesma chave > 15 s) ~-0.025 por segundo campando
     ///   CAMPAR NA SALA (v8.2, 0.0005/step na mesma sala além de 15 s + 0.25 s/ponto, sem alvo à vista nem pista)
     ///                                                 ~-0.025 por segundo; ~-17 parado numa sala o episódio todo
-    /// Na caça a exploração vale x 0.3 (discovery_reward_scale): ~4 no mapa todo, bem abaixo da captura (20-45),
+    /// Na caça a exploração vale x 0.5 (discovery_reward_scale; 0.3 até o v8.2_mapa_04), x2 no 1º minuto caindo a x1
+    /// (_earlyExplorationBoost): ~6 no mapa todo, bem abaixo da captura (20-45),
     /// para pegar mandar em tudo, e ainda o bastante para procurar sala por sala. E CAÇANDO (vendo o alvo,
     /// procurando há < 20 s ou com pegada fresca) ela vale ZERO e a estagnação não cobra: com a presa à vista ou o
     /// rastro dela no chão, nada compete (o FOCO da v5). Ver e seguir pegada não pagam nada: só levam à captura.
@@ -54,6 +56,24 @@ namespace Assets.Scripts.Free
 
         // Viu coverage_target dos pontos. Encerra o episódio: o mapa inteiro vale mais que parar nos 80% fáceis.
         [SerializeField, Min(0f)] private float _coverageReward = 5f;
+
+        // COMEÇO DO EPISÓDIO = EXPLORAR (v8.2, 14/10): ponto e porta novos valem x (1 + isto) no step 0, caindo em linha
+        // reta até x1 em _earlyExplorationSteps (steps de física; 3000 = 60 s). Ele saía direto na ronda decorada; com o
+        // começo pagando o dobro, varrer salas novas cedo compensa. Teto: ver o mapa inteiro já no 1º minuto daria
+        // ~2 x 6 = 12 (impossível; meio mapa ~+3), longe da captura (20-45). Caçando continua zero.
+        [SerializeField, Min(0f)] private float _earlyExplorationBoost = 1f;
+        [SerializeField, Min(1)] private int _earlyExplorationSteps = 3000;
+
+        // CONTRA A RONDA FIXA (v8.2_mapa_06): ponto novo paga x (1 + isto x raridade), raridade = quão pouco esta arena viu
+        // o ponto nos últimos ~20 episódios, relativa ao mais visto (FreeArenaController.SeenRarity; 0 = o mais visto,
+        // 1 = nunca visto). No v8.2_mapa_05 ele fazia a mesma volta todo episódio e 9 das 23 salas ficavam em < 6%;
+        // a presa já nasce nelas, mas só pegar pagava ir lá. Bônus no raro, e não custo no comum: custar ver o comum
+        // faria olhar menos (ou ficar parado) valer a pena, e as salas comuns são caminho e às vezes têm a presa. Se
+        // equilibra sozinho: ele passa a ir lá, o ponto deixa de ser raro e o valor migra para o próximo esquecido.
+        // Paga evento que ele causa (ver), sem alvo escolhido por código. Teto com 1.5: o mapa inteiro nunca visto
+        // valeria 8 x 2.5 = 20 (x escala 0.5 = 10, mais as portas ~2.2); na prática ~1/3 do mapa é raro (~+3 a +4),
+        // abaixo da captura (20-45).
+        [SerializeField, Min(0f)] private float _rarityGain = 1.5f;
 
         [Header("-----Caça-----")]
         // 1ª vista do hider no episódio (GraphHiderPerception já só marca a primeira).
@@ -144,9 +164,10 @@ namespace Assets.Scripts.Free
             reward -= _lookChangePenalty * context.LookChangeSq;
 
             // Exploração.
-            float discovery = context.Hunting ? 0f : context.DiscoveryRewardScale;
+            float early = 1f + _earlyExplorationBoost * Mathf.Clamp01(1f - (float)context.ElapsedSteps / _earlyExplorationSteps);
+            float discovery = context.Hunting ? 0f : context.DiscoveryRewardScale * early;
             if (context.NewPoints > 0 && context.PointCount > 0)
-                reward += _allPointsReward * context.NewPoints / context.PointCount * discovery;
+                reward += _allPointsReward * (context.NewPoints + _rarityGain * context.NewPointsRarity) / context.PointCount * discovery;
             reward += _newDoorReward * context.NewDoors * discovery;
 
             // Caça.

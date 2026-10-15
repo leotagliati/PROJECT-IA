@@ -115,6 +115,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1590224449416924376, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
+      propertyPath: m_Cookie
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 2282535931588403822, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
@@ -157,7 +161,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3257910425381085536, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
       propertyPath: m_Enabled
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3257910425381085536, guid: ce9c05c48801ce444909c24b680afa49, type: 3}
       propertyPath: m_NavMeshData

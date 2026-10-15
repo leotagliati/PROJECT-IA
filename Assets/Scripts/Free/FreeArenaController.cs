@@ -31,6 +31,9 @@ namespace Assets.Scripts.Free
         public float HiderSpeed;
         public float HiderStamina;
 
+        // Episódio SÓ DE EXPLORAR sorteado no meio da caça (explore_chance): sem presa, exploração x1, cobertura encerra.
+        public bool ExploreOnly;
+
         public bool HasHider => HiderMode != GraphHider.Mode.None;
     }
 
@@ -42,6 +45,11 @@ namespace Assets.Scripts.Free
     /// SPAWN: sala sorteada com peso _rareSpawnFloor + (1 - taxa com que ela foi vista nos últimos episódios desta
     /// arena), depois um ponto qualquer dela, virado para qualquer lado. É a correção que levou a v5.1 ao mapa inteiro
     /// (nascer longe das salas que ele pula), ligada desde o step 0. A taxa começa em 1 (peso mínimo para todas).
+    /// A PRESA também (v8.2, 14/10, HiderSpawnWeight): nasce de preferência nas salas que o monstro MENOS vê, com a taxa
+    /// relativa à sala mais vista. Com a presa uniforme, ele decorou uma ronda que achava a maioria delas e pulava salas
+    /// inteiras (no v8.2_mapa_04, S06 em 0% dos episódios, S04 2%, S02 3%): o jogador escondido nelas não era achado.
+    /// Dentro da sala, o esconderijo dela puxa para os PONTOS de visão que ele menos vê (PointRarity): o canto que a
+    /// ronda decorada não olha.
     ///
     /// MODO DE JOGO (_gameMode): sem currículo (valem a última lição e os padrões abaixo), a presa sai de cena e o
     /// alvo passa a ser o jogador, achado pela tag; o FreeExplorerManager cuida da inferência e do fim.
@@ -72,6 +80,18 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0f)] private float _defaultHiderSpeed = 0f;
         [SerializeField, Min(0f)] private float _defaultHiderStamina = 0f;
 
+        // EXPLORAR NO MEIO DA CAÇA (explore_chance, v8.2_mapa_06): chance de um episódio vir SEM PRESA, como a lição
+        // Explorar da v8.1, sorteado por episódio e por arena (o truque do maze_enabled do Seeker): o mesmo batch
+        // treina caçar e varrer o mapa, sem lição só de explorar que faria ele desaprender a caça. 0 sem trainer.
+        [SerializeField, Range(0f, 1f)] private float _defaultExploreChance = 0f;
+
+        // Meta de cobertura desses episódios (encerra com +5). 0.9, não os 0.95 da v8.1: nos cubículos do Map - V8 há
+        // pontos que só aparecem de dentro de cada baia, e meta inalcançável = episódio que nunca paga o fim.
+        [SerializeField, Range(0.05f, 1f)] private float _exploreCoverageTarget = 0.9f;
+
+        // Escala da exploração nesses episódios: 1 = a da lição Explorar (na caça vale discovery_reward_scale, 0.5).
+        [SerializeField, Min(0f)] private float _exploreDiscoveryScale = 1f;
+
         [Header("-----Mundo-----")]
         // Parede para a visão do alvo, a captura e a presa (a mesma máscara da FreeExplorationMemory). Vazia = Reset.
         [SerializeField] private LayerMask _wallLayer;
@@ -96,6 +116,18 @@ namespace Assets.Scripts.Free
         // Peso do episódio novo na média móvel da taxa de cada sala (~1/20: os últimos ~20 episódios desta arena).
         [SerializeField, Range(0.01f, 1f)] private float _roomRateSmoothing = 0.05f;
 
+        // A presa nasce (e se esconde) PRIORIZANDO as salas que o monstro menos vê: peso _hiderRareFloor +
+        // _hiderRareGain x (1 - taxa / maior taxa). Relativo à mais vista porque a taxa absoluta é baixa em todas (o
+        // episódio acaba na captura, ~110 s): com 1 - taxa o peso ia de 0.36 a 1.2 e quase não mudava nada. Com 0.2 e 3,
+        // a sala nunca vista pesa 3.2 e a mais vista 0.2 (16x). Equilibra sozinho: presa na sala pulada = ele aprende a ir
+        // lá, a taxa sobe e o peso cai.
+        [SerializeField] private bool _hiderFavorsRareRooms = true;
+        [SerializeField, Min(0f)] private float _hiderRareFloor = 0.2f;
+        [SerializeField, Min(0f)] private float _hiderRareGain = 3f;
+
+        // O mesmo por PONTO de visão do FreeMap (o esconderijo dentro da sala, FreeHider.HidingSpot).
+        [SerializeField] private bool _hiderFavorsRarePoints = true;
+
         // Modo de jogo: pontos sorteados para nascer longe do jogador (FreeExplorerManager._gameModeSpawnDistance).
         [SerializeField, Min(1)] private int _avoidSpawnTries = 12;
 
@@ -103,6 +135,8 @@ namespace Assets.Scripts.Free
         private FreeKeyField _keys;
         private FreePlayerTarget _playerTarget;
         private float[] _roomSeenRate;
+        private float[] _pointSeenRate;
+        private float _mostSeenPointRate;
         private float[] _spawnWeights;
         private Color _initialFloorColor;
         private bool _floorColorSaved;
@@ -246,7 +280,7 @@ namespace Assets.Scripts.Free
                 return;
             }
 
-            hider.Configure(Map, WallLayer, Keys);
+            hider.Configure(Map, WallLayer, Keys, this);
             hider.ResetEpisode(Settings, seeker);
         }
 
@@ -325,18 +359,71 @@ namespace Assets.Scripts.Free
             return true;
         }
 
-        /// <summary>Fim de episódio: soma na média móvel quais salas foram vistas (o peso do spawn).</summary>
+        /// <summary>Peso da sala no spawn da PRESA (FreeHider.PickSpawn): maior nas salas que o monstro menos vê.</summary>
+        public float HiderSpawnWeight(int room)
+        {
+            EnsureRoomStats();
+            if (!_hiderFavorsRareRooms || room < 0 || room >= _roomSeenRate.Length)
+                return 1f;
+
+            return _hiderRareFloor + _hiderRareGain * RoomRarity(room);
+        }
+
+        /// <summary>
+        /// Quão POUCO o monstro vê esta sala: 0 = a mais vista da arena, 1 = nunca vista (relativo à mais vista).
+        /// 0 com a opção desligada ou antes de haver episódio (todas começam "sempre vistas").
+        /// </summary>
+        public float RoomRarity(int room)
+        {
+            EnsureRoomStats();
+            if (!_hiderFavorsRareRooms || room < 0 || room >= _roomSeenRate.Length)
+                return 0f;
+
+            float most = 0f;
+            for (int r = 0; r < _roomSeenRate.Length; r++)
+                most = Mathf.Max(most, _roomSeenRate[r]);
+            return most < 1e-3f ? 0f : 1f - _roomSeenRate[room] / most;
+        }
+
+        /// <summary>
+        /// Quão POUCO o monstro vê este ponto do FreeMap: 0 = o mais visto da arena, 1 = nunca visto (relativo ao mais
+        /// visto, como o peso das salas). 0 com a opção desligada ou antes de haver episódio.
+        /// </summary>
+        public float PointRarity(int point) => _hiderFavorsRarePoints ? SeenRarity(point) : 0f;
+
+        /// <summary>
+        /// A mesma raridade do ponto, sem depender da opção da presa: o bônus de exploração do monstro
+        /// (FreeRewardSystem._rarityGain) lê esta.
+        /// </summary>
+        public float SeenRarity(int point)
+        {
+            EnsureRoomStats();
+            if (point < 0 || point >= _pointSeenRate.Length || _mostSeenPointRate < 1e-3f)
+                return 0f;
+
+            return 1f - _pointSeenRate[point] / _mostSeenPointRate;
+        }
+
+        /// <summary>Fim de episódio: soma na média móvel quais salas e pontos foram vistos (o peso do spawn e do esconderijo).</summary>
         public void RecordRoomOutcome(FreeExplorationMemory memory)
         {
             EnsureRoomStats();
             for (int r = 0; r < _roomSeenRate.Length; r++)
                 _roomSeenRate[r] = Mathf.Lerp(_roomSeenRate[r], memory.IsRoomSeen(r) ? 1f : 0f, _roomRateSmoothing);
+
+            _mostSeenPointRate = 0f;
+            for (int p = 0; p < _pointSeenRate.Length; p++)
+            {
+                _pointSeenRate[p] = Mathf.Lerp(_pointSeenRate[p], memory.IsSeen(p) ? 1f : 0f, _roomRateSmoothing);
+                _mostSeenPointRate = Mathf.Max(_mostSeenPointRate, _pointSeenRate[p]);
+            }
         }
 
         private void EnsureRoomStats()
         {
             int rooms = Map.RoomCount;
-            if (_roomSeenRate != null && _roomSeenRate.Length == rooms)
+            if (_roomSeenRate != null && _roomSeenRate.Length == rooms && _pointSeenRate != null
+                && _pointSeenRate.Length == Map.PointCount)
                 return;
 
             // Começa em 1 ("sempre vista" = peso mínimo), não em 0.5: a taxa vive só na memória do build, e com 0.5
@@ -345,6 +432,10 @@ namespace Assets.Scripts.Free
             _spawnWeights = new float[rooms];
             for (int r = 0; r < rooms; r++)
                 _roomSeenRate[r] = 1f;
+            _pointSeenRate = new float[Map.PointCount];
+            for (int p = 0; p < _pointSeenRate.Length; p++)
+                _pointSeenRate[p] = 1f;
+            _mostSeenPointRate = 1f;
         }
 
         private FreeEpisodeSettings ApplyCurriculum()
@@ -364,6 +455,19 @@ namespace Assets.Scripts.Free
             bool fast = lesson == 6 || (lesson == 5 && !hides && roll < _mixedHiddenChance + _mixedFastChance);
             var mode = lesson >= 4 ? GraphHider.Mode.Flee : (GraphHider.Mode)lesson;
             float speed = Mathf.Max(0f, Get("hider_speed", _defaultHiderSpeed));
+            float discovery = Mathf.Max(0f, Get("discovery_reward_scale", _defaultDiscoveryRewardScale));
+
+            // Episódio só de explorar: sem presa (e por isso sem chaves), a meta e a escala da lição Explorar.
+            bool exploreOnly = !_gameMode && mode != GraphHider.Mode.None
+                               && Random.value < Mathf.Clamp01(Get("explore_chance", _defaultExploreChance));
+            if (exploreOnly)
+            {
+                mode = GraphHider.Mode.None;
+                hides = false;
+                fast = false;
+                coverage = _exploreCoverageTarget;
+                discovery = _exploreDiscoveryScale;
+            }
 
             // Treino sem key_chance no .yaml (os da v8.0) = sem chaves; o padrão do Inspector vale só sem trainer.
             float keyFallback = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn ? 0f : _defaultKeyChance;
@@ -371,13 +475,14 @@ namespace Assets.Scripts.Free
             return new FreeEpisodeSettings
             {
                 CoverageTarget = _gameMode ? Mathf.Max(coverage, 1.1f) : coverage,
-                DiscoveryRewardScale = Mathf.Max(0f, Get("discovery_reward_scale", _defaultDiscoveryRewardScale)),
+                DiscoveryRewardScale = discovery,
                 HiderMode = _gameMode ? GraphHider.Mode.Flee : mode,
                 HiderHides = !_gameMode && hides,
                 HiderFast = !_gameMode && fast,
                 HasKeys = !_gameMode && mode != GraphHider.Mode.None && Random.value < Mathf.Clamp01(Get("key_chance", keyFallback)),
                 HiderSpeed = !_gameMode && fast ? _fastHiderSpeed : speed,
                 HiderStamina = Mathf.Max(0f, Get("hider_stamina", _defaultHiderStamina)),
+                ExploreOnly = exploreOnly,
             };
         }
     }

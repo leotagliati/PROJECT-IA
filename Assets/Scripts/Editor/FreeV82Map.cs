@@ -28,8 +28,10 @@ using UnityEngine.SceneManagement;
 ///        de móvel fora das layers de parede da arena (Wall/Obstacle/Door) não tapa a visão do monstro nem conta para a
 ///        presa escolher esconderijo;
 ///     5. "V8.2 - Training" (5 arenas) e o build em Builds/V8.2 (a versão "sem build" pula o build);
-///     6. "V8.2 - Teste" (1 arena em modo de jogo, o .onnx padrão) e o relatório por sala em Logs/v8.2_rooms.txt.
-///   "v8.2: cena de teste (.onnx selecionado)"  refaz só a cena de teste com o modelo selecionado no Project.
+///     6. "V8.2 - Teste" (1 arena em modo de jogo) e o relatório por sala em Logs/v8.2_rooms.txt. A cena de teste NÃO
+///        é refeita se já existe (14/10): só reaplica o modo de jogo e mantém o .onnx e o que se mexeu nela à mão;
+///   "v8.2: cena de teste (.onnx selecionado)"  troca o modelo da cena de teste pelo selecionado no Project (mantém o resto);
+///   "v8.2: refazer a cena de teste do zero (.onnx selecionado)"  apaga os ajustes da cena e monta de novo.
 /// Mexeu no Map - V8 ou no Arena - V8.2: rode o primeiro menu de novo (o NavMesh e o build saem velhos sem ele).
 /// </summary>
 public static class FreeV82Map
@@ -41,7 +43,7 @@ public static class FreeV82Map
     private const string TrainingScene = "Assets/Scenes/Arthur/V8.2/V8.2 - Training.unity";
     private const string TestScene = "Assets/Scenes/Arthur/V8.2/V8.2 - Teste.unity";
     private const string BuildPath = "Builds/V8.2/PROJECT-IA.exe";
-    private const string DefaultModel = "Assets/Brains/FreeExplorer/FreeExplorer_v8.1M_35M.onnx";
+    private const string DefaultModel = "Assets/Brains/FreeExplorer/FreeExplorer_v8.2_3.2M.onnx";
     private const string RoomReport = "Logs/v8.2_rooms.txt";
     private const string PlayerTag = "Goal";
     private const int Arenas = 5;
@@ -77,6 +79,24 @@ public static class FreeV82Map
             return;
         }
 
+        FreeV81FurnishedTest.UpdateTestScene(model, path, ArenaPrefabPath, TestScene, "Arena - V8.2 (teste)");
+    }
+
+    [MenuItem("PROJECT-IA/v8.2: refazer a cena de teste do zero (.onnx selecionado)")]
+    public static void RebuildTestFromSelection()
+    {
+        if (!CanRun())
+            return;
+
+        string path = Selection.assetGUIDs.Select(AssetDatabase.GUIDToAssetPath)
+            .FirstOrDefault(p => p.EndsWith(".onnx", System.StringComparison.OrdinalIgnoreCase));
+        ModelAsset model = path != null ? AssetDatabase.LoadAssetAtPath<ModelAsset>(path) : null;
+        if (model == null)
+        {
+            path = DefaultModel;
+            model = AssetDatabase.LoadAssetAtPath<ModelAsset>(DefaultModel);
+        }
+
         FreeV81FurnishedTest.BuildTestScene(model, path, ArenaPrefabPath, TestScene, "Arena - V8.2 (teste)");
     }
 
@@ -88,14 +108,17 @@ public static class FreeV82Map
         bool ok = EnsurePrefab() && ConfigurePrefab() && BakeAndReport() && SetUpTrainingScene() && (!build || Build());
         if (ok)
         {
-            var model = AssetDatabase.LoadAssetAtPath<ModelAsset>(DefaultModel);
-            ok = FreeV81FurnishedTest.BuildTestScene(model, DefaultModel, ArenaPrefabPath, TestScene, "Arena - V8.2 (teste)");
+            // Sem refazer: mantém o .onnx e os ajustes da cena (o padrão só entra se ela ainda não existe).
+            ok = FreeV81FurnishedTest.UpdateTestScene(null, DefaultModel, ArenaPrefabPath, TestScene, "Arena - V8.2 (teste)");
         }
 
         if (ok)
         {
             int hopeless = FreeV81FurnitureAudit.WriteRoomReport(TrainingScene, RoomReport);
-            Debug.Log($"[FreeV82Map] salas: {RoomReport}" + (hopeless > 0
+            if (hopeless < 0)
+                Debug.LogError($"[FreeV82Map] o relatório de salas falhou (veja {RoomReport}): NavMesh carregado?");
+            else
+                Debug.Log($"[FreeV82Map] salas: {RoomReport}" + (hopeless > 0
                 ? $" — {hopeless} sala(s) com mais de 10% dos pontos impossíveis (nunca chegam a 90%)."
                 : " — nenhuma sala impossível."));
             EditorSceneManager.OpenScene(TestScene, OpenSceneMode.Single);
@@ -195,11 +218,32 @@ public static class FreeV82Map
         }
 
         // O BuildNavMesh trocou a referência por um NavMesh novo, só na memória: o asset que estava ligado (o da
-        // Arena - V9, ou um da pasta de uma cena) fica intacto.
-        AssetDatabase.DeleteAsset(NavMeshAssetPath);
-        AssetDatabase.CreateAsset(surface.navMeshData, NavMeshAssetPath);
-        AssetDatabase.SaveAssets();
+        // Arena - V9, ou um da pasta de uma cena) fica intacto. Asset nosso que já existe: o NavMesh novo é COPIADO
+        // para dentro dele (14/10). Apagar e recriar no mesmo caminho deixou o prefab apontando para um asset que o
+        // Unity não carregava mais: o build das 21:39 saiu sem NavMesh e a cena de teste ficou sem chão.
         var data = AssetDatabase.LoadAssetAtPath<UnityEngine.AI.NavMeshData>(NavMeshAssetPath);
+        if (data != null)
+        {
+            EditorUtility.CopySerialized(surface.navMeshData, data);
+            EditorUtility.SetDirty(data);
+        }
+        else
+        {
+            if (File.Exists(NavMeshAssetPath))
+                AssetDatabase.DeleteAsset(NavMeshAssetPath);
+            AssetDatabase.CreateAsset(surface.navMeshData, NavMeshAssetPath);
+        }
+
+        AssetDatabase.SaveAssets();
+        data = AssetDatabase.LoadAssetAtPath<UnityEngine.AI.NavMeshData>(NavMeshAssetPath);
+        if (data == null || data.sourceBounds.size.sqrMagnitude < 1f)
+        {
+            Debug.LogError($"[FreeV82Map] {NavMeshAssetPath} não carregou depois do bake (clique com o direito > Reimport e rode de novo).");
+            return false;
+        }
+
+        // A instância passa a usar o asset (o relatório abaixo mede o mesmo NavMesh que o prefab vai levar).
+        surface.navMeshData = data;
 
         GameObject contents = PrefabUtility.LoadPrefabContents(ArenaPrefabPath);
         try
@@ -212,6 +256,15 @@ public static class FreeV82Map
         finally
         {
             PrefabUtility.UnloadPrefabContents(contents);
+        }
+
+        // Confere no prefab salvo: é ele que o treino, o build e a cena de teste instanciam.
+        GameObject saved = AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath);
+        NavMeshSurface savedSurface = saved != null ? saved.GetComponent<NavMeshSurface>() : null;
+        if (savedSurface == null || savedSurface.navMeshData != data || !savedSurface.enabled)
+        {
+            Debug.LogError($"[FreeV82Map] o {ArenaPrefabPath} não ficou com o NavMesh {NavMeshAssetPath} ligado.");
+            return false;
         }
 
         // Relatórios na instância (o NavMesh dela está carregado).
@@ -365,6 +418,15 @@ public static class FreeV82Map
         if (!EditorSceneManager.SaveScene(scene, TrainingScene))
         {
             Debug.LogError($"[FreeV82Map] não consegui salvar {TrainingScene}.");
+            return false;
+        }
+
+        // Sem NavMesh o build sai "Succeeded" e o treino roda sem mapa (o FreeMap não gera pontos): para aqui.
+        int vertices = UnityEngine.AI.NavMesh.CalculateTriangulation().vertices.Length;
+        if (vertices == 0)
+        {
+            Debug.LogError($"[FreeV82Map] {TrainingScene} sem NavMesh carregado: o build não sai. Reimporte " +
+                           $"{NavMeshAssetPath} (direito > Reimport) e rode o menu de novo.");
             return false;
         }
 

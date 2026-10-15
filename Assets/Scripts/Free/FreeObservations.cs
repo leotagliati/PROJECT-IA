@@ -41,10 +41,11 @@ namespace Assets.Scripts.Free
     ///     [21]     há presa neste episódio
     ///     [22]     VENDO o alvo (inclui os 3 s de rastro depois de ver)
     ///     [23]     já viu o alvo neste episódio
-    ///     [24..25] direção até o alvo (vendo: a próxima quina do caminho NavMesh; sem ver: a previsão da última vista)
+    ///     [24..25] direção até o alvo (vendo: a próxima quina do caminho NavMesh; sem ver: a previsão da última vista,
+    ///              só até conferir o lugar e no máximo 20 s; depois zero, senão era uma bússola eterna para lá)
     ///     [26]     distância pelo caminho / DoorReach
     ///     [27..28] velocidade do alvo enquanto vê / 5 m/s
-    ///     [29]     procurando (perdeu de vista há < 20 s)
+    ///     [29]     procurando (perdeu de vista há < 20 s e ainda não conferiu onde ele sumiu)
     ///     [30]     PISTA (pegada vista ou som ouvido, FreeTrackSense): intensidade agora (0 = nenhuma lembrada)
     ///     [31..32] direção até a pista: a próxima quina do caminho NavMesh (som atrás de parede = pela porta)
     ///     [33]     distância pelo caminho até a pista / DoorReach
@@ -228,7 +229,10 @@ namespace Assets.Scripts.Free
             sensor.AddObservation(huntActive ? 1f : 0f);
             sensor.AddObservation(seeing ? 1f : 0f);
             sensor.AddObservation(hasSeen ? 1f : 0f);
-            if (hasSeen)
+            // A última vista só aponta enquanto é pista (14/10): procurando e sem ter ido lá. Ligada o episódio todo,
+            // puxava o monstro de volta para onde perdeu o alvo toda vez que saía da sala (loop entre duas salas).
+            bool searchingLastKnown = huntActive && _perception.IsSearchingLastKnown;
+            if (seeing || searchingLastKnown)
             {
                 Vector3 aim = _perception.ChaseAim(agent.position, out float routeDistance);
                 var planar = new Vector2(aim.x - agent.position.x, aim.z - agent.position.z);
@@ -248,7 +252,7 @@ namespace Assets.Scripts.Free
             Vector3 targetVelocity = seeing ? _perception.HiderVelocity / TargetVelocityScale : Vector3.zero;
             sensor.AddObservation(Mathf.Clamp(targetVelocity.x, -1f, 1f));
             sensor.AddObservation(Mathf.Clamp(targetVelocity.z, -1f, 1f));
-            sensor.AddObservation(huntActive && _perception.IsSearching ? 1f : 0f);
+            sensor.AddObservation(searchingLastKnown ? 1f : 0f);
 
             // ---- Pista: pegada ou som (6) + caçando (1) + reservado (1) ----
             // Pelo caminho NavMesh, não em linha reta (11/10): pegada é sempre vista com linha livre (aí dá no mesmo),

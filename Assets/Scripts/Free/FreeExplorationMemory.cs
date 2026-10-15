@@ -53,13 +53,16 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0f)] private float _roomCampBaseSeconds = 15f;
         [SerializeField, Min(0f)] private float _roomCampSecondsPerPoint = 0.25f;
 
-        // Fora da sala, o tempo acumulado nela cai isto x mais rápido do que subiu (2 = ficar fora metade do tempo
-        // zera). Sem isso pisar na porta e voltar zerava o relógio.
-        [SerializeField, Min(0.1f)] private float _roomCampRecovery = 2f;
+        // Fora da sala, o tempo acumulado nela cai isto x a velocidade com que subiu. 0.5 (14/10; era 2): ir e voltar
+        // entre duas salas também é campar. Com 2, 10 s na sala do lado apagavam 20 s nesta, e o loop "perde o alvo na
+        // sala A, vai para a B, volta para a A" nunca pagava nada; com 0.5 os dois relógios sobem na metade da
+        // velocidade e o loop passa a custar. Rondar de verdade (voltar minutos depois) segue de graça.
+        [SerializeField, Min(0.1f)] private float _roomCampRecovery = 0.5f;
 
         private FreeMap _map;
         private bool[] _seen;
         private readonly List<int> _unseen = new List<int>();
+        private readonly List<int> _newPoints = new List<int>();
         private int[] _roomSeenCount;
         private bool[] _doorCrossed;
         private float[] _seenTime;
@@ -85,6 +88,9 @@ namespace Assets.Scripts.Free
         public bool InDoorZone => _zoneDoor >= 0;
 
         public int NewPointsThisStep { get; private set; }
+
+        /// <summary>Os pontos vistos pela 1ª vez neste step (o bônus de raridade soma a raridade de cada um).</summary>
+        public IReadOnlyList<int> NewPointList => _newPoints;
         public int NewDoorsThisStep { get; private set; }
 
         /// <summary>Steps de física desde o último ponto ou porta novos (a estagnação lê isto).</summary>
@@ -202,6 +208,7 @@ namespace Assets.Scripts.Free
         {
             NewPointsThisStep = 0;
             NewDoorsThisStep = 0;
+            _newPoints.Clear();
         }
 
         /// <summary>Um step de física, com a posição que a física acabou de dar ao corpo: sala, portas e visão.</summary>
@@ -336,6 +343,7 @@ namespace Assets.Scripts.Free
                 SeenCount++;
                 _roomSeenCount[_map.RoomOfPoint(point)]++;
                 NewPointsThisStep++;
+                _newPoints.Add(point);
                 _unseen[k] = _unseen[_unseen.Count - 1];
                 _unseen.RemoveAt(_unseen.Count - 1);
             }

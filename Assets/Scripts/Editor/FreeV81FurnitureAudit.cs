@@ -389,6 +389,7 @@ public static class FreeV81FurnitureAudit
         catch (System.Exception e)
         {
             r.AppendLine("ERRO: " + e);
+            hopeless = -1;
         }
 
         System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(output));

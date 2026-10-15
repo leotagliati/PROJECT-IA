@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Assets.Scripts.Graph;
 using UnityEngine;
 using UnityEngine.AI;
@@ -84,13 +85,34 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(1)] private int _hideCandidates = 8;
         [SerializeField, Min(0f)] private float _spotSpread = 1.5f;
 
+        // Peso do ponto POUCO VISTO pelo monstro no esconderijo (FreeArenaController.PointRarity, 0 a 1), em "metros de
+        // parede": 10 = o ponto que ele nunca vê ganha de um 10 m mais colado em parede que ele sempre vê. Abaixo de ser
+        // visto por uma porta (100 por porta): esconderijo à vista da entrada continua ruim. Os candidatos também são
+        // sorteados puxando para os pontos raros (_hideRareFloor + raridade). 14/10.
+        [SerializeField, Min(0f)] private float _hideRareScore = 10f;
+        [SerializeField, Min(0.01f)] private float _hideRareFloor = 0.2f;
+
+        [Header("-----Fora da ronda do monstro (v8.2)-----")]
+        // Destinos sorteados ao passear (sala pelo peso da arena + ponto); fica o de caminho MENOS exposto: o que passa
+        // menos pelos pontos que o monstro vê sempre (a ronda decorada dele). 1 = sem comparar.
+        [SerializeField, Min(1)] private int _wanderCandidates = 3;
+
+        // De quantos em quantos metros do caminho mede a exposição (o ponto do FreeMap mais perto de cada amostra).
+        [SerializeField, Min(0.5f)] private float _exposureStep = 4f;
+
+        // Chegou a um esconderijo numa sala com raridade >= isto (FreeArenaController.RoomRarity: 1 = nunca vista):
+        // FICA, agachada, até o monstro chegar perto ou vê-la (a fuga de quem está escondida). Se ele nunca vai lá, ela
+        // nunca sai: é o jogador escondido onde a ronda não passa. 0.6 = salas bem menos vistas que a mais vista.
+        [SerializeField, Range(0f, 1f)] private float _settleRarity = 0.6f;
+
         // Multiplicador da pausa quando escondido.
         [SerializeField, Min(1f)] private float _hidePauseMultiplier = 3f;
 
         // Altura (m) acima do piso de quem olha da porta (o olho do monstro, FreeExplorationMemory._eyeHeight) e do
-        // ponto olhado (o peito do hider).
+        // ponto olhado: a CABEÇA da presa agachada (1.35 de 1.52 m, 14/10; era 1 com a presa de 2 m). A visão 3D do
+        // monstro mira a grade do corpo a partir daí para baixo: tapada a cabeça, quase sempre tapa o resto.
         [SerializeField, Min(0.1f)] private float _doorEyeHeight = 2.5f;
-        [SerializeField, Min(0.1f)] private float _hiderChestHeight = 1f;
+        [SerializeField, Min(0.1f)] private float _hiderChestHeight = 1.35f;
 
         [Header("-----Escondida (hider_mode 4; metade dos episódios no 5)-----")]
         // Quanto tempo (s) fica em cada esconderijo: o bastante para o monstro ter de achá-la parada, sem o movimento
@@ -104,8 +126,9 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0f)] private float _hiddenFleeSightDistance = 8f;
 
         [Header("-----Agachada (escondida)-----")]
-        // Altura da cápsula agachada / em pé. 0.55: a cabeça desce para perto da altura de uma mesa de escritório.
-        [SerializeField, Range(0.2f, 1f)] private float _crouchHeightFraction = 0.55f;
+        // Altura da cápsula agachada / em pé. 0.5 (14/10; era 0.55): no Map - V8 a presa tem a altura do jogador
+        // (PlayerDummy - V8.2: 3.04 m em pé, com o topo na câmera, e 1.5 m agachado, nos ombros), então 1.52 de 3.04 m.
+        [SerializeField, Range(0.2f, 1f)] private float _crouchHeightFraction = 0.5f;
 
         // Andar agachada = andar x isto. 0.45 = o crouchSpeedMultiplier do PlayerDummy (2.7 m/s com o andar de 6).
         [SerializeField, Range(0.1f, 1f)] private float _crouchSpeedMultiplier = 0.45f;
@@ -144,6 +167,7 @@ namespace Assets.Scripts.Free
         private float _standHeight;
         private Vector3 _standCenter;
         private FreeMap _map;
+        private FreeArenaController _arena;
         private FreeKeyField _keys;
         private LayerMask _walls;
         private Transform _seeker;
@@ -166,8 +190,11 @@ namespace Assets.Scripts.Free
         private bool _goingToHide;
         private bool _hiddenAfterFlee;
 
-        // Escondida agora: a de sempre (lição Escondida) ou a que se escondeu depois de fugir.
-        private bool Concealed => _hides || _hiddenAfterFlee;
+        // Instalada num esconderijo de sala pouco vista (_settleRarity): só sai fugindo.
+        private bool _settled;
+
+        // Escondida agora: a de sempre (lição Escondida), a que se escondeu depois de fugir ou a instalada.
+        private bool Concealed => _hides || _hiddenAfterFlee || _settled;
 
         // Métricas do episódio (Hider/* no TensorBoard): conferir que ela foge e se esconde de verdade.
         private int _episodeSteps;
@@ -178,6 +205,9 @@ namespace Assets.Scripts.Free
 
         /// <summary>Vezes que despistou e foi se esconder (achou esconderijo fora da vista do monstro).</summary>
         public int EpisodeHidesAfterFlee { get; private set; }
+
+        /// <summary>Vezes que se instalou num esconderijo de sala pouco vista (fica até o monstro chegar).</summary>
+        public int EpisodeSettles { get; private set; }
 
         /// <summary>Fração do episódio agachada num esconderijo (escondida ou depois da fuga), sem fugir.</summary>
         public float HiddenFraction => _episodeSteps > 0 ? (float)_hiddenSteps / _episodeSteps : 0f;
@@ -225,11 +255,70 @@ namespace Assets.Scripts.Free
         }
 
         /// <summary>O mapa (pontos, salas, portas), a parede e as chaves da arena. Antes do primeiro ResetEpisode.</summary>
-        public void Configure(FreeMap map, LayerMask walls, FreeKeyField keys = null)
+        public void Configure(FreeMap map, LayerMask walls, FreeKeyField keys = null, FreeArenaController arena = null)
         {
             _map = map;
             _walls = walls;
             _keys = keys;
+            _arena = arena;
+        }
+
+        private float RoomWeight(int room) => _arena != null ? _arena.HiderSpawnWeight(room) : 1f;
+
+        // Quanto o caminho até goal passa pelo que o monstro vê sempre: média de (1 - raridade) dos pontos do FreeMap
+        // a cada _exposureStep m (0 = só pontos que ele nunca vê, 1 = a ronda dele). Sem caminho = o pior.
+        private float PathExposure(Vector3 goal)
+        {
+            if (_arena == null)
+                return 0f;
+
+            _probe ??= new NavMeshPath();
+            if (!NavMesh.CalculatePath(Ground, goal, NavMesh.AllAreas, _probe) || _probe.status != NavMeshPathStatus.PathComplete)
+                return float.MaxValue;
+
+            Vector3[] corners = _probe.corners;
+            float sum = 0f;
+            int samples = 0;
+            for (int i = 0; i + 1 < corners.Length; i++)
+            {
+                float length = Vector3.Distance(corners[i], corners[i + 1]);
+                int steps = Mathf.Max(1, Mathf.CeilToInt(length / _exposureStep));
+                for (int k = 0; k < steps; k++)
+                {
+                    int point = _map.NearestPoint(Vector3.Lerp(corners[i], corners[i + 1], (float)k / steps));
+                    if (point < 0)
+                        continue;
+                    sum += 1f - _arena.PointRarity(point);
+                    samples++;
+                }
+            }
+
+            return samples > 0 ? sum / samples : 0f;
+        }
+
+        // Sala sorteada pelo peso da arena (as que o monstro menos vê pesam mais); sem arena, uniforme.
+        private int PickSpawnRoom(int seekerRoom)
+        {
+            int rooms = _map.RoomCount;
+            if (_arena == null)
+                return Random.Range(0, rooms);
+
+            float total = 0f;
+            for (int r = 0; r < rooms; r++)
+                if (r != seekerRoom || rooms == 1)
+                    total += _arena.HiderSpawnWeight(r);
+
+            float pick = Random.value * total;
+            for (int r = 0; r < rooms; r++)
+            {
+                if (r == seekerRoom && rooms > 1)
+                    continue;
+                pick -= _arena.HiderSpawnWeight(r);
+                if (pick <= 0f)
+                    return r;
+            }
+
+            return Random.Range(0, rooms);
         }
 
         /// <summary>
@@ -253,10 +342,12 @@ namespace Assets.Scripts.Free
             _replanLeft = 0f;
             _goingToHide = false;
             _hiddenAfterFlee = false;
+            _settled = false;
             _episodeSteps = 0;
             _hiddenSteps = 0;
             EpisodeFlees = 0;
             EpisodeHidesAfterFlee = 0;
+            EpisodeSettles = 0;
             if (_animationSystem != null)
                 _animationSystem.ResetEpisode();
 
@@ -313,6 +404,7 @@ namespace Assets.Scripts.Free
                     EpisodeFlees++;
                 _goingToHide = false;
                 _hiddenAfterFlee = false;
+                _settled = false;
             }
             else if (wasFleeing && !_hides && Random.value < _hideAfterFleeChance)
             {
@@ -390,6 +482,15 @@ namespace Assets.Scripts.Free
             _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
             if (_goalIsHiding)
                 _pauseLeft = _hides && !_fleeing ? HiddenPauseSteps() : Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
+
+            // Esconderijo numa sala que o monstro quase não vê: fica até ele chegar (a fuga zera o _settled).
+            if (_goalIsHiding && !_fleeing && _arena != null && _arena.RoomRarity(RoomAt(Ground)) >= _settleRarity)
+            {
+                if (!_settled)
+                    EpisodeSettles++;
+                _settled = true;
+                _pauseLeft = int.MaxValue / 2;
+            }
         }
 
         private int HiddenPauseSteps() =>
@@ -415,21 +516,39 @@ namespace Assets.Scripts.Free
             if (room < 0)
                 return;
 
+            // A sala (esta ou uma vizinha, sem voltar à de onde veio) sai pelo peso da arena: as que o monstro menos vê
+            // primeiro, passeando ou indo se esconder. Entre _wanderCandidates destinos, o de caminho menos exposto
+            // (fora da ronda dele).
+            _goalIsHiding = _hides || Random.value < _hideChance;
             int target = room;
-            int options = 1;
-            foreach (int door in _map.DoorsOfRoom(room))
+            Vector3 goal = Vector3.zero;
+            float bestExposure = float.MaxValue;
+            for (int c = 0; c < Mathf.Max(1, _wanderCandidates); c++)
             {
-                int other = _map.GetDoor(door).OtherRoom(room);
-                if (other < 0 || other == _previousRoom)
-                    continue;
+                int candidate = room;
+                float weightSum = RoomWeight(room);
+                foreach (int door in _map.DoorsOfRoom(room))
+                {
+                    int other = _map.GetDoor(door).OtherRoom(room);
+                    if (other < 0 || other == _previousRoom)
+                        continue;
 
-                options++;
-                if (Random.Range(0, options) == 0)
-                    target = other;
+                    float weight = RoomWeight(other);
+                    weightSum += weight;
+                    if (Random.value * weightSum < weight)
+                        candidate = other;
+                }
+
+                Vector3 spot = _goalIsHiding ? HidingSpot(candidate) : RandomSpot(candidate);
+                float exposure = _wanderCandidates > 1 ? PathExposure(spot) : 0f;
+                if (exposure < bestExposure)
+                {
+                    bestExposure = exposure;
+                    target = candidate;
+                    goal = spot;
+                }
             }
 
-            _goalIsHiding = _hides || Random.value < _hideChance;
-            Vector3 goal = _goalIsHiding ? HidingSpot(target) : RandomSpot(target);
             if (target != room)
                 _previousRoom = room;
 
@@ -445,17 +564,20 @@ namespace Assets.Scripts.Free
             if (room < 0 || _seeker == null)
                 return;
 
-            IReadOnlyList<int> doors = _map.DoorsOfRoom(room);
+            // Esta sala e as vizinhas, a que o monstro MENOS vê primeiro (peso da arena; empate = sorteio).
+            var rooms = new List<int> { room };
+            foreach (int door in _map.DoorsOfRoom(room))
+            {
+                int other = _map.GetDoor(door).OtherRoom(room);
+                if (other >= 0 && !rooms.Contains(other))
+                    rooms.Add(other);
+            }
+
+            var order = rooms.Select(r => (room: r, key: RoomWeight(r) + Random.value * 0.01f))
+                .OrderByDescending(c => c.key).Select(c => c.room).ToList();
             for (int k = 0; k < _hideAfterFleeTries; k++)
             {
-                int target = room;
-                if (k > 0 && doors.Count > 0)
-                {
-                    int other = _map.GetDoor(doors[Random.Range(0, doors.Count)]).OtherRoom(room);
-                    if (other >= 0)
-                        target = other;
-                }
-
+                int target = order[k % order.Count];
                 Vector3 spot = HidingSpot(target);
                 if (SeekerCanSee(spot) || !SetPathTo(spot))
                     continue;
@@ -531,16 +653,46 @@ namespace Assets.Scripts.Free
             return TrySampleGround(probe, _spotSpread, out Vector3 spot) && RoomAt(spot) == room ? spot : grid;
         }
 
-        // Esconderijo: entre _hideCandidates pontos da sala, o visto pelo menor número de portas dela e, empatado
-        // nisso, o mais colado em parede (canto, atrás de móvel).
+        // Ponto da sala sorteado com peso _hideRareFloor + raridade (os que o monstro menos vê saem mais), espalhado
+        // _spotSpread em volta. Sem arena, igual ao RandomSpot.
+        private Vector3 RareSpot(int room, out float rarity)
+        {
+            IReadOnlyList<int> points = _map.RoomPoints(room);
+            int chosen = points[Random.Range(0, points.Count)];
+            if (_arena != null)
+            {
+                float total = 0f;
+                foreach (int p in points)
+                    total += _hideRareFloor + _arena.PointRarity(p);
+                float pick = Random.value * total;
+                foreach (int p in points)
+                {
+                    pick -= _hideRareFloor + _arena.PointRarity(p);
+                    if (pick <= 0f)
+                    {
+                        chosen = p;
+                        break;
+                    }
+                }
+            }
+
+            rarity = _arena != null ? _arena.PointRarity(chosen) : 0f;
+            Vector3 grid = _map.PointGround(chosen);
+            Vector3 probe = grid + new Vector3(Random.Range(-_spotSpread, _spotSpread), 0f, Random.Range(-_spotSpread, _spotSpread));
+            return TrySampleGround(probe, _spotSpread, out Vector3 spot) && RoomAt(spot) == room ? spot : grid;
+        }
+
+        // Esconderijo: entre _hideCandidates pontos da sala (puxando para os que o monstro menos vê), o visto pelo menor
+        // número de portas dela; depois o MENOS VISTO pelo monstro nos últimos episódios (_hideRareScore) e o mais colado
+        // em parede (canto, atrás de móvel).
         private Vector3 HidingSpot(int room)
         {
             IReadOnlyList<int> doors = _map.DoorsOfRoom(room);
-            Vector3 best = RandomSpot(room);
+            Vector3 best = Vector3.zero;
             float bestScore = float.MaxValue;
             for (int k = 0; k < _hideCandidates; k++)
             {
-                Vector3 spot = k == 0 ? best : RandomSpot(room);
+                Vector3 spot = RareSpot(room, out float rarity);
                 int seen = 0;
                 foreach (int door in doors)
                 {
@@ -550,7 +702,7 @@ namespace Assets.Scripts.Free
                 }
 
                 float edge = NavMesh.FindClosestEdge(spot, out NavMeshHit hit, NavMesh.AllAreas) ? hit.distance : 5f;
-                float score = seen * 100f + edge;
+                float score = seen * 100f + _hideRareScore * (1f - rarity) + edge;
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -561,8 +713,8 @@ namespace Assets.Scripts.Free
             return best;
         }
 
-        // Spawn: sala diferente da do monstro, esconderijo, a >= _minSpawnDistanceMeters dele pelo NavMesh; mapa
-        // pequeno demais aceita o mais longe sorteado.
+        // Spawn: sala diferente da do monstro, sorteada pelo peso da arena (as que ele menos vê pesam mais, 14/10),
+        // esconderijo, a >= _minSpawnDistanceMeters dele pelo NavMesh; mapa pequeno demais aceita o mais longe sorteado.
         private Vector3 PickSpawn(Vector3 seekerPosition)
         {
             TrySampleGround(seekerPosition, 2f, out Vector3 seekerGround);
@@ -572,7 +724,7 @@ namespace Assets.Scripts.Free
 
             for (int attempt = 0; attempt < _map.RoomCount * 2; attempt++)
             {
-                int room = Random.Range(0, _map.RoomCount);
+                int room = PickSpawnRoom(seekerRoom);
                 if (room == seekerRoom && _map.RoomCount > 1)
                     continue;
 

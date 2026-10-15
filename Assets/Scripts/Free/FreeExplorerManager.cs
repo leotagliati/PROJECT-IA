@@ -426,9 +426,11 @@ namespace Assets.Scripts.Free
             _observations.Write(sensor, transform, elapsed, _settings.CoverageTarget, _settings.HasHider, IsHunting);
         }
 
-        // CAÇANDO: vendo o alvo, procurando (perdeu de vista há < 20 s) ou com pegada fresca na memória.
+        // CAÇANDO: vendo o alvo, procurando (perdeu de vista há < 20 s e ainda não foi até onde ele sumiu) ou com pegada
+        // fresca na memória. Conferido o lugar sem achar, volta a explorar (paga ponto e porta novos): é o que o tira
+        // dali, em vez de voltar ao mesmo lugar em loop.
         private bool IsHunting =>
-            _settings.HasHider && (_perception.IsSeeing || _perception.IsSearching || _trackSense.HasTrack);
+            _settings.HasHider && (_perception.IsSeeing || _perception.IsSearchingLastKnown || _trackSense.HasTrack);
 
         // Avalia ANTES de agir: a posição já é o resultado da ação anterior. Com TakeActionsBetweenDecisions roda todo
         // step de física, e as flags de step são consumidas aqui.
@@ -459,6 +461,7 @@ namespace Assets.Scripts.Free
                 DiscoveryRewardScale = _settings.DiscoveryRewardScale,
 
                 NewPoints = _memory.NewPointsThisStep,
+                NewPointsRarity = NewPointsRarity(),
                 NewDoors = _memory.NewDoorsThisStep,
                 StepsSinceProgress = _memory.StepsSinceProgress,
                 CoverageReached = covered,
@@ -542,6 +545,18 @@ namespace Assets.Scripts.Free
                 FinishEpisode(success: false);
         }
 
+        // Raridade somada dos pontos vistos pela 1ª vez neste step (0 sem ponto novo; o jogo não usa recompensa).
+        private float NewPointsRarity()
+        {
+            if (IsGameMode || _memory.NewPointsThisStep == 0)
+                return 0f;
+
+            float sum = 0f;
+            foreach (int point in _memory.NewPointList)
+                sum += _arenaController.SeenRarity(point);
+            return sum;
+        }
+
         // Com GameManager é derrota do jogador (ele recarrega a cena) e o monstro para onde está; sem GameManager
         // (cena de teste), o monstro renasce longe do jogador e caça de novo. É o único respawn do modo de jogo.
         private void CatchPlayer()
@@ -587,7 +602,8 @@ namespace Assets.Scripts.Free
 
             int room = _memory.CurrentRoom;
             string hunt = !_settings.HasHider ? "sem presa (lição Explorar)"
-                : _perception.Caught ? "PEGOU" : _perception.IsSeeing ? "VENDO" : _perception.HasSeen ? "já viu, procurando" : "não viu";
+                : _perception.Caught ? "PEGOU" : _perception.IsSeeing ? "VENDO" : _perception.IsSearchingLastKnown ? "procurando onde sumiu"
+                : _perception.HasSeen ? "já viu, rondando" : "não viu";
             if (_settings.HasHider && _trackSense.HasTrack)
                 hunt += $"   pegada a {Vector3.Distance(transform.position, _trackSense.Position):0} m ({_trackSense.Intensity:P0})";
             if (IsHunting)
@@ -661,6 +677,10 @@ namespace Assets.Scripts.Free
         ///   Exploration/Completed       1 se atingiu coverage_target (só sem presa)
         ///   Exploration/SecondsToCover  segundos até a meta (só episódios que chegaram)
         ///   Rooms/S00..                 fração dos episódios em que cada sala foi vista: mostra QUAIS ficam de fora
+        ///   RoomsFrac/S00..             fração MÉDIA dos pontos de cada sala vistos (a Rooms/S## é 0/1 com 90%: separa
+        ///                               "não vai lá" de "vai, mas não fecha os 90%", ex. cubículos)
+        ///   Coverage, RoomsSeen, Rooms*, Doors* e Chase/Alert só nos episódios COM PRESA (comparáveis com o _05); os só
+        ///   de explorar (explore_chance) dão Exploration/Completed, SecondsToCover e CoverageExploreOnly
         ///   Doors/UsedFraction          portas diferentes atravessadas / portas do mapa
         ///   Doors/Crossings             travessias no total; Doors/RepeatFraction = as repetidas / total
         ///   Exploration/WallContactFraction, WallHits, DoorContactFraction (batente), DoorHits   (GraphBodyTracker)
@@ -669,12 +689,11 @@ namespace Assets.Scripts.Free
         ///   Hunt/Seen, Caught, Sightings, LostSight, SightToCatchSeconds, TracksSeen (pegadas), NoisesHeard (sons)   (só com presa)
         /// </summary>
         private string[] _roomStatNames;
+        private string[] _roomFracStatNames;
 
         private void RecordEpisodeStats(bool success)
         {
             StatsRecorder stats = Academy.Instance.StatsRecorder;
-            stats.Add("Exploration/Coverage", _memory.SeenFraction);
-            stats.Add("Exploration/RoomsSeen", _map.RoomCount > 0 ? (float)_memory.RoomsSeenCount / _map.RoomCount : 0f);
             if (!_settings.HasHider)
             {
                 stats.Add("Exploration/Completed", success ? 1f : 0f);
@@ -682,29 +701,55 @@ namespace Assets.Scripts.Free
                     stats.Add("Exploration/SecondsToCover", _elapsedSteps * Time.fixedDeltaTime);
             }
 
-            int rooms = _map.RoomCount;
-            if (_roomStatNames == null || _roomStatNames.Length != rooms)
+            // Episódio só de explorar: a cobertura vai à parte, e a taxa das salas (raridade, spawn e esconderijo da
+            // presa) NÃO soma. A ronda a quebrar é a da CAÇA: explorando ele vê as salas que caçando pula, e contar isso
+            // faria as puladas parecerem vistas.
+            if (_settings.ExploreOnly)
             {
-                _roomStatNames = new string[rooms];
-                for (int r = 0; r < rooms; r++)
-                    _roomStatNames[r] = $"Rooms/S{r:00}";
+                stats.Add("Exploration/CoverageExploreOnly", _memory.SeenFraction);
             }
+            else
+            {
+                stats.Add("Exploration/Coverage", _memory.SeenFraction);
+                stats.Add("Exploration/RoomsSeen", _map.RoomCount > 0 ? (float)_memory.RoomsSeenCount / _map.RoomCount : 0f);
 
-            for (int r = 0; r < rooms; r++)
-                stats.Add(_roomStatNames[r], _memory.IsRoomSeen(r) ? 1f : 0f);
-            _arenaController.RecordRoomOutcome(_memory);
+                int rooms = _map.RoomCount;
+                if (_roomStatNames == null || _roomStatNames.Length != rooms)
+                {
+                    _roomStatNames = new string[rooms];
+                    _roomFracStatNames = new string[rooms];
+                    for (int r = 0; r < rooms; r++)
+                    {
+                        _roomStatNames[r] = $"Rooms/S{r:00}";
+                        _roomFracStatNames[r] = $"RoomsFrac/S{r:00}";
+                    }
+                }
 
-            stats.Add("Doors/UsedFraction", _memory.DoorsCrossedFraction);
-            stats.Add("Doors/Crossings", _memory.Crossings);
-            if (_memory.Crossings > 0)
-                stats.Add("Doors/RepeatFraction", (float)_memory.RepeatCrossings / _memory.Crossings);
+                for (int r = 0; r < rooms; r++)
+                {
+                    stats.Add(_roomStatNames[r], _memory.IsRoomSeen(r) ? 1f : 0f);
+                    stats.Add(_roomFracStatNames[r], _memory.RoomSeenFraction(r));
+                }
+
+                _arenaController.RecordRoomOutcome(_memory);
+
+                stats.Add("Doors/UsedFraction", _memory.DoorsCrossedFraction);
+                stats.Add("Doors/Crossings", _memory.Crossings);
+                if (_memory.Crossings > 0)
+                    stats.Add("Doors/RepeatFraction", (float)_memory.RepeatCrossings / _memory.Crossings);
+            }
 
             _body.RecordStats(stats, _elapsedSteps);
             stats.Add("Movement/StuckFraction", _stuck.StuckFraction);
             if (_elapsedSteps > 0)
             {
-                stats.Add("Movement/ChaseFraction", _locomotion.ChaseFraction);
-                stats.Add("Movement/AlertFraction", _locomotion.AlertFraction);
+                // Sem presa não há perseguição nem alerta: zeros que só diluiriam a média da caça.
+                if (_settings.HasHider)
+                {
+                    stats.Add("Movement/ChaseFraction", _locomotion.ChaseFraction);
+                    stats.Add("Movement/AlertFraction", _locomotion.AlertFraction);
+                }
+
                 stats.Add("Movement/MeanSpeed", _locomotion.MeanSpeed);
                 stats.Add("Exploration/RoomCampFraction", (float)_memory.EpisodeRoomCampSteps / _elapsedSteps);
             }
@@ -733,6 +778,7 @@ namespace Assets.Scripts.Free
                     stats.Add($"Hider/HiddenFraction{kind}", hider.HiddenFraction);
                     if (!_settings.HiderHides)
                         stats.Add("Hider/HidesAfterFlee", hider.EpisodeHidesAfterFlee);
+                    stats.Add("Hider/Settles", hider.EpisodeSettles);
                 }
             }
 
