@@ -405,8 +405,8 @@ MonoBehaviour:
   handSocket: {fileID: 4933804440829809721}
   interaction: {fileID: 0}
   layerName: Throw
-  raiseState: Raise
-  releaseState: Release
+  holdState: Hold
+  aimState: Aim
   releaseTrigger: throwRelease
   layerBlendSpeed: 8
   minThrowSpeed: 6
@@ -460,6 +460,28 @@ MonoBehaviour:
   sizeRange: {x: 0.08, y: 0.14}
   lifetimeRange: {x: 0.8, y: 1.3}
   texturePixels: 8
+--- !u!114 &6402719384510275933
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b85788ec92b3474b2b528dfbb124a9e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  beamShader: {fileID: 4800000, guid: 5e952b812e6dc313a645ae6e559d9832, type: 3}
+  flashlight: {fileID: 0}
+  intensity: 0.01
+  length: 10
+  angleScale: 0.7
+  nearFade: 0.6
+  noiseAmount: 0.5
+  noiseScale: 1.5
+  noiseDrift: {x: 0.05, y: 0.08, z: 0.03}
+  segments: 24
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0
@@ -6529,16 +6551,3 @@ MonoBehaviour:
   spreadSpeed: 0.6
   riseSpeed: 0.15
   texturePixels: 8
---- !u!114 &6402719384510275933
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 99654788233523882}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4b85788ec92b3474b2b528dfbb124a9e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  beamShader: {fileID: 4800000, guid: 5e952b812e6dc313a645ae6e559d9832, type: 3}

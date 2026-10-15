@@ -5,11 +5,13 @@ using UnityEngine.InputSystem;
 /// Segurar Throw ergue o braço (mira), soltar arremessa. O braço é uma camada Override do Animator com
 /// máscara só do braço: andar/correr seguem no resto do corpo, e o SpineLook continua girando a coluna,
 /// que leva o braço junto. O peso da camada é daqui, não de um estado vazio: estado vazio com Write
-/// Defaults ligado trava o braço na pose de bind.
+/// Defaults ligado trava o braço na pose de bind. Com item na mão a camada fica ligada (Hold).
 ///
-/// Contrato com o PlayerAC: camada <see cref="layerName"/>; estados Raise → Aim (loop) → Release;
-/// trigger <see cref="releaseTrigger"/> leva Raise/Aim a Release; o clipe do Release chama o evento
-/// ThrowRelease no frame em que a mão abre (<see cref="ThrowAnimationEvents"/>).
+/// Contrato com o PlayerAC: camada <see cref="layerName"/>; Hold (padrão, loop) → Aim (loop, por
+/// crossfade daqui) → Release → Hold (exit time); trigger <see cref="releaseTrigger"/> vai de Any State
+/// a Release — de Any State porque soltar o botão no meio do crossfade Hold → Aim ainda tem que
+/// arremessar. O clipe do Release chama o evento ThrowRelease no frame em que a mão abre
+/// (<see cref="ThrowAnimationEvents"/>, adicionado no Animator por aqui se faltar).
 /// </summary>
 public class PlayerThrow : MonoBehaviour
 {
@@ -24,7 +26,7 @@ public class PlayerThrow : MonoBehaviour
     [Header("Referências")]
     [SerializeField] private Animator animator;
 
-    [Tooltip("Filho do osso da mão (hand.R) onde o item fica.")]
+    [Tooltip("Filho do osso hand.L onde o item fica: a mão da Avatar Mask PlayerThrowArm. A direita é a da lanterna.")]
     [SerializeField] private Transform handSocket;
 
     [Tooltip("Vazio = procura nos filhos. Dá a câmera (direção) e o estado de arrasto de porta.")]
@@ -33,9 +35,12 @@ public class PlayerThrow : MonoBehaviour
     [Header("Animator")]
     [SerializeField] private string layerName = "Throw";
 
-    [SerializeField] private string raiseState = "Raise";
+    [SerializeField] private string holdState = "Hold";
 
-    [SerializeField] private string releaseState = "Release";
+    [SerializeField] private string aimState = "Aim";
+
+    [Tooltip("Segundos do crossfade Hold → Aim. Não há clipe de erguer o braço: é esta mistura.")]
+    [SerializeField, Min(0f)] private float raiseTime = 0.15f;
 
     [SerializeField] private string releaseTrigger = "throwRelease";
 
@@ -56,15 +61,15 @@ public class PlayerThrow : MonoBehaviour
     [Tooltip("Sem o evento ThrowRelease (ou sem a camada), solta depois disto (s) do botão solto.")]
     [SerializeField] private float releaseTimeout = 0.6f;
 
-    [Tooltip("Teto (s) para a camada começar a sair depois de soltar, se o estado Release não terminar antes.")]
+    [Tooltip("Teto (s) para dar o arremesso por encerrado, se o Release não voltar ao Hold antes.")]
     [SerializeField] private float maxRecoverTime = 1.2f;
 
     private Phase phase;
     private ThrowableItem held;
     private Collider[] ownColliders;
     private int layer = -1;
-    private int raiseHash;
-    private int releaseStateHash;
+    private int holdHash;
+    private int aimHash;
     private int releaseTriggerHash;
     private float aimStartTime;
     private float throwTime;
@@ -89,10 +94,14 @@ public class PlayerThrow : MonoBehaviour
         // Antes de qualquer item entrar na mão: senão os colisores dele entrariam na lista.
         ownColliders = GetComponentsInChildren<Collider>();
 
-        raiseHash = Animator.StringToHash(raiseState);
-        releaseStateHash = Animator.StringToHash(releaseState);
+        holdHash = Animator.StringToHash(holdState);
+        aimHash = Animator.StringToHash(aimState);
         releaseTriggerHash = Animator.StringToHash(releaseTrigger);
         layer = animator != null ? animator.GetLayerIndex(layerName) : -1;
+
+        // O evento ThrowRelease só chega no objeto do Animator, que fica dentro do modelo.
+        if (animator != null && !animator.TryGetComponent<ThrowAnimationEvents>(out _))
+            animator.gameObject.AddComponent<ThrowAnimationEvents>();
 
         if (handSocket == null)
             Debug.LogWarning($"[PlayerThrow] Sem handSocket em {name}: não dá para segurar itens.", this);
@@ -123,6 +132,11 @@ public class PlayerThrow : MonoBehaviour
 
         held = item;
         held.AttachTo(handSocket);
+
+        // A camada pode ter ficado parada em outro estado com peso zero; entra já segurando.
+        if (layer >= 0 && phase == Phase.Idle)
+            animator.Play(holdHash, layer, 0f);
+
         return true;
     }
 
@@ -160,7 +174,7 @@ public class PlayerThrow : MonoBehaviour
         if (layer >= 0)
         {
             animator.ResetTrigger(releaseTriggerHash);
-            animator.Play(raiseHash, layer, 0f);
+            animator.CrossFadeInFixedTime(aimHash, raiseTime, layer);
         }
     }
 
@@ -189,7 +203,8 @@ public class PlayerThrow : MonoBehaviour
 
         if (layer >= 0)
         {
-            float target = phase == Phase.Idle ? 0f : 1f;
+            // Item na mão já é motivo: o Hold é a pose de segurar, não só a de mirar.
+            float target = phase == Phase.Idle && held == null ? 0f : 1f;
             float weight = Mathf.MoveTowards(animator.GetLayerWeight(layer), target, layerBlendSpeed * Time.deltaTime);
             animator.SetLayerWeight(layer, weight);
         }
@@ -200,8 +215,9 @@ public class PlayerThrow : MonoBehaviour
         if (layer < 0)
             return true;
 
-        AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(layer);
-        if (!animator.IsInTransition(layer) && state.shortNameHash == releaseStateHash && state.normalizedTime >= 1f)
+        // De volta ao Hold pela transição de exit time do Release. Antes do trigger ser
+        // consumido o estado ainda é Aim, então não há falso positivo logo após soltar.
+        if (!animator.IsInTransition(layer) && animator.GetCurrentAnimatorStateInfo(layer).shortNameHash == holdHash)
             return true;
 
         return Time.time - recoverStartTime >= maxRecoverTime;

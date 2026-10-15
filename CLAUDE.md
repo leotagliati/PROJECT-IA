@@ -200,6 +200,15 @@ determinístico durante o treino.
   usada também pelo `HintController`. Portas são `SwingDoor` + `Lockable` +
   `SwingDoorAudio` (perfis em `Assets/Audio/SwingDoor/`), todos opcionais exceto o núcleo.
   `LockedDoor` é legado e só segura a porta de saída da `Cena FInal`.
+- **Arremesso**: `PlayerThrow` dirige a camada `Throw` do `PlayerAC` (Override, Avatar Mask só do
+  braço esquerdo, `PlayerThrowArm`; o direito é da lanterna): Hold (`Item-Idle`, padrão) → Aim (`Item-Aim`, por crossfade do código) →
+  Release (`Item-Throw`, trigger `throwRelease` vindo de Any State) → Hold por exit time. O
+  peso da camada é do código — ligado enquanto houver item na mão — e não de estado vazio
+  (com Write Defaults, estado vazio trava o braço na pose de bind). Hold/Aim/Release ficam com
+  **Write Defaults desligado**: ligado, eles gravam a pose de repouso no que só o agachar anima e
+  as pernas viram para cima agachado com a garrafa. A garrafa sai no evento
+  `ThrowRelease` do `Item-Throw`, via `ThrowAnimationEvents` (adicionado no Animator pelo
+  `PlayerThrow`); sem ele, sai pelo `releaseTimeout`.
 - **Diálogo**: view-controller. `DialogueController` (um por cena, **fora** do root da view) é o comportamento:
   fala atual, ritmo da digitação, o que o avançar faz, e pausa + input no mapa UI enquanto a conversa dura.
   `DialogueView` só exibe (textos, caracteres revelados, prompt "Aperte [ícone] para pular") e lê o input, que
