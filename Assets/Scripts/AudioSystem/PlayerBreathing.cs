@@ -37,6 +37,19 @@ public class PlayerBreathing : MonoBehaviour
     [SerializeField, Min(0f)] private float pitchDriftRate = 0.12f;
     [SerializeField, Min(0.01f)] private float fadeOutOnGameOver = 0.25f;
 
+    [Header("-----Vapor-----")]
+    [Tooltip("Vapor na boca nas expirações. Vazio = procura junto do PlayerMovement; sem " +
+             "BreathVapor, nada de vapor nem de detecção.")]
+    [SerializeField] private BreathVapor vapor;
+
+    // A detecção não distingue inspirar de expirar: pega todo pico de volume. Se o vapor sair
+    // na inspiração, liste aqui só as expirações (o Console mostra o que foi detectado).
+    [Tooltip("Segundos das expirações no clipe calmo. Vazio = detecta pelos picos de volume.")]
+    [SerializeField] private float[] calmExhaleTimes = new float[0];
+
+    [Tooltip("Segundos das expirações no clipe ofegante. Vazio = detecta pelos picos de volume.")]
+    [SerializeField] private float[] heavyExhaleTimes = new float[0];
+
     private Voice _calm;
     private Voice _heavy;
     private float _exertion;
@@ -49,6 +62,8 @@ public class PlayerBreathing : MonoBehaviour
         public float BaseVolume;
         public float PitchJitter;
         public float NoiseSeed;
+        public float[] Exhales;
+        public float LastTime;
     }
 
     private void Awake()
@@ -58,6 +73,9 @@ public class PlayerBreathing : MonoBehaviour
 
         if (stamina == null && movement != null)
             stamina = movement.GetComponent<PlayerStamina>();
+
+        if (vapor == null && movement != null)
+            vapor = movement.GetComponent<BreathVapor>();
 
         if (AudioProvider.IsMuted || movement == null)
         {
@@ -73,14 +91,14 @@ public class PlayerBreathing : MonoBehaviour
             return;
         }
 
-        _calm = CreateVoice(library, calmId);
-        _heavy = CreateVoice(library, heavyId);
+        _calm = CreateVoice(library, calmId, calmExhaleTimes);
+        _heavy = CreateVoice(library, heavyId, heavyExhaleTimes);
 
         if (_calm == null && _heavy == null)
             enabled = false;
     }
 
-    private Voice CreateVoice(AudioLibrary library, string id)
+    private Voice CreateVoice(AudioLibrary library, string id, float[] exhaleTimes)
     {
         if (!library.TryGet(id, out AudioLibrary.SoundEntry entry))
         {
@@ -108,7 +126,68 @@ public class PlayerBreathing : MonoBehaviour
             BaseVolume = entry.Volume,
             PitchJitter = entry.PitchJitter,
             NoiseSeed = Random.Range(0f, 1000f),
+            Exhales = vapor != null
+                ? (exhaleTimes != null && exhaleTimes.Length > 0 ? exhaleTimes : DetectExhales(source.clip))
+                : new float[0],
+            LastTime = source.time,
         };
+    }
+
+    /// <summary>
+    /// Início de cada trecho alto do clipe (envelope RMS em janelas de 50 ms, com histerese
+    /// para um sopro não virar vários). Depende do clipe estar em Decompress On Load: comprimido
+    /// na memória ou streaming, o GetData falha.
+    /// </summary>
+    private float[] DetectExhales(AudioClip clip)
+    {
+        int channels = clip.channels;
+        var data = new float[clip.samples * channels];
+
+        if (!clip.LoadAudioData() || !clip.GetData(data, 0))
+        {
+            Debug.LogWarning($"{name}: não deu para ler '{clip.name}' (precisa de Decompress On Load) — " +
+                             "liste as expirações à mão para ter vapor.", this);
+            return new float[0];
+        }
+
+        int window = Mathf.Max(1, clip.frequency / 20);
+        int windows = clip.samples / window;
+        var envelope = new float[windows];
+        float max = 0f;
+
+        for (int w = 0; w < windows; w++)
+        {
+            float sum = 0f;
+            int start = w * window * channels;
+            int end = start + window * channels;
+
+            for (int i = start; i < end; i++)
+                sum += data[i] * data[i];
+
+            envelope[w] = Mathf.Sqrt(sum / (window * channels));
+            max = Mathf.Max(max, envelope[w]);
+        }
+
+        var times = new System.Collections.Generic.List<float>();
+        bool loud = false;
+
+        for (int w = 0; w < windows; w++)
+        {
+            if (!loud && envelope[w] >= max * 0.5f)
+            {
+                loud = true;
+                times.Add(w * window / (float)clip.frequency);
+            }
+            else if (loud && envelope[w] < max * 0.3f)
+            {
+                loud = false;
+            }
+        }
+
+        if (Application.isEditor)
+            Debug.Log($"{name}: expirações detectadas em '{clip.name}' (s): {string.Join(", ", times.ConvertAll(t => t.ToString("0.00")))}", this);
+
+        return times.ToArray();
     }
 
     private void OnEnable() => GameManager.StateChanged += HandleGameState;
@@ -161,6 +240,14 @@ public class PlayerBreathing : MonoBehaviour
         Apply(_calm, calmGain);
         Apply(_heavy, heavyGain);
 
+        // As duas vozes avançam todo frame (senão a que volta a dominar dispara as marcas que
+        // passaram enquanto estava por baixo), mas só a dominante solta vapor.
+        bool calmExhaled = CrossedExhale(_calm);
+        bool heavyExhaled = CrossedExhale(_heavy);
+
+        if (vapor != null && !_gameOver && (heavyGain >= 0.5f ? heavyExhaled : calmExhaled))
+            vapor.Exhale(heavyGain);
+
         // O OnDisable chama o Silence.
         if (_gameOver && _masterGain <= 0f)
             enabled = false;
@@ -188,6 +275,29 @@ public class PlayerBreathing : MonoBehaviour
         _exertion = sprinting
             ? Mathf.MoveTowards(_exertion, 1f, Time.deltaTime / timeToExhaust)
             : Mathf.MoveTowards(_exertion, 0f, Time.deltaTime / timeToRecover);
+    }
+
+    /// <summary>Alguma marca de expiração ficou entre o frame anterior e este, contando a volta do loop.</summary>
+    private static bool CrossedExhale(Voice voice)
+    {
+        if (voice == null || voice.Exhales.Length == 0)
+            return false;
+
+        float previous = voice.LastTime;
+        float now = voice.Source.time;
+        voice.LastTime = now;
+
+        foreach (float t in voice.Exhales)
+        {
+            bool crossed = now >= previous
+                ? t > previous && t <= now
+                : t > previous || t <= now;
+
+            if (crossed)
+                return true;
+        }
+
+        return false;
     }
 
     private void Apply(Voice voice, float gain)

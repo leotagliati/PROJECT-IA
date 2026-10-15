@@ -152,7 +152,7 @@ determinístico durante o treino.
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
   `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
-  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `FlashlightBeam` (110) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
@@ -164,6 +164,23 @@ determinístico durante o treino.
   de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
   `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
   `Stop` de handle cujo slot já foi roubado é no-op.
+- **Passos**: player e seeker tocam o passo por **Animation Event** `OnFootstep` nos clipes
+  Walk/Run (aba Animation do importer do `.fbx`), com um relay no objeto do Animator
+  (`PlayerFootsteps`, adicionado em runtime pelo `PlayerMovement`; `SeekerFootsteps`). Quem
+  decide se o passo vale é o dono do estado: no player, filtro por peso do clipe no blend e
+  por `CurrentState` (no ar o clipe continua ciclando). O som do passo é só cosmético — a
+  audição da IA vem de `NoiseEvents` e do `IsRunning` do alvo. O mesmo evento solta a
+  poeira pixelada (`StepDust`, montada por código, desligada no treino), que só recebe ponto
+  e intensidade: o seeker escala pela perseguição; o player sai do pé mais baixo, mais forte
+  correndo e na aterrissagem, nada agachado. No player, `StepDust` e `BreathVapor` já estão na
+  raiz do `PlayerDummy` e são opcionais: tirar o componente desliga o efeito. O seeker ainda
+  adiciona o `StepDust` em runtime (`SeekerFootsteps`) para valer nos vários prefabs dele.
+- **Vapor da respiração**: `BreathVapor` (unlit: lit, o escuro do jogo apaga o vapor) solta vapor à frente da câmera nas expirações do
+  `PlayerBreathing`, com chance por expiração (sobe com o cansaço) e intervalo mínimo — de
+  propósito não é toda vez. As expirações saem dos picos de volume do próprio clipe
+  (`GetData`, exige *Decompress On Load*) e são logadas no Console; a detecção não separa
+  inspirar de expirar, então os tempos podem ser listados à mão no `PlayerBreathing`. Textura
+  e material das baforadas (vapor e `StepDust`) vêm de `PixelPuff`.
 - **Dicas**: `HintController.Show` é o ponto único de texto na tela (marcação `{Action}`,
   `[Tecla]`, `*destaque*`). O tutorial é **um roteiro sequencial** no `HintDirector`; passo
   que depende do mundo espera um sinal nomeado (`HintSignals`), disparado por um
@@ -188,6 +205,17 @@ determinístico durante o treino.
   `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
   `DialogueTrigger` é a única ponte com a interação; pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
   não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
+- **Feixe da lanterna e neblina**: `FlashlightBeam` põe um cone filho da luz do `Flashlight`
+  e o shader `PROJECT-IA/FlashlightBeam` marcha o raio dentro dele, parando na profundidade da
+  cena — precisa da **Depth Texture** do URP asset (ligada no `PC_RPAsset`). Liga/desliga,
+  falhas, cor e ângulo vêm da própria luz (`Flashlight.Brightness`/`SpotLight`). A neblina é a
+  do Lighting da cena (`RenderSettings`, na `Cena FInal` exp² azul-escura); o feixe lê esses
+  valores todo frame para se apagar junto, então ajuste a neblina só no Lighting.
+- **Acabamento PS1**: a câmera do player renderiza na `PixelatedCameraTexture` (512×256), e
+  o RawImage `CameraView` da `Cena FInal` a exibe com o material `RetroScreen`
+  (`PROJECT-IA/RetroScreen`): amostra no centro do texel, dithering Bayer 4×4 e quantização
+  por canal em espaço gamma. Tudo na resolução da RT. Outras cenas com o mesmo RawImage não
+  têm o material — arraste `Assets/Materials/RetroScreen.mat` no campo Material.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.

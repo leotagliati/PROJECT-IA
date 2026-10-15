@@ -119,6 +119,14 @@ public class Flashlight : MonoBehaviour
     /// <summary>Estado atual da lanterna. Áudio e IA podem olhar isso.</summary>
     public bool IsOn => isOn;
 
+    /// <summary>A Light de fato (do inspector ou gerada no Start). Nula antes do Start.</summary>
+    public Light SpotLight => spotLight;
+
+    /// <summary>Intensidade atual sobre a nominal, já com o fade de ligar/desligar e as falhas.</summary>
+    public float Brightness => spotLight != null && spotLight.enabled && intensity > 0f
+        ? spotLight.intensity / intensity
+        : 0f;
+
     public bool InputLocked { get; set; }
 
     private void Awake()
