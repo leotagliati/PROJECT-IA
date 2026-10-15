@@ -25,6 +25,7 @@ GameObject:
   - component: {fileID: 7989823933669369800}
   - component: {fileID: 5823019473618230411}
   - component: {fileID: 2715508830264019937}
+  - component: {fileID: 6402719384510275933}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -6528,3 +6529,16 @@ MonoBehaviour:
   spreadSpeed: 0.6
   riseSpeed: 0.15
   texturePixels: 8
+--- !u!114 &6402719384510275933
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b85788ec92b3474b2b528dfbb124a9e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  beamShader: {fileID: 4800000, guid: 5e952b812e6dc313a645ae6e559d9832, type: 3}

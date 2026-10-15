@@ -152,7 +152,7 @@ determinístico durante o treino.
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
   `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
-  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `AtmosphericParticles` (120), todos no
+  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `FlashlightBeam` (110) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
@@ -205,6 +205,12 @@ determinístico durante o treino.
   `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
   `DialogueTrigger` é a única ponte com a interação; pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
   não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
+- **Feixe da lanterna e neblina**: `FlashlightBeam` põe um cone filho da luz do `Flashlight`
+  e o shader `PROJECT-IA/FlashlightBeam` marcha o raio dentro dele, parando na profundidade da
+  cena — precisa da **Depth Texture** do URP asset (ligada no `PC_RPAsset`). Liga/desliga,
+  falhas, cor e ângulo vêm da própria luz (`Flashlight.Brightness`/`SpotLight`). A neblina é a
+  do Lighting da cena (`RenderSettings`, na `Cena FInal` exp² azul-escura); o feixe lê esses
+  valores todo frame para se apagar junto, então ajuste a neblina só no Lighting.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
