@@ -69,6 +69,14 @@ public class PlayerMovement : MonoBehaviour
 
     [SerializeField] private float footstepHeightOffset = 0f;
 
+    [Tooltip("Poeira no passo e na aterrissagem. Vazio = procura no mesmo objeto; sem StepDust, " +
+             "passo sem poeira.")]
+    [SerializeField] private StepDust stepDust;
+
+    // Ossos do rig do Player.fbx. A poeira sai do pé mais baixo, que é o de apoio no evento.
+    private const string LeftFootBone = "foot.L";
+    private const string RightFootBone = "foot.R";
+
     // Blend tree 1D: 0 = idle, 1 = walk, 2 = run. Os thresholds vivem no PlayerAC.controller.
     private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
     private const float AnimIdle = 0f;
@@ -90,6 +98,9 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 standingCenter;
     private float crouchAmount;
     private float crouchVelocity;
+
+    private Transform leftFoot;
+    private Transform rightFoot;
 
     /// <summary>Input de movimento cru deste frame (x = lado, y = frente).</summary>
     public Vector2 MoveInput => moveInput;
@@ -140,6 +151,15 @@ public class PlayerMovement : MonoBehaviour
 
         if (animator != null && !animator.TryGetComponent<PlayerFootsteps>(out _))
             animator.gameObject.AddComponent<PlayerFootsteps>();
+
+        if (stepDust == null)
+            stepDust = GetComponent<StepDust>();
+
+        if (stepDust != null && animator != null)
+        {
+            leftFoot = FindDeep(animator.transform, LeftFootBone);
+            rightFoot = FindDeep(animator.transform, RightFootBone);
+        }
     }
 
     private void OnEnable()
@@ -293,6 +313,7 @@ public class PlayerMovement : MonoBehaviour
             // Aterrissagem não tem pé encostando em clipe nenhum, então fica no código.
             case PlayerState.Jumping:
                 PlayFootstep(footstepSoundId);
+                PuffDust(1f);
                 break;
         }
     }
@@ -377,11 +398,16 @@ public class PlayerMovement : MonoBehaviour
         switch (CurrentState)
         {
             case PlayerState.Walking:
-            case PlayerState.Running:
                 PlayFootstep(footstepSoundId);
+                PuffDust(0f);
                 break;
 
-            // Agachado é o mesmo passo abafado.
+            case PlayerState.Running:
+                PlayFootstep(footstepSoundId);
+                PuffDust(1f);
+                break;
+
+            // Agachado é o mesmo passo abafado, e sem poeira: é o andar furtivo.
             case PlayerState.CrouchWalking:
                 PlayFootstep(footstepSoundId, crouchStepVolume);
                 break;
@@ -397,5 +423,36 @@ public class PlayerMovement : MonoBehaviour
             return;
 
         AudioProvider.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
+    }
+
+    private void PuffDust(float intensity)
+    {
+        if (stepDust == null)
+            return;
+
+        // XZ do pé de apoio (o mais baixo), Y da base da cápsula: o osso é o tornozelo, e a
+        // baforada saindo dali flutuaria acima do piso.
+        Vector3 point = transform.position;
+        if (leftFoot != null && rightFoot != null)
+            point = leftFoot.position.y < rightFoot.position.y ? leftFoot.position : rightFoot.position;
+
+        point.y = transform.TransformPoint(controller.center + Vector3.down * (controller.height * 0.5f)).y;
+
+        stepDust.Puff(point, intensity);
+    }
+
+    private static Transform FindDeep(Transform parent, string boneName)
+    {
+        if (parent.name == boneName)
+            return parent;
+
+        foreach (Transform child in parent)
+        {
+            Transform found = FindDeep(child, boneName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 }

@@ -169,7 +169,18 @@ determinístico durante o treino.
   (`PlayerFootsteps`, adicionado em runtime pelo `PlayerMovement`; `SeekerFootsteps`). Quem
   decide se o passo vale é o dono do estado: no player, filtro por peso do clipe no blend e
   por `CurrentState` (no ar o clipe continua ciclando). O som do passo é só cosmético — a
-  audição da IA vem de `NoiseEvents` e do `IsRunning` do alvo.
+  audição da IA vem de `NoiseEvents` e do `IsRunning` do alvo. O mesmo evento solta a
+  poeira pixelada (`StepDust`, montada por código, desligada no treino), que só recebe ponto
+  e intensidade: o seeker escala pela perseguição; o player sai do pé mais baixo, mais forte
+  correndo e na aterrissagem, nada agachado. No player, `StepDust` e `BreathVapor` já estão na
+  raiz do `PlayerDummy` e são opcionais: tirar o componente desliga o efeito. O seeker ainda
+  adiciona o `StepDust` em runtime (`SeekerFootsteps`) para valer nos vários prefabs dele.
+- **Vapor da respiração**: `BreathVapor` (unlit: lit, o escuro do jogo apaga o vapor) solta vapor à frente da câmera nas expirações do
+  `PlayerBreathing`, com chance por expiração (sobe com o cansaço) e intervalo mínimo — de
+  propósito não é toda vez. As expirações saem dos picos de volume do próprio clipe
+  (`GetData`, exige *Decompress On Load*) e são logadas no Console; a detecção não separa
+  inspirar de expirar, então os tempos podem ser listados à mão no `PlayerBreathing`. Textura
+  e material das baforadas (vapor e `StepDust`) vêm de `PixelPuff`.
 - **Dicas**: `HintController.Show` é o ponto único de texto na tela (marcação `{Action}`,
   `[Tecla]`, `*destaque*`). O tutorial é **um roteiro sequencial** no `HintDirector`; passo
   que depende do mundo espera um sinal nomeado (`HintSignals`), disparado por um
