@@ -164,6 +164,12 @@ determinístico durante o treino.
   de clipes por id string, com jitter de pitch — uma só para todas as cenas) e instancia um
   `AudioPool` com `DontDestroyOnLoad`. `PlayLoop` devolve um `AudioHandle` com geração;
   `Stop` de handle cujo slot já foi roubado é no-op.
+- **Passos**: player e seeker tocam o passo por **Animation Event** `OnFootstep` nos clipes
+  Walk/Run (aba Animation do importer do `.fbx`), com um relay no objeto do Animator
+  (`PlayerFootsteps`, adicionado em runtime pelo `PlayerMovement`; `SeekerFootsteps`). Quem
+  decide se o passo vale é o dono do estado: no player, filtro por peso do clipe no blend e
+  por `CurrentState` (no ar o clipe continua ciclando). O som do passo é só cosmético — a
+  audição da IA vem de `NoiseEvents` e do `IsRunning` do alvo.
 - **Dicas**: `HintController.Show` é o ponto único de texto na tela (marcação `{Action}`,
   `[Tecla]`, `*destaque*`). O tutorial é **um roteiro sequencial** no `HintDirector`; passo
   que depende do mundo espera um sinal nomeado (`HintSignals`), disparado por um
