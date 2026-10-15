@@ -179,7 +179,7 @@ MonoBehaviour:
   tiltSmoothing: 6
   runFovKick: 8
   fovSmoothing: 6
-  crouchCameraDrop: 0.7
+  crouchCameraDrop: 0
   landDipAmount: 0.12
   landDipRecover: 0.18
 --- !u!114 &3312891736075415501
@@ -290,7 +290,7 @@ MonoBehaviour:
   followBoneName: spine.004
   hipsBone: {fileID: 0}
   hipsBoneName: spine
-  crouchBodyDrop: 0.7
+  crouchBodyDrop: 0
   maxStrafeTwist: 50
   strafeTwistSmoothTime: 0.15
   shoulderPeek: {fileID: 0}

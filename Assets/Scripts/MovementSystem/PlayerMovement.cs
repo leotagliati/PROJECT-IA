@@ -78,7 +78,12 @@ public class PlayerMovement : MonoBehaviour
     private const string RightFootBone = "foot.R";
 
     // Blend tree 1D: 0 = idle, 1 = walk, 2 = run. Os thresholds vivem no PlayerAC.controller.
+    // Agachado usa os mesmos valores (0 parado, 1 andando) na sub-árvore Crouching.
     private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
+
+    // Mistura Standing ↔ Crouching no blend raiz do estado Movement. Recebe o CrouchAmount, que
+    // já é a transição suavizada da cápsula: corpo, câmera e colisão descem juntos.
+    private static readonly int CrouchHash = Animator.StringToHash("crouch");
     private const float AnimIdle = 0f;
     private const float AnimWalk = 1f;
     private const float AnimRun = 2f;
@@ -175,6 +180,7 @@ public class PlayerMovement : MonoBehaviour
         {
             animator.SetFloat(MoveSpeedHash, AnimIdle);
             animator.SetFloat(AnimDirectionHash, 1f);
+            animator.SetFloat(CrouchHash, crouchAmount);
         }
     }
 
@@ -325,8 +331,7 @@ public class PlayerMovement : MonoBehaviour
     {
         switch (CurrentState)
         {
-            // Sem clipe de agachado no controller ainda, então CrouchWalking reaproveita a
-            // caminhada e Crouching, a parada. Quando existir a animação, é aqui que entra.
+            // Agachado usa os mesmos valores do em pé: quem troca o clipe é o parâmetro crouch.
             case PlayerState.Walking:
             case PlayerState.CrouchWalking:
                 return AnimWalk;
@@ -352,6 +357,9 @@ public class PlayerMovement : MonoBehaviour
         // Todo frame, e não só na troca de estado: o SetFloat com damp só converge ao alvo
         // se for chamado continuamente com deltaTime.
         animator.SetFloat(MoveSpeedHash, GetAnimMoveSpeed(), animBlendDampTime, Time.deltaTime);
+
+        // Sem damp: o CrouchAmount já vem suavizado do UpdateCrouch.
+        animator.SetFloat(CrouchHash, crouchAmount);
 
         // Sem damp: inverter o sentido de playback não salta de pose, e suavizar passaria
         // por zero — a perna congelaria no meio da troca. No ar mantém o sentido que já

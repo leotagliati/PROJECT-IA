@@ -147,7 +147,9 @@ determinístico durante o treino.
   arquivo gerado.
 - **Ordem de execução da câmera** — vários componentes escrevem na mesma transform, e a
   ordem é declarada com `[DefaultExecutionOrder]`: `SpineLook` (-10, camadas procedurais
-  nos ossos — crouch, torção de strafe, arco do peek, pitch no `spine.002` — com um único
+  nos ossos — crouch (zerado no `PlayerDummy`: o agachar vem dos clipes `Crouch-*`, sub-árvore
+  `Crouching` do `PlayerAC` pelo parâmetro `crouch` = `CrouchAmount`), torção de strafe, arco
+  do peek, pitch no `spine.002` — com um único
   registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
