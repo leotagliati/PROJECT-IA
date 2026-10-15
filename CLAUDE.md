@@ -187,7 +187,7 @@ determinístico durante o treino.
   `[Tecla]`, `*destaque*`). O tutorial é **um roteiro sequencial** no `HintDirector`; passo
   que depende do mundo espera um sinal nomeado (`HintSignals`), disparado por um
   `HintSignalEmitter` plugado no `UnityEvent` do objeto (`KeyItem.pickedUp`,
-  `HingedDoor.opened`, `CameraShake.finished`, `DoorTrigger`). Gameplay não conhece Hints.
+  `SwingDoorEvents.opened`, `CameraShake.finished`, `DoorTrigger`). Gameplay não conhece Hints.
   Não troque passo de roteiro por `HintTrigger` solto: só a sequência garante a ordem e o
   "pular se já aconteceu". `HintTrigger` é para dica de lugar avulsa.
 - **Interação**: `InteractionController` (na câmera) faz o raycast e é dono do alcance, do

@@ -13,13 +13,10 @@ public enum GameState
 [DefaultExecutionOrder(-100)]
 public class GameManager : MonoBehaviour
 {
-    // O reload mora aqui, e não nas telas de fim: a partida recomeça mesmo com uma UI mal
+    // O reload da vitória mora aqui, e não na tela: a partida recomeça mesmo com uma UI mal
     // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
-    // Os tempos cobrem a sequência de cada fim mais a leitura da mensagem.
+    // A derrota NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
     [Header("Reinício automático")]
-    [Tooltip("Segundos depois de ser pego até recarregar a cena (virada ~0,6s + mensagem).")]
-    [SerializeField, Min(0f)] private float reloadDelayAfterLost = 4f;
-
     [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
     [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
 
@@ -95,8 +92,8 @@ public class GameManager : MonoBehaviour
 
         SetState(outcome);
 
-        float delay = outcome == GameState.Won ? reloadDelayAfterWon : reloadDelayAfterLost;
-        Invoke(nameof(Restart), delay);
+        if (outcome == GameState.Won)
+            Invoke(nameof(Restart), reloadDelayAfterWon);
     }
 
     private void SetState(GameState next)
