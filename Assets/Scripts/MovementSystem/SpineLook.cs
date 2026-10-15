@@ -25,7 +25,7 @@ public class SpineLook : MonoBehaviour
     // desce o corpo inteiro.
     [SerializeField] private string hipsBoneName = "spine";
 
-    [Tooltip("Quanto a bacia desce com o agachamento completo, em metros. Sem IK de perna os pés afundam no chão nessa mesma medida.")]
+    [Tooltip("Quanto a bacia desce com o agachamento completo, em metros. Sem IK de perna os pés afundam no chão nessa mesma medida. Zero com os clipes Crouch-* no PlayerAC: a animação já desce o corpo, e somar dobraria.")]
     [SerializeField, Min(0f)] private float crouchBodyDrop = 0.45f;
 
     [Header("Torção de strafe")]
