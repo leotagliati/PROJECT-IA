@@ -96,13 +96,13 @@ CharacterController:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Height: 0.92
+  m_Height: 1.79
   m_Radius: 0.46
   m_SlopeLimit: 45
   m_StepOffset: 0.3
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
-  m_Center: {x: 0, y: -0.26, z: 0}
+  m_Center: {x: 0, y: 0.28, z: 0}
 --- !u!114 &6337691064454773718
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5807,6 +5807,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: -6035381350094157395, guid: 5266807fc7cbdc647bfb235e58b47146, type: 3}
+      propertyPath: m_CastShadows
+      value: 3
+      objectReference: {fileID: 0}
     - target: {fileID: -4610119191276974500, guid: 5266807fc7cbdc647bfb235e58b47146, type: 3}
       propertyPath: m_LocalRotation.w
       value: 0.9979193
@@ -5890,7 +5894,7 @@ Animator:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8826633335177394199}
   m_Enabled: 1
-  m_Avatar: {fileID: 0}
+  m_Avatar: {fileID: 9000000, guid: 5266807fc7cbdc647bfb235e58b47146, type: 3}
   m_Controller: {fileID: 9100000, guid: d9796ab2498e33a4eb2f48843324dcd5, type: 2}
   m_CullingMode: 0
   m_UpdateMode: 0
