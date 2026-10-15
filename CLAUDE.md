@@ -211,6 +211,11 @@ determinístico durante o treino.
   falhas, cor e ângulo vêm da própria luz (`Flashlight.Brightness`/`SpotLight`). A neblina é a
   do Lighting da cena (`RenderSettings`, na `Cena FInal` exp² azul-escura); o feixe lê esses
   valores todo frame para se apagar junto, então ajuste a neblina só no Lighting.
+- **Acabamento PS1**: a câmera do player renderiza na `PixelatedCameraTexture` (512×256), e
+  o RawImage `CameraView` da `Cena FInal` a exibe com o material `RetroScreen`
+  (`PROJECT-IA/RetroScreen`): amostra no centro do texel, dithering Bayer 4×4 e quantização
+  por canal em espaço gamma. Tudo na resolução da RT. Outras cenas com o mesmo RawImage não
+  têm o material — arraste `Assets/Materials/RetroScreen.mat` no campo Material.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
