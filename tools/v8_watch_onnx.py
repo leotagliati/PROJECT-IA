@@ -1,4 +1,4 @@
-# Pega o checkpoint MAIS NOVO de um run da v8 e grava em Assets/FreeExplorer_v8_watch.onnx (nome fixo, sobrescrito),
+# Pega o checkpoint MAIS NOVO de um run da v8 e grava em Assets/Brains/FreeExplorer/FreeExplorer_v8_watch.onnx (nome fixo, sobrescrito),
 # para o menu PROJECT-IA > "v8 (em Play): assistir o cérebro" achar sempre no mesmo lugar. Para escolher o MELHOR
 # checkpoint (e não o mais novo), use o tools/best_onnx.py --behavior FreeExplorer.
 #
@@ -11,7 +11,7 @@
 import glob, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "Assets", "FreeExplorer_v8_watch.onnx")
+OUT = os.path.join(ROOT, "Assets", "Brains", "FreeExplorer", "FreeExplorer_v8_watch.onnx")
 
 
 def main():
@@ -36,7 +36,7 @@ def main():
     model = onnx.load(path, load_external_data=True)
     onnx.save_model(model, OUT, save_as_external_data=False)
     label = f"{steps:,} steps".replace(",", ".") if steps >= 0 else "modelo final"
-    print(f"OK: {os.path.basename(path)} ({label}) -> Assets/FreeExplorer_v8_watch.onnx")
+    print(f"OK: {os.path.basename(path)} ({label}) -> Assets/Brains/FreeExplorer/FreeExplorer_v8_watch.onnx")
 
 
 if __name__ == "__main__":

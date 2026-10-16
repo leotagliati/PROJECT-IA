@@ -168,7 +168,19 @@ namespace Assets.Scripts.Free
                 HeardThisStep = true;
             }
 
-            if (_trail == null || seeingTarget || _tick++ % _scanInterval != 0)
+            // VER O ALVO VALE MAIS QUE QUALQUER PISTA (14/10): vendo, a pista lembrada (pegada ou barulho de antes) é
+            // apagada, e a hora dela vira AGORA, então ao perder de vista só valem pegada e som mais novos que a última
+            // vista. Antes a pista velha ficava guardada (pegada de até 12 s na v8.1) e voltava assim que ele perdia o
+            // alvo, puxando para onde o alvo PASSOU em vez de onde ele sumiu.
+            if (seeingTarget)
+            {
+                _trackStrength = 0f;
+                _trackLifetime = 0f;
+                _trackTime = Time.time;
+                return;
+            }
+
+            if (_trail == null || _tick++ % _scanInterval != 0)
                 return;
 
             var eye = new Vector3(position.x, _floorY + _eyeHeight, position.z);
@@ -242,6 +254,7 @@ namespace Assets.Scripts.Free
             _heardPending = true;
             _heardEventPending = true;
             EpisodeNoisesHeard++;
+            FreeNoiseGizmos.ReportHeard(_listener, sound.position, length);
         }
 
         // Gizmo marrom-claro: a pista lembrada e para onde o alvo ia.

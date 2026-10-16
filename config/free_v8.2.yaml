@@ -1,0 +1,113 @@
+# ================================================================================================
+# FreeExplorer - v8.2: O CEREBRO DA v8.1 (35M) NO MAPA NOVO "Map - V8", COM OS NUMEROS DO JOGO
+#
+#   python tools/mlagents_learn_threads.py config/free_v8.2.yaml --run-id=v8.2_mapa_06 --initialize-from=v8.2_mapa_05 --env="Builds/V8.2/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   (o 1o run foi: --run-id=v8.2_mapa_01 --initialize-from=v8.1_zero_01 --env="Builds/V8.2/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010)
+#   (build: menu PROJECT-IA > "v8.2: preparar mapa, cenas e build"; mudou o Map - V8 = rodar o menu de novo)
+#
+# O que muda em relacao ao v8.1_zero_01 (terminou em 35M no mapa mobiliado da Arena - V9):
+#   - MAPA: o Map - V8 (cena "Map - V8 seeker"): moveis sem clipping, cubiculos abertos (esconderijos), NavMesh proprio.
+#   - NUMEROS DO JOGO no treino (os da cena de teste da v8.1, levados para o Map - V8): perseguicao 9 (era 10.55),
+#     alerta 7.5, patrulha 6.5, visao 80 graus / 30 m (travada 100 / 35), memoria do alvo 0.5 s (era 3: atras de
+#     um movel o alvo some de verdade), segura a perseguicao 1 s (era 3). A presa corre a 10.2 (a rapida a 12.5).
+#   - MAPA MUDOU DE FORMA: 23 salas e 29 portas (eram 28 e 35), 927 pontos. Cabe no cerebro (ate 32 salas, 8 portas
+#     por sala); as Rooms/S## do TensorBoard sao outras salas, nao compare com as do v8.1.
+#   - CAMPAR NA SALA custa 0.0005/step (mesma sala alem de 15 s + 0.25 s por ponto, sem o alvo a vista nem pista
+#     fresca). Ate 14/10 (v8.2_mapa_01) PROCURANDO tambem pausava o relogio: esperar onde perdeu o alvo era de graca.
+#     Metrica: Exploration/RoomCampFraction. Sem observacao nova (o vetor fica 126, o --initialize-from exige).
+#   - PRESA (v8.2_mapa_03 em diante, 14/10): sem a presa RAPIDA (12.5 m/s; o monstro a 9 nunca a alcancava, pegava
+#     ~20%), folego de 8 s, igual ao do jogador no Map - V8 (era 10), e a que foge agora SE ESCONDE ao despistar (80%: esconderijo fora
+#     da vista do monstro, agachada 8-25 s). Misto = 40% escondida, 60% foge-e-esconde. Olho do monstro que a presa
+#     usa para julgar "ele me ve" = 2.78 m, o real (era 1.67).
+#   - CHAVE PEGA FAZ BARULHO (14/10, depois do v8.2_mapa_03 comecar): 50 m pelo NavMesh, e o alarme sai na hora (era 3 s).
+#   - PASSOS (14/10): correndo 25 m, andando 15 m, no maximo um barulho a cada 0.5 s (eram 18, 6 e 1 s; 30 e 20 ate 2M do v8.2_mapa_04).
+#   - PAREDE (14/10, 1.8M do v8.2_mapa_04): batida 0.1 ate x10 (era 0.06 ate x5), presa 0.0012/step (era 0.0006).
+#   - ULTIMA VISTA (14/10, 3.2M do v8.2_mapa_04): a direcao ate onde o alvo sumiu so vale ate o monstro ir la (3 m) e
+#     no maximo 20 s; antes ficava ligada o episodio todo e ele voltava em loop para a sala em que o perdeu. Conferido
+#     o lugar, a caca acaba e explorar volta a pagar. Campar: o relogio da sala cai 0.5x fora dela (era 2x), entao
+#     ir e voltar entre duas salas tambem conta.
+#   - v8.2_mapa_05 (14/10, --initialize-from=v8.2_mapa_04 em 3.18M): VISAO DO ALVO EM 3D (grade 4x3 do corpo, cone
+#     na horizontal + 90 graus na vertical, ve com 2 pontos livres; antes 4 raios na linha do meio) e AGACHAR DE VERDADE
+#     (o PlayerDummy tinha raio 0.46 e a capsula nunca encolhia: PlayerDummy - V8.2). ALTURAS: jogador e presa com 3.04 m
+#     em pe (topo na camera do jogador; a capsula antiga tinha 1.84 m e a cabeca mirada ficava 1.6 m abaixo do olho dele)
+#     e 1.52 m agachados (ombros); era presa de 2 m. A presa escolhe esconderijo pela cabeca agachada (1.35 m). Junto, a
+#     ultima vista que expira (abaixo). PRESA ONDE ELE NAO OLHA: nasce e se esconde priorizando as salas menos vistas
+#     (peso 0.2 + 3 x (1 - taxa da sala / maior taxa), 16x entre a nunca vista e a mais vista) e, dentro da sala, os
+#     pontos de visao menos vistos (FreeArenaController.PointRarity). No v8.2_mapa_04 ele fazia sempre a mesma ronda e
+#     S06 era vista em 0% dos episodios (S04 2%, S02 3%). Passeando, ela escolhe entre 3 destinos o de caminho menos
+#     exposto (fora da ronda dele); num esconderijo de sala pouco vista (raridade >= 0.6) ela FICA ate ele chegar
+#     (Hider/Settles). EXPLORAR: discovery_reward_scale 0.5 (era 0.3) e x2 no 1o minuto do episodio caindo a x1.
+#     Olhar as Rooms/S## ficarem menos desiguais e Exploration/Coverage subir.
+#     RESULTADO (10M, 15/10 09:57): Caught 0.70 -> 0.26 (4M) -> 0.43; a presa passou a se instalar nas salas raras
+#     (Settles 0.71). Coverage 0.43 -> 0.535, parede otima (WallHits 7, Stuck 0.0002), mas S02 S04 S06 S08 S09 S10 S12
+#     S13 S22 seguiram < 6% dos episodios: a ronda cresceu, mas continuou fixa. O LR chegou a 0 nos 10M.
+#   - v8.2_mapa_06 (15/10, --initialize-from=v8.2_mapa_05 em 10M): CONTRA A RONDA FIXA, ponto novo paga
+#     x (1 + 1.5 x raridade), raridade = quao pouco a arena viu o ponto nos ultimos ~20 episodios de caca
+#     (FreeRewardSystem._rarityGain). Bonus no raro em vez de custo no comum: custar ver faria olhar menos valer a pena.
+#     EXPLORAR NO MEIO DA CACA: explore_chance 0.25 = 1 em 4 episodios sem presa (exploracao x1, cobertura 0.9 encerra
+#     com +5), sorteado por episodio e arena: o mesmo batch treina os dois, sem licao que faria desaprender a caca.
+#     Metricas novas: RoomsFrac/S## (fracao MEDIA vista de cada sala; a Rooms/S## e 0/1 com 90% e pode estar acusando
+#     cubiculo com canto que nao se ve, nao sala pulada) e Exploration/CoverageExploreOnly. Coverage, Rooms*, Doors* e
+#     Chase/Alert sao so dos episodios com presa (comparaveis com o _05); a Cumulative Reward mistura os dois.
+#     Criterio: Hunt/Caught > 0.45 e as RoomsFrac/S## das 9 salas acima de ~0.5.
+#   - ESCONDERIJOS: moveis novos para a presa (e o jogador) se esconder; so tapam a visao nas layers Wall/Obstacle/Door
+#     (o menu da v8.2 lista os que a visao atravessa).
+#   - RASTRO: a presa usa o rastro do jogador (FreeV82Map copia): pegada andando/agachado invisivel, correndo ~0.6 s;
+#     correr faz barulho a 18 m e andar a 6 m.
+# Por isso o run e do --initialize-from (pesos do 35M, contador e curriculo do zero) e SEM curriculo: todo episodio
+# e a licao Final da v8.1 (presa mista, chaves em metade). Com o --initialize-from um curriculo recomecaria na
+# licao Explorar.
+# Esperado: Hunt/Caught cai no comeco (o monstro ficou mais lento e enxerga menos) e volta a subir; olhar
+# Hunt/Caught, Hunt/LostSight, Hunt/SightToCatchSeconds, Exploration/WallHits e as Rooms/S## dos cubiculos.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 (era 3e-4 no v8.1 do zero): ajuste fino de uma politica pronta. O ultimo trecho do v8.1 (27.9-35M, que
+      # absorveu visao/velocidade novas) rodou com 7e-5 caindo a 0 e se ajustou bem; 3e-4 arriscaria desfazer a caca.
+      learning_rate: 0.0001
+      # 0.003 (era 0.008): um pouco de exploracao para os cubiculos e a perseguicao mais lenta, sem embaralhar a politica.
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v8.1 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.997
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 30M (v8.2_mapa_06; era 10M): ~33 h a ~40 s por 10k steps (8 jogos). O _05 ainda subia (Caught 0.26 -> 0.43
+    # entre 4M e 10M) quando o LR linear chegou a 0; com 30M o LR cai devagar e sobra tempo para a ronda mudar.
+    max_steps: 30000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final da v8.1.
+environment_parameters:
+  # 5 = misto (FreeArenaController): sorteia presa que foge, escondida ou rapida.
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  # Pontos e portas valem 0.5 (0.3 ate o v8.2_mapa_04, que decorou uma ronda e pulava salas): pegar (20-45) manda em
+  # tudo (~6 no mapa todo, x2 no 1o minuto) e procurar sala nova vale mais.
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves: o modelo serve com ou sem chaves no jogo.
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA (v8.2_mapa_06): exploracao x1 e cobertura 0.9 encerra (FreeArenaController._explore*).
+  # Mais que isso tira tempo da caca (o _05 pegou 0.43); menos e pouco para manter o habito de varrer o mapa.
+  explore_chance: 0.25

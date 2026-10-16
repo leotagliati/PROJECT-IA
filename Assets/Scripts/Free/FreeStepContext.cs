@@ -18,6 +18,8 @@ namespace Assets.Scripts.Free
 
         // Exploração (FreeExplorationMemory).
         public int NewPoints;
+        // Soma da raridade (0 a 1, FreeArenaController.SeenRarity) dos pontos novos deste step: o bônus contra a ronda fixa.
+        public float NewPointsRarity;
         public int NewDoors;
         public int StepsSinceProgress;
         public bool CoverageReached;
@@ -43,5 +45,8 @@ namespace Assets.Scripts.Free
         public int KeysLost;
         public bool HiderEscaped;
         public bool Camping;
+
+        // Na mesma sala há mais que o limite dela (FreeExplorationMemory.TickRoomTime), sem o alvo à vista nem pista fresca; procurando conta (v8.2).
+        public bool RoomCamping;
     }
 }

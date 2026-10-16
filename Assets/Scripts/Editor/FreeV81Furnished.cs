@@ -22,7 +22,7 @@ using UnityEngine.SceneManagement;
 public static class FreeV81Furnished
 {
     private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V9.prefab";
-    private const string SceneFile = "Assets/Scenes/Arthur/V8.1 - Mobiliada.unity";
+    private const string SceneFile = "Assets/Scenes/Arthur/V8.1/V8.1 - Mobiliada.unity";
     private const string BuildPath = "Builds/V8.1M/PROJECT-IA.exe";
     private const int Arenas = 5;
     private const float Spacing = 250f;

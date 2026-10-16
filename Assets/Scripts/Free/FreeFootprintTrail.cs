@@ -196,9 +196,21 @@ namespace Assets.Scripts.Free
             return position;
         }
 
-        // Gizmo (marrom): as pegadas vivas, mais fortes = maiores. Só em Play, com o alvo selecionado.
+#if UNITY_EDITOR
+        private NoiseRadiusPreview _runPreview;
+        private NoiseRadiusPreview _walkPreview;
+#endif
+
+        // Gizmo, com o alvo selecionado: o raio do BARULHO correndo e andando (também SEM Play: onde o monstro ouviria,
+        // pelo caminho do NavMesh, ver NoiseRadiusPreview) e, em Play, as pegadas vivas (marrom, mais fortes = maiores).
         private void OnDrawGizmosSelected()
         {
+#if UNITY_EDITOR
+            _runPreview ??= new NoiseRadiusPreview();
+            _walkPreview ??= new NoiseRadiusPreview();
+            _runPreview.Draw(transform.position, _runNoiseRadius, new Color(0.65f, 0.45f, 1f, 0.9f), "correndo");
+            _walkPreview.Draw(transform.position, _walkNoiseRadius, new Color(0.45f, 0.3f, 0.8f, 0.9f), "andando");
+#endif
             if (!Application.isPlaying)
                 return;
 

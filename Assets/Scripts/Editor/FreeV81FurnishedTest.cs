@@ -21,9 +21,9 @@ using UnityEngine.SceneManagement;
 public static class FreeV81FurnishedTest
 {
     private const string ArenaPrefabPath = "Assets/Prefabs/Arena - V9.prefab";
-    private const string SceneFile = "Assets/Scenes/Arthur/V8.1 - Mobiliada Teste.unity";
+    private const string SceneFile = "Assets/Scenes/Arthur/V8.1/V8.1 - Mobiliada Teste.unity";
     private const string RunFolder = "results/v8.1_zero_01/FreeExplorer";
-    private const string CopiedModel = "Assets/FreeExplorer_v8.1M_teste.onnx";
+    private const string CopiedModel = "Assets/Brains/FreeExplorer/FreeExplorer_v8.1M_teste.onnx";
     private const string PlayerTag = "Goal";
 
     [MenuItem("PROJECT-IA/v8.1: cena de teste mobiliada (checkpoint mais novo)")]
@@ -110,26 +110,77 @@ public static class FreeV81FurnishedTest
         return Application.isBatchMode || EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
     }
 
-    private static void Build(ModelAsset model, string source)
+    private static void Build(ModelAsset model, string source) =>
+        BuildTestScene(model, source, ArenaPrefabPath, SceneFile, "Arena - V8.1 mobiliada (teste)");
+
+    /// <summary>Monta e salva a cena de jogar contra o modelo com UMA instância do prefab de arena. Também usada pela v8.2.</summary>
+    internal static bool BuildTestScene(ModelAsset model, string source, string arenaPrefabPath, string sceneFile, string arenaName)
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath);
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(arenaPrefabPath);
         if (model == null || prefab == null)
         {
-            Debug.LogError($"[FreeV81FurnishedTest] falta {(model == null ? "o modelo" : ArenaPrefabPath)}.");
-            return;
+            Debug.LogError($"[FreeV81FurnishedTest] falta {(model == null ? "o modelo" : arenaPrefabPath)}.");
+            return false;
         }
 
         // Luz e câmera padrão: a câmera sai abaixo (só a do jogador fica), a luz ajuda a enxergar o mapa no teste.
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
         var arenaObject = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
-        arenaObject.name = "Arena - V8.1 mobiliada (teste)";
+        arenaObject.name = arenaName;
 
+        return ConfigureAndSave(scene, arenaObject, model, source, sceneFile);
+    }
+
+    /// <summary>
+    /// Como o BuildTestScene, mas SEM refazer a cena se ela já existe (v8.2, 14/10): abre, reaplica o modo de jogo e
+    /// salva, e o que se mexeu à mão nela (overrides na arena, luz, objetos a mais) fica. <paramref name="model"/> nulo
+    /// mantém o .onnx que a cena já tem. Mudança no prefab da arena chega sozinha (a cena tem uma instância dele).
+    /// </summary>
+    internal static bool UpdateTestScene(ModelAsset model, string source, string arenaPrefabPath, string sceneFile, string arenaName)
+    {
+        if (!File.Exists(sceneFile))
+            return BuildTestScene(model, source, arenaPrefabPath, sceneFile, arenaName);
+
+        Scene scene = EditorSceneManager.OpenScene(sceneFile, OpenSceneMode.Single);
+        FreeArenaController found = Object.FindObjectsByType<FreeArenaController>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .FirstOrDefault();
+        if (found == null)
+        {
+            Debug.LogError($"[FreeV81FurnishedTest] {sceneFile} sem arena (FreeArenaController): use o menu que refaz do zero.");
+            return false;
+        }
+
+        GameObject arenaObject = PrefabUtility.GetOutermostPrefabInstanceRoot(found.gameObject);
+        if (arenaObject == null)
+            arenaObject = found.transform.root.gameObject;
+
+        if (model == null)
+        {
+            FreeExplorerManager current = arenaObject.GetComponentInChildren<FreeExplorerManager>(true);
+            BehaviorParameters parameters = current != null ? current.GetComponent<BehaviorParameters>() : null;
+            model = parameters != null ? parameters.Model : null;
+            source = model != null ? AssetDatabase.GetAssetPath(model) : source;
+            if (model == null)
+                model = AssetDatabase.LoadAssetAtPath<ModelAsset>(source);
+            if (model == null)
+            {
+                Debug.LogError($"[FreeV81FurnishedTest] {sceneFile} sem .onnx no monstro e sem {source}.");
+                return false;
+            }
+        }
+
+        return ConfigureAndSave(scene, arenaObject, model, source, sceneFile);
+    }
+
+    // Modo de jogo na arena da cena (idempotente: rodar de novo numa cena já pronta não muda nada além do modelo).
+    private static bool ConfigureAndSave(Scene scene, GameObject arenaObject, ModelAsset model, string source, string sceneFile)
+    {
         FreeArenaController arena = arenaObject.GetComponentInChildren<FreeArenaController>(true);
         FreeExplorerManager agent = arenaObject.GetComponentInChildren<FreeExplorerManager>(true);
         if (arena == null || agent == null)
         {
             Debug.LogError("[FreeV81FurnishedTest] o prefab não tem FreeArenaController ou monstro da v8.");
-            return;
+            return false;
         }
 
         var arenaSettings = new SerializedObject(arena);
@@ -166,7 +217,7 @@ public static class FreeV81FurnishedTest
         if (player == null)
         {
             Debug.LogError($"[FreeV81FurnishedTest] nenhum jogador (PlayerMovement com a tag {PlayerTag}) na arena.");
-            return;
+            return false;
         }
 
         player.gameObject.SetActive(true);
@@ -180,17 +231,20 @@ public static class FreeV81FurnishedTest
         // A câmera do jogador desenha numa RenderTexture pequena (o pixelado); quem põe isso na tela é uma RawImage
         // num Canvas da cena (o "CameraView" da V8 - Test). Sem ela a Game view fica preta.
         Camera playerCamera = player.GetComponentsInChildren<Camera>(true).FirstOrDefault(c => c.targetTexture != null);
-        if (playerCamera != null)
+        bool hasScreen = Object.FindObjectsByType<UnityEngine.UI.RawImage>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .Any(image => image.name == "CameraView");
+        if (playerCamera != null && !hasScreen)
             CreateScreen(scene, playerCamera.targetTexture);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(SceneFile));
-        if (!EditorSceneManager.SaveScene(scene, SceneFile))
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneFile));
+        if (!EditorSceneManager.SaveScene(scene, sceneFile))
         {
-            Debug.LogError($"[FreeV81FurnishedTest] não consegui salvar {SceneFile}.");
-            return;
+            Debug.LogError($"[FreeV81FurnishedTest] não consegui salvar {sceneFile}.");
+            return false;
         }
 
-        Debug.Log($"[FreeV81FurnishedTest] {SceneFile} pronta: monstro com {source} (sensor das chaves)," +
+        Debug.Log($"[FreeV81FurnishedTest] {sceneFile} pronta: monstro com {source} (sensor das chaves)," +
                   $"jogador '{player.name}'. Aperte Play.");
+        return true;
     }
 }

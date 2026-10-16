@@ -45,8 +45,8 @@ namespace Assets.Scripts.Graph
         // Perto assim (m), vê o alvo em qualquer direção (com linha livre): ouve e sente quem está colado nele.
         [SerializeField, Min(0f)] private float _closeSenseDistance = 4f;
 
-        // Meia largura (m) do alvo para os raios: testa o centro e os dois ombros e vê se QUALQUER um passa. Com um
-        // raio só, o batente de uma porta ou a quina de um móvel na frente do centro escondia o jogador inteiro.
+        // Meia largura (m) do alvo: as colunas da grade do corpo vão de um ombro ao outro (até 90% do raio do collider).
+        // Com um raio só, o batente de uma porta ou a quina de um móvel escondia o jogador inteiro.
         [SerializeField, Min(0f)] private float _targetHalfWidth = 0.35f;
 
         // Quanto abaixo do topo do collider do alvo fica a CABEÇA mirada (m). Os raios saem do olho e descem até o
@@ -55,6 +55,32 @@ namespace Assets.Scripts.Graph
         // agachado atrás de um armário. Agora a mesa não esconde (a linha até a cabeça passa por cima), um armário
         // alto entre os dois esconde. Sem collider no alvo, volta ao teste antigo na altura do olho.
         [SerializeField, Min(0f)] private float _targetHeadOffset = 0.15f;
+
+        [Header("-----Visão do alvo em 3D (como uma câmera)-----")]
+        // O CORPO do alvo é amostrado numa grade (linhas da cabeça até perto do pé x colunas de ombro a ombro, de frente
+        // para o olho), e cada ponto é testado como numa câmera: dentro do cone na horizontal, dentro do
+        // _verticalViewAngle na vertical, e com linha livre. Vê com _minVisibleSamples pontos livres. 14/10: com só
+        // cabeça + peito + ombros na mesma vertical, um móvel na frente da linha do meio escondia o jogador EM PÉ que,
+        // pelo ângulo, aparecia de lado ou por cima.
+        [SerializeField, Range(1, 8)] private int _bodyRows = 4;
+        [SerializeField, Range(1, 5)] private int _bodyColumns = 3;
+
+        // Abertura vertical TOTAL (graus), centrada na horizontal (a cabeça do monstro não inclina). 90 = 45° para baixo:
+        // com o olho a 2.78 m, o pé do alvo entra no quadro a partir de ~2.8 m. Colado (_closeSenseDistance) não vale.
+        [SerializeField, Range(10f, 180f)] private float _verticalViewAngle = 90f;
+
+        // Pontos livres para contar como VISTO. 2 (de 12): uma ponta de ombro na quina não entrega o jogador; meia
+        // cabeça por cima de um móvel, sim.
+        [SerializeField, Min(1)] private int _minVisibleSamples = 2;
+
+        // Fração da altura do alvo, a partir do pé, da linha mais baixa (o pé em si fica fora: rente ao chão qualquer
+        // rodapé tapa).
+        [SerializeField, Range(0f, 0.5f)] private float _bodyBottomFraction = 0.15f;
+
+        [Header("-----Depuração-----")]
+        // Desenha a "câmera" do monstro (o quadro 3D) e os raios até o corpo do alvo SEM precisar selecionar o objeto.
+        // Só Gizmos: nada disso existe no build. Na Game view, ligue o botão Gizmos.
+        [SerializeField] private bool _alwaysDrawVision = true;
 
         [Header("-----Rastro: depois de ver, não solta na hora-----")]
         // Depois de VER o alvo, o seeker segue "vendo" (posição real, Perseguição, cone travado) por _trackMemorySeconds
@@ -85,6 +111,12 @@ namespace Assets.Scripts.Graph
         // segue zerada e só suspeita e ping contam (GraphObservations). Passou disso sem ver, volta a ver o mapa
         // para explorar. 20 s = a perseguição que segura (3 s) + boa parte do alerta (10 s) + folga.
         [SerializeField, Min(0f)] private float _searchFocusSeconds = 20f;
+
+        // Chegou a menos disto (m) do lugar em que o alvo sumiu (a previsão, já parada) sem achá-lo: ali já foi
+        // conferido e a procura acaba (IsSearchingLastKnown). Sem isso a direção até a última vista ficava ligada o
+        // episódio inteiro e puxava o monstro de volta: no v8.2_mapa_04 ele perdia o jogador numa sala, ia para a do
+        // lado e voltava para onde o perdeu, em loop (14/10). Só a FreeExplorer usa; a GraphExplorer segue no IsSearching.
+        [SerializeField, Min(0.5f)] private float _lastKnownReachedDistance = 3f;
 
         [Header("-----Captura-----")]
         // Distância planar (m) entre centros em que o hider conta como pego (com linha livre).
@@ -118,6 +150,15 @@ namespace Assets.Scripts.Graph
         /// perseguição) e antes da primeira vista.
         /// </summary>
         public bool IsSearching => HasSeen && !IsSeeing && (_step - _lastSeenStep) * Time.fixedDeltaTime < _searchFocusSeconds;
+
+        /// <summary>Já foi até onde o alvo sumiu (a previsão) e não o achou; volta a falso ao ver de novo.</summary>
+        public bool LastKnownChecked { get; private set; }
+
+        /// <summary>
+        /// Procurando E ainda sem ter conferido o lugar em que o alvo sumiu: a única fase em que a última vista é pista.
+        /// Depois de conferir, ela não diz mais nada (o alvo não está lá) e o monstro tem que procurar em outro lugar.
+        /// </summary>
+        public bool IsSearchingLastKnown => IsSearching && !LastKnownChecked;
 
         /// <summary>Última posição em que viu (a atual, enquanto vê). Válida só com HasSeen.</summary>
         public Vector3 LastSeenPosition { get; private set; }
@@ -323,6 +364,7 @@ namespace Assets.Scripts.Graph
         {
             IsSeeing = false;
             HasSeen = false;
+            LastKnownChecked = false;
             LastSeenPosition = Vector3.zero;
             CurrentDistance = 0f;
             HiderVelocity = Vector3.zero;
@@ -382,6 +424,7 @@ namespace Assets.Scripts.Graph
                 CurrentDistance = new Vector2(delta.x, delta.z).magnitude;
                 LastSeenPosition = _target.Position;
                 HasSeen = true;
+                LastKnownChecked = false;
 
                 Vector3 moved = LastSeenPosition - _previousSeenPosition;
                 HiderVelocity = _hasPreviousSeenPosition
@@ -424,6 +467,14 @@ namespace Assets.Scripts.Graph
                 _unseenRun++;
                 if (HasSeen && _unseenRun == _lostSightSteps)
                     EpisodeLostSight++;
+
+                // Conferiu onde ele sumiu: só depois de a previsão parar (antes disso o ponto ainda anda).
+                if (HasSeen && !LastKnownChecked
+                    && (_step - _lastSeenStep) * Time.fixedDeltaTime >= _predictSeconds
+                    && PlanarDistance(seeker.position, PredictedPosition) <= _lastKnownReachedDistance)
+                {
+                    LastKnownChecked = true;
+                }
             }
 
             IsSeeing = seeing;
@@ -513,13 +564,78 @@ namespace Assets.Scripts.Graph
                        || (_targetHalfWidth > 0f && (IsClear(eye, target + side, walls) || IsClear(eye, target - side, walls)));
             }
 
-            // Cabeça e peito do alvo (mais os ombros na altura do peito); basta um raio livre.
-            Bounds body = _targetCollider.bounds;
-            Vector3 chest = new Vector3(point.x, body.center.y, point.z);
-            Vector3 head = new Vector3(point.x, Mathf.Max(body.center.y, body.max.y - _targetHeadOffset), point.z);
-            return IsClear(eye, head, walls)
-                   || IsClear(eye, chest, walls)
-                   || (_targetHalfWidth > 0f && (IsClear(eye, chest + side, walls) || IsClear(eye, chest - side, walls)));
+            // Corpo inteiro em 3D: basta _minVisibleSamples pontos dentro do quadro e com linha livre.
+            bool framed = distance > _closeSenseDistance;
+            float halfAngle = (IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle) * 0.5f;
+            return CountVisibleSamples(eye, ViewForward(seeker), framed, halfAngle, _targetCollider.bounds, walls,
+                                       _minVisibleSamples, false) >= _minVisibleSamples;
+        }
+
+        /// <summary>
+        /// Pontos da grade do corpo (<paramref name="body"/>) que o olho vê: dentro do quadro (se <paramref name="framed"/>)
+        /// e com linha livre. Para em <paramref name="stopAt"/> (o gizmo passa int.MaxValue e desenha todos).
+        /// </summary>
+        private int CountVisibleSamples(Vector3 eye, Vector3 forward, bool framed, float halfAngle, Bounds body,
+                                        LayerMask walls, int stopAt, bool draw)
+        {
+            Vector3 center = body.center;
+            Vector3 toBody = new Vector3(center.x - eye.x, 0f, center.z - eye.z);
+            Vector3 across = toBody.sqrMagnitude > 1e-6f ? Vector3.Cross(Vector3.up, toBody.normalized) : Vector3.right;
+
+            // A grade fica de frente para o olho: as colunas vão de ombro a ombro na perpendicular da linha de visão.
+            float halfWidth = Mathf.Min(_targetHalfWidth, 0.9f * Mathf.Min(body.extents.x, body.extents.z));
+            float top = Mathf.Max(center.y, body.max.y - _targetHeadOffset);
+            float bottom = Mathf.Min(top, body.min.y + _bodyBottomFraction * body.size.y);
+            int rows = Mathf.Max(1, _bodyRows);
+            int columns = Mathf.Max(1, _bodyColumns);
+            float cosHalf = Mathf.Cos(Mathf.Min(halfAngle, 180f) * Mathf.Deg2Rad);
+            float tanHalfVertical = Mathf.Tan(Mathf.Min(_verticalViewAngle * 0.5f, 89f) * Mathf.Deg2Rad);
+
+            int visible = 0;
+            for (int r = 0; r < rows; r++)
+            {
+                float y = rows == 1 ? top : Mathf.Lerp(top, bottom, (float)r / (rows - 1));
+                for (int c = 0; c < columns; c++)
+                {
+                    float offset = columns == 1 ? 0f : Mathf.Lerp(-halfWidth, halfWidth, (float)c / (columns - 1));
+                    Vector3 sample = new Vector3(center.x, y, center.z) + across * offset;
+
+                    if (framed && !InFrame(eye, forward, sample, cosHalf, tanHalfVertical))
+                    {
+                        if (draw)
+                        {
+                            Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.25f);
+                            Gizmos.DrawLine(eye, sample);
+                        }
+
+                        continue;
+                    }
+
+                    bool clear = walls.value == 0 || IsClear(eye, sample, walls);
+                    if (draw)
+                    {
+                        Gizmos.color = clear ? new Color(0.4f, 0.7f, 1f, 1f) : new Color(0.5f, 0.5f, 0.5f, 0.9f);
+                        Gizmos.DrawLine(eye, sample);
+                    }
+
+                    if (clear && ++visible >= stopAt)
+                        return visible;
+                }
+            }
+
+            return visible;
+        }
+
+        // Dentro do quadro da "câmera" do monstro: o cone na horizontal e o _verticalViewAngle na vertical.
+        private static bool InFrame(Vector3 eye, Vector3 forward, Vector3 point, float cosHalf, float tanHalfVertical)
+        {
+            Vector3 delta = point - eye;
+            Vector3 planar = new Vector3(delta.x, 0f, delta.z);
+            float distance = planar.magnitude;
+            if (distance < 1e-3f)
+                return true;
+
+            return Vector3.Dot(forward, planar / distance) >= cosHalf && Mathf.Abs(delta.y) <= distance * tanHalfVertical;
         }
 
         private static bool IsClear(Vector3 eye, Vector3 target, LayerMask walls)
@@ -543,38 +659,93 @@ namespace Assets.Scripts.Graph
             return forward.sqrMagnitude > 1e-6f ? forward.normalized : Vector3.forward;
         }
 
-        // Gizmo (azul-claro): cone; em Play, os raios até cabeça e peito do alvo (azul-claro = livre, cinza =
-        // bloqueado), um círculo no alvo enquanto vê e X na última posição vista quando não vê. Vermelho-vivo: a rota
-        // NavMesh que a observação [18..20] segue quando a reta até o alvo bate em parede ou móvel.
+        // Gizmo (azul-claro): o QUADRO da visão em 3D (cone na horizontal x _verticalViewAngle na vertical, até o
+        // alcance; mais forte e aberto quando está vendo, o cone travado); em Play, os raios até a grade do corpo do alvo
+        // (azul-claro = livre, cinza = bloqueado, cinza apagado = fora do quadro), um círculo no alvo enquanto vê e X na
+        // última posição vista quando não vê. Vermelho-vivo: a rota NavMesh que a observação segue quando a reta até o
+        // alvo bate em parede ou móvel. _alwaysDrawVision desenha sem selecionar.
+        private void OnDrawGizmos()
+        {
+            if (_alwaysDrawVision)
+                DrawVisionGizmos();
+        }
+
         private void OnDrawGizmosSelected()
+        {
+            if (!_alwaysDrawVision)
+                DrawVisionGizmos();
+        }
+
+        // O quadro: 4 arestas do olho até os cantos, a borda de cima e de baixo em arco no alcance, e o arco do meio
+        // (a altura do olho) para ler o cone de cima.
+        private void DrawViewFrame(Vector3 eye, Vector3 forward, float angle, float range, Color color)
+        {
+            Gizmos.color = color;
+            float half = Mathf.Min(angle, 360f) * 0.5f;
+            float rise = range * Mathf.Tan(Mathf.Min(_verticalViewAngle * 0.5f, 80f) * Mathf.Deg2Rad);
+            const int segments = 16;
+            Vector3 previousTop = Vector3.zero, previousMid = Vector3.zero, previousBottom = Vector3.zero;
+            for (int i = 0; i <= segments; i++)
+            {
+                float yaw = Mathf.Lerp(-half, half, (float)i / segments);
+                Vector3 far = eye + Quaternion.Euler(0f, yaw, 0f) * forward * range;
+                Vector3 top = far + Vector3.up * rise;
+                Vector3 bottom = far - Vector3.up * rise;
+                if (i > 0)
+                {
+                    Gizmos.DrawLine(previousTop, top);
+                    Gizmos.DrawLine(previousMid, far);
+                    Gizmos.DrawLine(previousBottom, bottom);
+                }
+
+                if (i == 0 || i == segments)
+                {
+                    Gizmos.DrawLine(eye, top);
+                    Gizmos.DrawLine(eye, bottom);
+                    Gizmos.DrawLine(eye, far);
+                    Gizmos.DrawLine(top, bottom);
+                }
+
+                previousTop = top;
+                previousMid = far;
+                previousBottom = bottom;
+            }
+        }
+
+        private void DrawVisionGizmos()
         {
             Vector3 eye = transform.position + Vector3.up * _eyeHeight;
             Vector3 forward = ViewForward(transform);
 
-            Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
-            Quaternion left = Quaternion.Euler(0f, -_viewAngle * 0.5f, 0f);
-            Quaternion right = Quaternion.Euler(0f, _viewAngle * 0.5f, 0f);
-            Gizmos.DrawLine(eye, eye + left * forward * _viewDistance);
-            Gizmos.DrawLine(eye, eye + right * forward * _viewDistance);
+            if (Application.isPlaying && IsSeeing)
+                DrawViewFrame(eye, forward, Mathf.Max(_viewAngle, _lockedViewAngle), Mathf.Max(_viewDistance, _lockedViewDistance),
+                              new Color(0.4f, 0.7f, 1f, 0.9f));
+            else
+                DrawViewFrame(eye, forward, _viewAngle, _viewDistance, new Color(0.4f, 0.7f, 1f, 0.35f));
 
+            // Colado (_closeSenseDistance) vê em qualquer direção: o círculo no chão em volta do olho.
+            if (_closeSenseDistance > 0f)
+            {
+                Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.35f);
+                Vector3 previous = eye + Vector3.forward * _closeSenseDistance;
+                for (int i = 1; i <= 24; i++)
+                {
+                    Vector3 next = eye + Quaternion.Euler(0f, i * 15f, 0f) * Vector3.forward * _closeSenseDistance;
+                    Gizmos.DrawLine(previous, next);
+                    previous = next;
+                }
+            }
+
+            Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
             if (!Application.isPlaying)
                 return;
 
-            // Os raios de verdade até o CORPO do alvo (cabeça e peito): azul-claro cheio = livre, cinza = bloqueado.
-            // Não diz se está no cone/alcance, só se a linha passa; para depurar "por que não me vê".
+            // Os raios de verdade até a grade do CORPO do alvo: azul-claro cheio = livre, cinza = bloqueado, cinza
+            // apagado = fora do quadro (cone ou vertical). Não olha o alcance; para depurar "por que não me vê".
             if (GraphTarget.IsLive(_target) && _targetCollider != null && _targetCollider.enabled)
             {
-                LayerMask walls = Walls;
-                Bounds body = _targetCollider.bounds;
-                Vector3 point = _target.Position;
-                Vector3 chest = new Vector3(point.x, body.center.y, point.z);
-                Vector3 head = new Vector3(point.x, Mathf.Max(body.center.y, body.max.y - _targetHeadOffset), point.z);
-                foreach (Vector3 aim in new[] { head, chest })
-                {
-                    bool clear = walls.value == 0 || IsClear(eye, aim, walls);
-                    Gizmos.color = clear ? new Color(0.4f, 0.7f, 1f, 1f) : new Color(0.5f, 0.5f, 0.5f, 0.9f);
-                    Gizmos.DrawLine(eye, aim);
-                }
+                float angle = IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle;
+                CountVisibleSamples(eye, forward, true, angle * 0.5f, _targetCollider.bounds, Walls, int.MaxValue, true);
 
                 Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
             }

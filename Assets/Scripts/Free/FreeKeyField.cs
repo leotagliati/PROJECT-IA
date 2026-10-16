@@ -13,6 +13,8 @@ namespace Assets.Scripts.Free
     ///   JOGO    as chaves de verdade do <see cref="KeySpawner"/> da cena; pegar = a chave some (KeyItem.Destroy).
     ///   AVISO   o monstro sempre sabe ONDE estão as chaves, mas só fica sabendo que uma foi pega _noticeDelaySeconds
     ///           depois (Known). Aí vem o alarme (observação, Alerta no monstro) e a chave fica marcada como levada.
+    ///   BARULHO pegar a chave faz um som alto NA HORA (NoiseEvents, _pickupNoiseRadius pelo NavMesh): quem ouve vai
+    ///           atrás de onde ela estava, como de um passo correndo (v8.2).
     ///   RONDA   o monstro "confere" uma chave quando a vê (cone, alcance, linha livre); conferir uma que ficou
     ///           _checkIntervalSeconds sem ser vista é o que a recompensa paga (guarda, FreeRewardSystem).
     ///   CAMPAR  ficar a menos de _campRadius da MESMA chave por mais de _campSeconds seguidos (FreeRewardSystem cobra).
@@ -47,11 +49,22 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0.1f)] private float _spotSnap = 3f;
 
         [Header("-----Aviso, ronda e campar-----")]
-        // Segundos entre a presa pegar a chave e o monstro saber (alarme): ele chega tarde e tem de seguir a pista.
-        [SerializeField, Min(0f)] private float _noticeDelaySeconds = 3f;
+        // Segundos entre a presa pegar a chave e o monstro saber (alarme). 0 (v8.2, 14/10; era 3 s, ele chegava tarde e
+        // seguia a pista): o alarme sai junto com o barulho da chave, na hora.
+        [SerializeField, Min(0f)] private float _noticeDelaySeconds = 0f;
 
         // Segundos que o alarme dura na observação (1 -> 0).
         [SerializeField, Min(0.1f)] private float _alarmSeconds = 15f;
+
+        // BARULHO ao pegar a chave (v8.2): raio em metros PELO NAVMESH em que o monstro ouve (NoiseEvents, o mesmo som
+        // do passo correndo e do item arremessado). 50 m (14/10; era 35): alto de propósito, chega a duas ou três salas
+        // pelas portas. É o ONDE (pista, Alerta); o alarme acima diz QUAL chave sumiu. 0 = sem barulho.
+        [SerializeField, Min(0f)] private float _pickupNoiseRadius = DefaultPickupNoiseRadius;
+
+        public const float DefaultPickupNoiseRadius = 50f;
+
+        /// <summary>Raio (m pelo NavMesh) do barulho de pegar a chave.</summary>
+        public float PickupNoiseRadius => _pickupNoiseRadius;
 
         // Chave sem ser vista há mais disto (s) vale uma "conferida" (a ronda que a recompensa paga).
         [SerializeField, Min(1f)] private float _checkIntervalSeconds = 60f;
@@ -246,6 +259,7 @@ namespace Assets.Scripts.Free
                 {
                     key.Taken = true;
                     key.TakenTime = now;
+                    PickupNoise(key.Position);
                 }
 
                 if (key.Taken && !key.Known && now - key.TakenTime >= _noticeDelaySeconds)
@@ -290,10 +304,17 @@ namespace Assets.Scripts.Free
                 key.Taken = true;
                 key.TakenTime = Time.time;
                 _keys[k] = key;
+                PickupNoise(key.Position);
                 return true;
             }
 
             return false;
+        }
+
+        private void PickupNoise(Vector3 position)
+        {
+            if (_pickupNoiseRadius > 0f)
+                NoiseEvents.Emit(position, _pickupNoiseRadius);
         }
 
         /// <summary>A chave ainda no mapa mais perto pelo caminho do NavMesh (a presa vai nela); false se não há.</summary>
