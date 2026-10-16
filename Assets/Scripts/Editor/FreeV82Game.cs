@@ -1208,9 +1208,6 @@ public static class FreeV82Game
         EditorBuildSettings.scenes = scenes.ToArray();
         AssetDatabase.SaveAssets(); // grava o ProjectSettings/EditorBuildSettings.asset já (senão só no "Save Project")
 
-        // O buildIndex conta só as cenas LIGADAS.
-        int gameIndex = scenes.Where(s => s.enabled).ToList().FindIndex(s => s.path == GameScene);
-
         Scene menu = EditorSceneManager.OpenScene(GameMenuScene, OpenSceneMode.Single);
         mainMenu[] menus = Object.FindObjectsByType<mainMenu>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         if (menus.Length == 0)
@@ -1222,13 +1219,12 @@ public static class FreeV82Game
         foreach (mainMenu component in menus)
         {
             var settings = new SerializedObject(component);
-            settings.FindProperty("_gameSceneIndex").intValue = gameIndex;
+            settings.FindProperty("_gameScene").stringValue = Path.GetFileNameWithoutExtension(GameScene);
             settings.ApplyModifiedPropertiesWithoutUndo();
         }
 
         EditorSceneManager.SaveScene(menu);
-        Debug.Log($"[FreeV82Game] {GameMenuScene}: o Play carrega a Cena Final V8 (build index {gameIndex}). " +
-                  "O MainMenu do time segue carregando a Cena FInal.");
+        Debug.Log($"[FreeV82Game] {GameMenuScene}: o Play carrega a Cena Final V8.");
         return true;
     }
 
