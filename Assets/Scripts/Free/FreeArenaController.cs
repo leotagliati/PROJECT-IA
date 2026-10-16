@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using Assets.Scripts.Graph;
 using Unity.MLAgents;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Assets.Scripts.Free
 {
@@ -128,8 +130,9 @@ namespace Assets.Scripts.Free
         // O mesmo por PONTO de visão do FreeMap (o esconderijo dentro da sala, FreeHider.HidingSpot).
         [SerializeField] private bool _hiderFavorsRarePoints = true;
 
-        // Modo de jogo: pontos sorteados para nascer longe do jogador (FreeExplorerManager._gameModeSpawnDistance).
-        [SerializeField, Min(1)] private int _avoidSpawnTries = 12;
+        // Modo de jogo: quantos pontos do mapa entram no sorteio de nascer LONGE do jogador (a distância de cada um é
+        // medida pelo NavMesh: ~1 ms por ponto, só no começo da partida e depois de pegá-lo sem GameManager).
+        [SerializeField, Min(1)] private int _farSpawnSamples = 60;
 
         private FreeMap _map;
         private FreeKeyField _keys;
@@ -138,6 +141,7 @@ namespace Assets.Scripts.Free
         private float[] _pointSeenRate;
         private float _mostSeenPointRate;
         private float[] _spawnWeights;
+        private NavMeshPath _spawnPath;
         private Color _initialFloorColor;
         private bool _floorColorSaved;
 
@@ -292,10 +296,11 @@ namespace Assets.Scripts.Free
 
         /// <summary>
         /// Ponto de spawn no chão e uma rotação aleatória; false se o mapa está vazio. Com <paramref name="avoid"/> (o
-        /// jogador, no modo de jogo), sorteia até _avoidSpawnTries pontos e fica com o primeiro a pelo menos
-        /// <paramref name="minDistance"/> m dele, ou com o mais longe.
+        /// jogador, no modo de jogo), nasce LONGE dele: sorteia _farSpawnSamples pontos do mapa, mede cada um pelo
+        /// CAMINHO (NavMesh) e escolhe ao acaso entre a fração <paramref name="farthestFraction"/> mais longe (0.25 = o
+        /// quarto mais longe: longe, mas não sempre o mesmo canto).
         /// </summary>
-        public bool TryGetSpawn(out Vector3 ground, out Quaternion rotation, Vector3? avoid = null, float minDistance = 0f)
+        public bool TryGetSpawn(out Vector3 ground, out Quaternion rotation, Vector3? avoid = null, float farthestFraction = 0.25f)
         {
             ground = Vector3.zero;
             rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
@@ -315,24 +320,48 @@ namespace Assets.Scripts.Free
             if (!avoid.HasValue)
                 return TryPickSpawnPoint(map, total, out ground);
 
-            float best = -1f;
-            for (int attempt = 0; attempt < _avoidSpawnTries; attempt++)
+            return TryPickFarPoint(map, avoid.Value, farthestFraction, out ground);
+        }
+
+        // LONGE do jogador PELO CAMINHO: em linha reta, 25 m do outro lado de uma parede era nascer na sala ao lado. O
+        // caminho sai do ponto do NavMesh mais perto do jogador (fora do mapa, na Entrada, é a porta por onde ele entra);
+        // ponto sem caminho até lá cai na distância em linha reta. Pontos de visão do mapa todo, não o peso de sala rara
+        // do treino (no jogo as taxas de sala não existem: todas valem igual).
+        private bool TryPickFarPoint(FreeMap map, Vector3 avoid, float farthestFraction, out Vector3 ground)
+        {
+            ground = Vector3.zero;
+            int count = map.PointCount;
+            if (count == 0)
+                return false;
+
+            bool hasOrigin = NavMesh.SamplePosition(avoid, out NavMeshHit hit, 40f, NavMesh.AllAreas);
+            var candidates = new List<(Vector3 point, float distance)>(_farSpawnSamples);
+            for (int i = 0; i < _farSpawnSamples; i++)
             {
-                if (!TryPickSpawnPoint(map, total, out Vector3 candidate))
-                    continue;
-
-                float distance = new Vector2(candidate.x - avoid.Value.x, candidate.z - avoid.Value.z).magnitude;
-                if (distance > best)
-                {
-                    best = distance;
-                    ground = candidate;
-                }
-
-                if (distance >= minDistance)
-                    break;
+                Vector3 point = map.PointGround(Random.Range(0, count));
+                float straight = new Vector2(point.x - avoid.x, point.z - avoid.z).magnitude;
+                float path = hasOrigin ? PathLength(hit.position, point) : -1f;
+                candidates.Add((point, path >= 0f ? path : straight));
             }
 
-            return best >= 0f;
+            candidates.Sort((a, b) => b.distance.CompareTo(a.distance));
+            int pool = Mathf.Clamp(Mathf.CeilToInt(candidates.Count * Mathf.Clamp01(farthestFraction)), 1, candidates.Count);
+            ground = candidates[Random.Range(0, pool)].point;
+            return true;
+        }
+
+        private float PathLength(Vector3 from, Vector3 to)
+        {
+            if (_spawnPath == null)
+                _spawnPath = new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, _spawnPath) || _spawnPath.status != NavMeshPathStatus.PathComplete)
+                return -1f;
+
+            float length = 0f;
+            Vector3[] corners = _spawnPath.corners;
+            for (int i = 1; i < corners.Length; i++)
+                length += Vector3.Distance(corners[i - 1], corners[i]);
+            return length;
         }
 
         // Sala pelo peso do spawn, depois um ponto qualquer dela.

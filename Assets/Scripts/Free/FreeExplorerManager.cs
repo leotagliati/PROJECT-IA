@@ -65,8 +65,10 @@ namespace Assets.Scripts.Free
         // viveu (episódios da HiderFoge de ~80 s = 0 a 0.11). O 0.5 da v5 ela quase nunca viu caçando.
         [SerializeField, Range(0f, 1f)] private float _gameModeEpisodeFraction = 0.05f;
 
-        // Nasce a pelo menos isto (m, em linha reta) do jogador, no Play e depois de pegá-lo sem GameManager.
-        [SerializeField, Min(0f)] private float _gameModeSpawnDistance = 25f;
+        // Nasce LONGE do jogador, no Play e depois de pegá-lo sem GameManager: sorteado entre esta fração dos pontos do
+        // mapa mais longe dele PELO CAMINHO (FreeArenaController.TryGetSpawn). 0.25 = o quarto mais longe. Era "a pelo
+        // menos 25 m em linha reta", e do outro lado de uma parede isso é a sala ao lado.
+        [SerializeField, Range(0.05f, 1f)] private float _gameModeSpawnFarthest = 0.25f;
 
         // Média da política (true) ou ação sorteada como no treino (false). Desligado (12/10): com a média o monstro
         // parava do nada no teste mobiliado — em dúvida entre dois caminhos (contornar o móvel pela esquerda ou pela
@@ -350,7 +352,7 @@ namespace Assets.Scripts.Free
             if (IsGameMode && GraphTarget.IsLive(_arenaController.Target))
                 avoid = _arenaController.Target.Position;
 
-            if (_arenaController.TryGetSpawn(out Vector3 ground, out Quaternion rotation, avoid, _gameModeSpawnDistance))
+            if (_arenaController.TryGetSpawn(out Vector3 ground, out Quaternion rotation, avoid, _gameModeSpawnFarthest))
                 transform.SetPositionAndRotation(ground + Vector3.up * _heightAboveFloor, rotation);
 
             _locomotion.ResetEpisode(transform.forward);
