@@ -26,7 +26,7 @@ using UnityEngine.SceneManagement;
 /// têm na PauseMenu, e a saída (WinTrigger + FogWall) no KeySpot mais longe do jogador. Arraste os dois grupos para os
 /// vãos do Map - V8. Sem passar pelo gatilho da porta final o GameManager fica em Preparing e o monstro NÃO SE MEXE
 /// (GameManager ⋮ → "Iniciar partida" força no Play).
-/// Também cria o fluxo duplicado: "MainMenu - V8.2" (cópia do MainMenu cujo Play carrega a Cena Final V8), as duas no
+/// Também cria o fluxo duplicado: "MainMenu - V8" (cópia do MainMenu cujo Play carrega a Cena Final V8), as duas no
 /// FIM do Build Settings (os índices do time não mudam).
 ///   "v8.2: jogo integrado (cena + menu)"     monta a cena SÓ se ela não existe (mantém o que se arrastou à mão) e
 ///                                             refaz o menu e o Build Settings;
@@ -34,6 +34,7 @@ using UnityEngine.SceneManagement;
 ///                                             e sobre todo piso fora dela (Entrada, Saida), no topo das paredes de cada grupo;
 ///   "v8.2: jogo integrado — um jogador só"    fica o jogador da raiz, no lugar do outro (com Undo);
 ///   "v8.2: jogo integrado — portas (tutorial e gatilho)" a Tutorial Door que abre e o Trigger que COMEÇA A PARTIDA;
+///   "v8.2: jogo integrado — garrafas"         espalha garrafas de arremesso (o barulho delas o monstro ouve);
 ///   "v8.2: jogo integrado — chave do tutorial" põe a Key3 da sala inicial na Entrada (onde ela fica na PauseMenu);
 ///   "v8.2: jogo integrado — ajustar layers"   portas → Door, batentes → Wall, móveis em Default → Obstacle, fora da
 ///                                             arena (a visão do monstro só respeita essas três);
@@ -47,7 +48,7 @@ public static class FreeV82Game
     private const string ArenaPrefabPath = "Assets/Prefabs/Arenas/V8.2/Arena - V8.2.prefab";
     private const string ModelPath = "Assets/Brains/FreeExplorer/FreeExplorer_v8.2_10M.onnx";
     private const string GameScene = "Assets/Scenes/Cena Final V8.unity";
-    private const string GameMenuScene = "Assets/Scenes/Arthur/V8.2/MainMenu - V8.2.unity";
+    private const string GameMenuScene = "Assets/Scenes/MainMenu - V8.unity";
     private const string PlayerTag = "Goal";
     private const string CeilingTilePath = "Assets/Prefabs/CeilingTile.prefab";
     private const string FloorTilePath = "Assets/Prefabs/Import_Assets/horror-game-floor-generator-free/source/FloorTile.prefab";
@@ -63,6 +64,12 @@ public static class FreeV82Game
     private const string TutorialKeyPath = "Assets/Prefabs/Key3.prefab";
     private const string TutorialKeyName = "Key3 (tutorial)";
     private const string EntranceName = "Entrada";
+    private const string BottlePath = "Assets/Prefabs/Bottle.prefab";
+    private const string BottleGroup = "Garrafas";
+
+    // Quantas garrafas e o tamanho (a da Cena FInal é o prefab x3).
+    private const int BottleCount = 12;
+    private const float BottleScale = 3f;
     private const string TutorialDoorName = "Tutorial Door";
     private const string DoorLeafName = "Wooden Door_009.001";
     private const string DoorFrameName = "Wooden Doorframe_009.002";
@@ -450,6 +457,69 @@ public static class FreeV82Game
     }
 
     // ================================================================================
+    // Garrafas (arremesso que o monstro OUVE)
+    // ================================================================================
+
+    // A garrafa (Bottle: ThrowableItem) é pega com Interagir e jogada pelo PlayerThrow do jogador; ao bater toca o som e
+    // chama NoiseEvents.Emit (25 m pelo caminho; quebrar = 25, batida fraca = metade). O FreeTrackSense do monstro escuta
+    // esse evento como escuta os passos e a chave do treino: vira pista, Alerta, e ele vai conferir (ignora só vendo o
+    // jogador). A Cena Final V8 não tinha nenhuma. Espalha BottleCount pelos KeySpots do Map - V8 (superfícies de apoiar
+    // objeto, as mesmas das chaves), cada uma no KeySpot mais longe das já postas, e apoia na superfície de baixo.
+    // Rodar de novo troca o grupo "Garrafas".
+    [MenuItem("PROJECT-IA/v8.2: jogo integrado — garrafas")]
+    public static void PlaceBottles()
+    {
+        if (Application.isPlaying)
+        {
+            Debug.LogError("[FreeV82Game] saia do Play antes.");
+            return;
+        }
+
+        Scene scene = SceneManager.GetActiveScene();
+        GameObject arena = scene.GetRootGameObjects().FirstOrDefault(g => g.GetComponentInChildren<FreeArenaController>(true) != null);
+        var bottlePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(BottlePath);
+        Transform[] spots = arena != null ? FindKeySpots(arena.transform) : new Transform[0];
+        if (arena == null || bottlePrefab == null || spots.Length == 0)
+        {
+            Debug.LogError(arena == null ? $"[FreeV82Game] {scene.name} sem arena: abra a Cena Final V8."
+                : bottlePrefab == null ? $"[FreeV82Game] falta {BottlePath}." : "[FreeV82Game] o Map - V8 sem KeySpots.");
+            return;
+        }
+
+        foreach (GameObject old in scene.GetRootGameObjects().Where(g => g.name == BottleGroup).ToList())
+            Object.DestroyImmediate(old);
+
+        // Pontos bem espalhados: começa num ao acaso e cada próximo é o mais longe de todos os já escolhidos.
+        var chosen = new List<Vector3> { spots[UnityEngine.Random.Range(0, spots.Length)].position };
+        while (chosen.Count < Mathf.Min(BottleCount, spots.Length))
+        {
+            Vector3 next = spots.Select(t => t.position)
+                .OrderByDescending(p => chosen.Min(c => (p - c).sqrMagnitude)).First();
+            chosen.Add(next);
+        }
+
+        var group = new GameObject(BottleGroup);
+        SceneManager.MoveGameObjectToScene(group, scene);
+        Physics.SyncTransforms();
+        foreach (Vector3 spot in chosen)
+        {
+            Vector3 position = spot;
+            if (Physics.Raycast(spot + Vector3.up * 0.5f, Vector3.down, out RaycastHit hit, 5f, ~0, QueryTriggerInteraction.Ignore))
+                position = hit.point + Vector3.up * 0.05f;
+
+            var bottle = (GameObject)PrefabUtility.InstantiatePrefab(bottlePrefab, scene);
+            bottle.transform.SetParent(group.transform, false);
+            bottle.transform.SetPositionAndRotation(position, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
+            bottle.transform.localScale = Vector3.one * BottleScale;
+        }
+
+        EditorSceneManager.MarkSceneDirty(scene);
+        Selection.activeGameObject = group;
+        Debug.Log($"[FreeV82Game] {chosen.Count} garrafa(s) espalhadas pelos KeySpots no grupo '{BottleGroup}'. " +
+                  "Confira na Scene (mova à vontade) e dê Ctrl+S.", group);
+    }
+
+    // ================================================================================
     // Chave do tutorial
     // ================================================================================
 
@@ -663,7 +733,7 @@ public static class FreeV82Game
 
         if (ok)
             EditorSceneManager.OpenScene(GameScene, OpenSceneMode.Single);
-        Debug.Log(ok ? "[FreeV82Game] PRONTO: abra a MainMenu - V8.2 e aperte Play (ou Play direto na Cena Final V8)."
+        Debug.Log(ok ? "[FreeV82Game] PRONTO: abra a MainMenu - V8 e aperte Play (ou Play direto na Cena Final V8)."
                      : "[FreeV82Game] FALHOU (veja acima).");
     }
 
@@ -1102,7 +1172,7 @@ public static class FreeV82Game
     // O menu duplicado e o Build Settings
     // ================================================================================
 
-    // Cópia nova do MainMenu toda vez (pega o que o time mudar no menu); só o índice do jogo muda nela. As duas cenas
+    // Cópia do MainMenu só se ainda não existe (a que existe pode ter ajuste à mão); o índice do jogo é acertado sempre. As duas cenas
     // vão para o FIM do Build Settings: o índice que o MainMenu do time usa (Cena FInal) continua o mesmo.
     private static bool SetUpMenuFlow()
     {
@@ -1112,9 +1182,20 @@ public static class FreeV82Game
             return false;
         }
 
-        if (File.Exists(GameMenuScene))
-            AssetDatabase.DeleteAsset(GameMenuScene);
-        if (!AssetDatabase.CopyAsset(MenuScene, GameMenuScene))
+        // Unity 6: com um Build Profile ativo (os de treino: V5/V6/V8 - Training), o Play do Editor e o
+        // EditorBuildSettings.scenes usam a lista DELE (só a cena de treino). O menu carrega o jogo por número e dava
+        // "build index 2 couldn't be loaded"; e gravar aqui mexeria na lista do perfil de treino. Só na lista da
+        // plataforma (a compartilhada, a do time).
+        var activeProfile = UnityEditor.Build.Profile.BuildProfile.GetActiveBuildProfile();
+        if (activeProfile != null)
+        {
+            Debug.LogError($"[FreeV82Game] o Build Profile '{activeProfile.name}' está ativo: o Play usa a lista de cenas DELE. " +
+                           "Em File > Build Profiles, selecione a plataforma (Windows) e clique em Switch Profile; depois rode este menu de novo.");
+            return false;
+        }
+
+        // Já existe: fica (pode ter ajuste à mão); só o número da cena do jogo é acertado abaixo.
+        if (!File.Exists(GameMenuScene) && !AssetDatabase.CopyAsset(MenuScene, GameMenuScene))
         {
             Debug.LogError($"[FreeV82Game] não consegui copiar {MenuScene} para {GameMenuScene}.");
             return false;
