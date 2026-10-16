@@ -2,15 +2,18 @@ using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class PauseControler : MonoBehaviour
 {
     [SerializeField] private GameObject pauseMenuUI;
-
-    private GameObject lastSelected;
+    [SerializeField] private GameObject pauseScreen;
+    [SerializeField] private GameObject settingsScreen;
+    [Tooltip("Recebe o foco ao voltar das configurações.")]
+    [SerializeField] private Selectable settingsButton;
+    [Tooltip("No root do menu: acorda a seleção quando o jogador navega por teclado/controle.")]
+    [SerializeField] private MenuSelectionWaker selectionWaker;
 
     public static bool IsPaused { get; private set; }
 
@@ -34,6 +37,7 @@ public class PauseControler : MonoBehaviour
     private void Start()
     {
         pauseMenuUI.SetActive(false);
+        settingsScreen.SetActive(false);
     }
 
     private void OnDestroy()
@@ -44,54 +48,6 @@ public class PauseControler : MonoBehaviour
         IsPaused = false;
         Time.timeScale = 1f;
         PlayerInputProvider.SetMode(InputMode.Player);
-    }
-
-    // Roda depois do EventSystem.Update: o módulo de UI já "gastou" o primeiro toque de
-    // navegação (sem seleção ele só arma o repeat delay), então aqui o toque apenas acorda a
-    // seleção em vez de pular direto para o segundo botão.
-    private void LateUpdate()
-    {
-        if (!IsPaused || EventSystem.current == null)
-            return;
-
-        var eventSystem = EventSystem.current;
-        var current = eventSystem.currentSelectedGameObject;
-
-        if (current != null)
-        {
-            lastSelected = current;
-            return;
-        }
-
-        if (!NavigateHeld(eventSystem))
-            return;
-
-        var target = lastSelected != null && lastSelected.activeInHierarchy ? lastSelected : FirstSelectable();
-        if (target != null)
-            eventSystem.SetSelectedGameObject(target);
-    }
-
-    // Ordem da hierarquia = ordem visual do menu; botão desabilitado não pode receber o foco.
-    private GameObject FirstSelectable()
-    {
-        foreach (var selectable in pauseMenuUI.GetComponentsInChildren<Selectable>())
-        {
-            if (selectable.IsInteractable())
-                return selectable.gameObject;
-        }
-
-        return null;
-    }
-
-    // Lê a mesma action que o módulo usa para mover a seleção: assets diferentes com
-    // bindings diferentes fariam o menu acordar com uma tecla e navegar com outra.
-    private static bool NavigateHeld(EventSystem eventSystem)
-    {
-        if (eventSystem.currentInputModule is not InputSystemUIInputModule module)
-            return false;
-
-        var action = module.move != null ? module.move.action : null;
-        return action != null && action.ReadValue<Vector2>() != Vector2.zero;
     }
 
     private void OnToggleInput(InputAction.CallbackContext context)
@@ -115,12 +71,10 @@ public class PauseControler : MonoBehaviour
         PlayerInputProvider.SetMode(InputMode.UI);
         Time.timeScale = 0f;
         SetCursor(false);
-        pauseMenuUI.SetActive(true);
 
-        // Sem seleção inicial: só WASD/joystick ou o mouse (PointerSelectable) selecionam.
-        lastSelected = null;
-        if (EventSystem.current != null)
-            EventSystem.current.SetSelectedGameObject(null);
+        // Sempre abre no Pause, mesmo se o menu foi fechado estando nas configurações.
+        pauseMenuUI.SetActive(true);
+        ShowScreen(pauseScreen, null, false);
 
         OnPaused?.Invoke();
     }
@@ -132,6 +86,31 @@ public class PauseControler : MonoBehaviour
 
         ApplyResume();
         OnResumed?.Invoke();
+    }
+
+    public void OpenSettings() =>
+        ShowScreen(settingsScreen, MenuSelectionWaker.FirstSelectableIn(settingsScreen, true), true);
+
+    public void CloseSettings() =>
+        ShowScreen(pauseScreen, settingsButton != null ? settingsButton.gameObject : null, true);
+
+    // Troca de tela dentro do menu. Aberto por Submit (teclado/controle), o foco já cai no
+    // destino; por clique, fica sem seleção para o mouse não ver dois destaques — o destino
+    // vira o alvo do MenuSelectionWaker e a primeira navegação acorda nele.
+    private void ShowScreen(GameObject screen, GameObject focus, bool allowSubmitFocus)
+    {
+        pauseScreen.SetActive(screen == pauseScreen);
+        settingsScreen.SetActive(screen == settingsScreen);
+
+        if (selectionWaker != null)
+            selectionWaker.Remember(focus);
+
+        var eventSystem = EventSystem.current;
+        if (eventSystem == null)
+            return;
+
+        bool bySubmit = allowSubmitFocus && MenuSelectionWaker.SubmitPressed(eventSystem);
+        eventSystem.SetSelectedGameObject(bySubmit ? focus : null);
     }
 
     // O OnDestroy daqui e o PauseAudio.OnDisable já desfazem pausa, input e áudio no reload.
@@ -160,7 +139,6 @@ public class PauseControler : MonoBehaviour
         SetCursor(true);
         pauseMenuUI.SetActive(false);
 
-        lastSelected = null;
         if (EventSystem.current != null)
             EventSystem.current.SetSelectedGameObject(null);
     }

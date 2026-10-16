@@ -17,8 +17,9 @@ public class CreditsScreen : MonoBehaviour
 
     [SerializeField] private string menuScene = "MainMenu";
 
-    [Tooltip("Segundos com a última página na tela antes de voltar sozinho ao menu.")]
-    [SerializeField, Min(0f)] private float exitDelayAfterEnd = 4f;
+    [Tooltip("Espera extra antes de voltar ao menu, contada depois que a máquina termina — e ela só termina " +
+             "depois do tempo de leitura da última página (ou de alguém apertar \"voltar ao menu\"). 0 = na hora.")]
+    [SerializeField, Min(0f)] private float exitDelayAfterEnd;
 
     [SerializeField, Min(0.01f)] private float fadeTime = 0.8f;
     [SerializeField] private Color fadeColor = Color.black;

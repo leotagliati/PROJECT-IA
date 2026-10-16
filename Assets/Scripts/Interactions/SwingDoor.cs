@@ -86,6 +86,9 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
 
     public bool IsClosed => Mathf.Abs(angle - ClosedAngle) <= contactRearmAngle;
 
+    /// <summary>0 no batente, 1 toda aberta.</summary>
+    public float OpenFraction => Mathf.InverseLerp(ClosedAngle, OpenAngle, angle);
+
     public bool IsLocked => lockable != null && lockable.IsLocked;
 
     public Vector3 GrabPoint => transform.TransformPoint(localGrabPoint);

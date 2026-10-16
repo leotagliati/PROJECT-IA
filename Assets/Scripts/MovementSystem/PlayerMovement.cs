@@ -60,19 +60,30 @@ public class PlayerMovement : MonoBehaviour
     [Header("Footsteps")]
     [SerializeField] private string footstepSoundId = "footstep";
 
-    [SerializeField] private float stepDistance = 2f;
-
-    [SerializeField] private float runStepDistance = 1.2f;
-
-    [SerializeField] private float crouchStepDistance = 3f;
+    [Tooltip("Evento de passo de clipe com peso menor que isso no blend tree é descartado: na " +
+             "mistura Walk↔Run os dois clipes disparam, e sem o filtro o passo sai dobrado.")]
+    [SerializeField, Range(0f, 1f)] private float footstepMinClipWeight = 0.5f;
 
     [Tooltip("Volume do passo agachado. É o mesmo clipe, só que abafado.")]
     [SerializeField, Range(0f, 1f)] private float crouchStepVolume = 0.35f;
 
     [SerializeField] private float footstepHeightOffset = 0f;
 
+    [Tooltip("Poeira no passo e na aterrissagem. Vazio = procura no mesmo objeto; sem StepDust, " +
+             "passo sem poeira.")]
+    [SerializeField] private StepDust stepDust;
+
+    // Ossos do rig do Player.fbx. A poeira sai do pé mais baixo, que é o de apoio no evento.
+    private const string LeftFootBone = "foot.L";
+    private const string RightFootBone = "foot.R";
+
     // Blend tree 1D: 0 = idle, 1 = walk, 2 = run. Os thresholds vivem no PlayerAC.controller.
+    // Agachado usa os mesmos valores (0 parado, 1 andando) na sub-árvore Crouching.
     private static readonly int MoveSpeedHash = Animator.StringToHash("moveSpeed");
+
+    // Mistura Standing ↔ Crouching no blend raiz do estado Movement. Recebe o CrouchAmount, que
+    // já é a transição suavizada da cápsula: corpo, câmera e colisão descem juntos.
+    private static readonly int CrouchHash = Animator.StringToHash("crouch");
     private const float AnimIdle = 0f;
     private const float AnimWalk = 1f;
     private const float AnimRun = 2f;
@@ -93,8 +104,8 @@ public class PlayerMovement : MonoBehaviour
     private float crouchAmount;
     private float crouchVelocity;
 
-    private Vector3 lastFootstepPosition;
-    private float distanceSinceStep;
+    private Transform leftFoot;
+    private Transform rightFoot;
 
     /// <summary>Input de movimento cru deste frame (x = lado, y = frente).</summary>
     public Vector2 MoveInput => moveInput;
@@ -143,7 +154,17 @@ public class PlayerMovement : MonoBehaviour
         standingHeight = controller.height;
         standingCenter = controller.center;
 
-        lastFootstepPosition = transform.position;
+        if (animator != null && !animator.TryGetComponent<PlayerFootsteps>(out _))
+            animator.gameObject.AddComponent<PlayerFootsteps>();
+
+        if (stepDust == null)
+            stepDust = GetComponent<StepDust>();
+
+        if (stepDust != null && animator != null)
+        {
+            leftFoot = FindDeep(animator.transform, LeftFootBone);
+            rightFoot = FindDeep(animator.transform, RightFootBone);
+        }
     }
 
     private void OnEnable()
@@ -159,6 +180,7 @@ public class PlayerMovement : MonoBehaviour
         {
             animator.SetFloat(MoveSpeedHash, AnimIdle);
             animator.SetFloat(AnimDirectionHash, 1f);
+            animator.SetFloat(CrouchHash, crouchAmount);
         }
     }
 
@@ -191,7 +213,6 @@ public class PlayerMovement : MonoBehaviour
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
 
-        UpdateFootsteps();
         UpdateAnimator();
     }
 
@@ -295,9 +316,10 @@ public class PlayerMovement : MonoBehaviour
     {
         switch (state)
         {
+            // Aterrissagem não tem pé encostando em clipe nenhum, então fica no código.
             case PlayerState.Jumping:
                 PlayFootstep(footstepSoundId);
-                distanceSinceStep = 0f;
+                PuffDust(1f);
                 break;
         }
     }
@@ -309,8 +331,7 @@ public class PlayerMovement : MonoBehaviour
     {
         switch (CurrentState)
         {
-            // Sem clipe de agachado no controller ainda, então CrouchWalking reaproveita a
-            // caminhada e Crouching, a parada. Quando existir a animação, é aqui que entra.
+            // Agachado usa os mesmos valores do em pé: quem troca o clipe é o parâmetro crouch.
             case PlayerState.Walking:
             case PlayerState.CrouchWalking:
                 return AnimWalk;
@@ -336,6 +357,9 @@ public class PlayerMovement : MonoBehaviour
         // Todo frame, e não só na troca de estado: o SetFloat com damp só converge ao alvo
         // se for chamado continuamente com deltaTime.
         animator.SetFloat(MoveSpeedHash, GetAnimMoveSpeed(), animBlendDampTime, Time.deltaTime);
+
+        // Sem damp: o CrouchAmount já vem suavizado do UpdateCrouch.
+        animator.SetFloat(CrouchHash, crouchAmount);
 
         // Sem damp: inverter o sentido de playback não salta de pose, e suavizar passaria
         // por zero — a perna congelaria no meio da troca. No ar mantém o sentido que já
@@ -368,47 +392,37 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    /// <summary>Distância entre passos do estado atual; 0 significa "não faz passo".</summary>
-    private float GetCurrentStepDistance()
-    {
-        switch (CurrentState)
-        {
-            case PlayerState.Walking:
-                return stepDistance;
-
-            case PlayerState.Running:
-                return runStepDistance;
-
-            case PlayerState.CrouchWalking:
-                return crouchStepDistance;
-
-            default:
-                return 0f;   // parado ou no ar não pisa em nada
-        }
-    }
-
     // ---------------------------------------------------------------- footsteps
 
     /// <summary>
-    /// Roda depois dos dois Move do frame, então mede o deslocamento que de fato aconteceu —
-    /// esbarrar numa parede não gera passo, porque a posição não mudou.
+    /// Entrada do Animation Event, via <see cref="PlayerFootsteps"/>. O ritmo vem do pé
+    /// encostar no clipe; aqui só se decide se o passo vale e com que volume.
     /// </summary>
-    private void UpdateFootsteps()
+    public void OnAnimationFootstep(AnimationEvent evt)
     {
-        Vector3 delta = transform.position - lastFootstepPosition;
-        delta.y = 0f;   // cair ou subir rampa não conta como caminhada
-
-        distanceSinceStep += delta.magnitude;
-        lastFootstepPosition = transform.position;
-
-        float threshold = GetCurrentStepDistance();
-        if (threshold <= 0f || distanceSinceStep < threshold)
+        if (evt.animatorClipInfo.weight < footstepMinClipWeight)
             return;
 
-        distanceSinceStep = 0f;
+        switch (CurrentState)
+        {
+            case PlayerState.Walking:
+                PlayFootstep(footstepSoundId);
+                PuffDust(0f);
+                break;
 
-        // Agachado é o mesmo passo abafado: é o que o Seeker escuta de menos longe.
-        PlayFootstep(footstepSoundId, CurrentState == PlayerState.CrouchWalking ? crouchStepVolume : 1f);
+            case PlayerState.Running:
+                PlayFootstep(footstepSoundId);
+                PuffDust(1f);
+                break;
+
+            // Agachado é o mesmo passo abafado, e sem poeira: é o andar furtivo.
+            case PlayerState.CrouchWalking:
+                PlayFootstep(footstepSoundId, crouchStepVolume);
+                break;
+
+            // No ar o blend continua ciclando (ver GetAnimMoveSpeed) e o clipe segue
+            // disparando eventos; sem pé no chão não há passo.
+        }
     }
 
     private void PlayFootstep(string soundId, float volumeScale = 1f)
@@ -417,5 +431,36 @@ public class PlayerMovement : MonoBehaviour
             return;
 
         AudioProvider.PlayAt(soundId, transform.position + Vector3.up * footstepHeightOffset, volumeScale);
+    }
+
+    private void PuffDust(float intensity)
+    {
+        if (stepDust == null)
+            return;
+
+        // XZ do pé de apoio (o mais baixo), Y da base da cápsula: o osso é o tornozelo, e a
+        // baforada saindo dali flutuaria acima do piso.
+        Vector3 point = transform.position;
+        if (leftFoot != null && rightFoot != null)
+            point = leftFoot.position.y < rightFoot.position.y ? leftFoot.position : rightFoot.position;
+
+        point.y = transform.TransformPoint(controller.center + Vector3.down * (controller.height * 0.5f)).y;
+
+        stepDust.Puff(point, intensity);
+    }
+
+    private static Transform FindDeep(Transform parent, string boneName)
+    {
+        if (parent.name == boneName)
+            return parent;
+
+        foreach (Transform child in parent)
+        {
+            Transform found = FindDeep(child, boneName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 }

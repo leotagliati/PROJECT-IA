@@ -1,0 +1,147 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!319 &31900000
+AvatarMask:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: PlayerThrowArm
+  m_Mask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000
+  m_Elements:
+  - m_Path: 
+    m_Weight: 0
+  - m_Path: Body
+    m_Weight: 0
+  - m_Path: "Char_Hair_L\u0131ng"
+    m_Weight: 0
+  - m_Path: Head
+    m_Weight: 0
+  - m_Path: Neck
+    m_Weight: 0
+  - m_Path: Rig
+    m_Weight: 0
+  - m_Path: Rig/spine
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.L
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.L/pelvis.L_end
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.L/pelvis.L_end/pelvis.L_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.R
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.R/pelvis.R_end
+    m_Weight: 0
+  - m_Path: Rig/spine/pelvis.R/pelvis.R_end/pelvis.R_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/forearm.L.001
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/forearm.L.001/forearm.L.001_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/forearm.L.001/forearm.L.001_end/forearm.L.001_end_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/forearm.L.001/forearm.L.001_end/forearm.L.001_end_end/forearm.L.001_end_end_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/hand.L
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/hand.L/hand.L.001
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/hand.L/hand.L.001/hand.L.001_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/hand.L/hand.L.001/hand.L.001_end/hand.L.001_end_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.L/upper_arm.L/forearm.L/hand.L/hand.L.001/hand.L.001_end/hand.L.001_end_end/hand.L.001_end_end_end
+    m_Weight: 1
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/forearm.R.001
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/forearm.R.001/forearm.R.001_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/forearm.R.001/forearm.R.001_end/forearm.R.001_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/forearm.R.001/forearm.R.001_end/forearm.R.001_end_end/forearm.R.001_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/hand.R
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/hand.R/hand.R.001
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/hand.R/hand.R.001/hand.R.001_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/hand.R/hand.R.001/hand.R.001_end/hand.R.001_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/shoulder.R/upper_arm.R/forearm.R/hand.R/hand.R.001/hand.R.001_end/hand.R.001_end_end/hand.R.001_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004/spine.005
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004/spine.005/spine.006
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004/spine.005/spine.006/spine.006_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004/spine.005/spine.006/spine.006_end/spine.006_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/spine.001/spine.002/spine.003/spine.004/spine.005/spine.006/spine.006_end/spine.006_end_end/spine.006_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/heel.02.L
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/heel.02.L/heel.02.L_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/heel.02.L/heel.02.L_end/heel.02.L_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/heel.02.L/heel.02.L_end/heel.02.L_end_end/heel.02.L_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/toe.L
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/toe.L/toe.L_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/toe.L/toe.L_end/toe.L_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.L/shin.L/foot.L/toe.L/toe.L_end/toe.L_end_end/toe.L_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/heel.02.R
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/heel.02.R/heel.02.R_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/heel.02.R/heel.02.R_end/heel.02.R_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/heel.02.R/heel.02.R_end/heel.02.R_end_end/heel.02.R_end_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/toe.R
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/toe.R/toe.R_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/toe.R/toe.R_end/toe.R_end_end
+    m_Weight: 0
+  - m_Path: Rig/spine/thigh.R/shin.R/foot.R/toe.R/toe.R_end/toe.R_end_end/toe.R_end_end_end
+    m_Weight: 0

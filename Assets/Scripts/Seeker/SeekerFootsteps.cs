@@ -14,26 +14,48 @@ namespace Assets.Scripts.Seeker
     /// </summary>
     public class SeekerFootsteps : MonoBehaviour
     {
+        // Na mistura Walk↔Run os dois clipes disparam o evento; só o dominante vale.
+        private const float MinClipWeight = 0.5f;
+
         private SeekerAudioSystem _audio;
+        private StepDust _dust;
+        private SeekerChaseState _chase;
 
         private void Awake()
         {
             _audio = GetComponentInParent<SeekerAudioSystem>();
 
             if (_audio == null)
+            {
                 Debug.LogWarning($"{name}: SeekerAudioSystem não encontrado nos pais — passos do seeker mudos.", this);
+                return;
+            }
+
+            // Poeira ao lado do áudio, no root do seeker. Adicionada aqui para valer em todos os
+            // prefabs sem editar um por um; quem quiser ajustar põe o componente no prefab.
+            _dust = GetComponentInParent<StepDust>();
+            if (_dust == null)
+                _dust = _audio.gameObject.AddComponent<StepDust>();
+
+            _chase = GetComponentInParent<SeekerChaseState>();
         }
 
         /// <summary>
         /// Nome chamado pelo Animation Event. Mantenha igual ao dos eventos no importer — o Unity
         /// não avisa em compile time se descasar, só em runtime.
         /// </summary>
-        public void OnFootstep()
+        public void OnFootstep(AnimationEvent evt)
         {
+            if (evt.animatorClipInfo.weight < MinClipWeight)
+                return;
+
             // Posição do char, não do root do agente: o Visual tem offset em Y e escala 2, então
             // é este transform que está de fato nos pés do modelo.
             if (_audio != null)
                 _audio.PlayFootstep(transform.position);
+
+            if (_dust != null)
+                _dust.Puff(transform.position, _chase != null ? _chase.Blend : 0f);
         }
     }
 }

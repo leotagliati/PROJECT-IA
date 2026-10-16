@@ -73,6 +73,12 @@ MonoBehaviour:
     Volume: 1
     PitchJitter: 0
     MaxDistance: 50
+  - Id: pause_static
+    Clips:
+    - {fileID: 8300000, guid: e476d8fa4f2648843ad0cb9429cd537a, type: 3}
+    Volume: 0.08
+    PitchJitter: 0
+    MaxDistance: 0
   - Id: caught
     Clips:
     - {fileID: 8300000, guid: fea796f36f247954b93fa7957dbe89e0, type: 3}
@@ -207,3 +213,9 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0.05
     MaxDistance: 0
+  - Id: fridgeHum
+    Clips:
+    - {fileID: 8300000, guid: 9c711163f3926e4418faec045bdd365c, type: 3}
+    Volume: 0.5
+    PitchJitter: 0
+    MaxDistance: 8
