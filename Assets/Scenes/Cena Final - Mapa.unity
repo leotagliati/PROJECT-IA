@@ -14,13 +14,13 @@ OcclusionCullingSettings:
 RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 10
-  m_Fog: 0
+  m_Fog: 1
   m_FogColor: {r: 0.008, g: 0.01, b: 0.016, a: 1}
   m_FogMode: 3
   m_FogDensity: 0.045
   m_LinearFogStart: 1.98
   m_LinearFogEnd: 300
-  m_AmbientSkyColor: {r: 0.7, g: 0.7, b: 0.7, a: 1}
+  m_AmbientSkyColor: {r: 0.085795276, g: 0.085795276, b: 0.085795276, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
   m_AmbientIntensity: 1
@@ -35,7 +35,7 @@ RenderSettings:
   m_DefaultReflectionMode: 0
   m_DefaultReflectionResolution: 128
   m_ReflectionBounces: 1
-  m_ReflectionIntensity: 1
+  m_ReflectionIntensity: 0.053
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
   m_UseRadianceAmbientProbe: 0
@@ -1333,7 +1333,7 @@ PrefabInstance:
   serializedVersion: 2
   m_Modification:
     serializedVersion: 3
-    m_TransformParent: {fileID: 0}
+    m_TransformParent: {fileID: 1898436967234288461}
     m_Modifications:
     - target: {fileID: 99654788233523882, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_Name
@@ -1341,7 +1341,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 178711452889118095, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 23.37
+      value: -16.63
       objectReference: {fileID: 0}
     - target: {fileID: 178711452889118095, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_LocalPosition.y
@@ -1349,7 +1349,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 178711452889118095, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 5.22
+      value: 69.22
       objectReference: {fileID: 0}
     - target: {fileID: 178711452889118095, guid: 97d293e2457059e49816e795df1a13db, type: 3}
       propertyPath: m_LocalRotation.w
@@ -8960,6 +8960,8 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 8055145668392452357}
+  - {fileID: 2047866884}
   - {fileID: 3640737472330056003}
   - {fileID: 5109658010273395978}
   - {fileID: 5480299747050911218}
@@ -10095,6 +10097,10 @@ PrefabInstance:
     - target: {fileID: 5052373807078861042, guid: 9ad2b3cb8fd6b3d46a851a1ca25d2b99, type: 3}
       propertyPath: m_Name
       value: Ceiling
+      objectReference: {fileID: 0}
+    - target: {fileID: 5052373807078861042, guid: 9ad2b3cb8fd6b3d46a851a1ca25d2b99, type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 7633542065329388115, guid: 9ad2b3cb8fd6b3d46a851a1ca25d2b99, type: 3}
       propertyPath: m_LocalPosition.x
@@ -12644,7 +12650,7 @@ Transform:
   - {fileID: 1530741284386695437}
   - {fileID: 5064561649400843365}
   - {fileID: 5796176794962962694}
-  m_Father: {fileID: 0}
+  m_Father: {fileID: 1898436967234288461}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &8160798537620825771
 GameObject:
@@ -13085,9 +13091,7 @@ SceneRoots:
   - {fileID: 1771890758}
   - {fileID: 1209857373}
   - {fileID: 98031029}
-  - {fileID: 899641050}
   - {fileID: 4014014257409985309}
   - {fileID: 1708383523105512205}
   - {fileID: 8433597248750514561}
   - {fileID: 183024837}
-  - {fileID: 8055145668392452357}
