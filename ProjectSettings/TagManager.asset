@@ -39,8 +39,6 @@ TagManager:
   - 
   - 
   - 
-  - 
-  - 
   m_SortingLayers:
   - name: Default
     uniqueID: 0
@@ -48,7 +46,7 @@ TagManager:
   m_RenderingLayers:
   - Default
   - Outline
-  - Light Layer 2
+  - Player
   - Light Layer 3
   - Light Layer 4
   - Light Layer 5

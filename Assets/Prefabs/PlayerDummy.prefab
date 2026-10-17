@@ -407,6 +407,7 @@ MonoBehaviour:
   layerName: Throw
   holdState: Hold
   aimState: Aim
+  raiseTime: 0.15
   releaseTrigger: throwRelease
   layerBlendSpeed: 8
   minThrowSpeed: 6
@@ -5671,8 +5672,8 @@ Light:
   m_Type: 0
   m_Color: {r: 0.6650944, g: 0.81195015, b: 1, a: 1}
   m_Intensity: 10.74
-  m_Range: 156.2
-  m_SpotAngle: 82.2
+  m_Range: 200
+  m_SpotAngle: 103.8
   m_InnerSpotAngle: 68.7
   m_CookieSize: 10
   m_Shadows:
