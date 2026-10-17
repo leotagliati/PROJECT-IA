@@ -191,6 +191,10 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 6028184064125118365, guid: 0fbe041c8a29d304db86231fc0ff554d, type: 3}
+      propertyPath: _eyeHeight
+      value: 4.2
+      objectReference: {fileID: 0}
     - target: {fileID: 6163418067281870654, guid: 0fbe041c8a29d304db86231fc0ff554d, type: 3}
       propertyPath: m_NavMeshData
       value: 
