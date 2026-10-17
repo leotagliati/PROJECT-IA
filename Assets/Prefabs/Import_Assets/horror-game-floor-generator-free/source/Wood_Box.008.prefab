@@ -11,7 +11,8 @@ GameObject:
   - component: {fileID: 3299183670489414430}
   - component: {fileID: 8271124477139257305}
   - component: {fileID: 2715846857924918640}
-  m_Layer: 0
+  - component: {fileID: 8708269017584120086}
+  m_Layer: 3
   m_Name: Wood_Box.008
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -26,13 +27,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 9210060288799434899}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.50000006, y: -0.4999999, z: -0.5, w: 0.5}
+  m_LocalRotation: {x: -0.5, y: -0.5, z: -0.5, w: 0.5}
   m_LocalPosition: {x: -247.46587, y: 0.22977519, z: 91.336395}
-  m_LocalScale: {x: 100, y: 100, z: 100}
+  m_LocalScale: {x: 120, y: 120, z: 120}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: -90, y: 0, z: -90}
 --- !u!33 &8271124477139257305
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -86,3 +87,24 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!65 &8708269017584120086
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9210060288799434899}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.0068792766, y: 0.008680879, z: 0.00637}
+  m_Center: {x: 5.366455e-12, y: -0.0000000074452142, z: 0.00018007273}
