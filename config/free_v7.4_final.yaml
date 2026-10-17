@@ -1,0 +1,76 @@
+# ================================================================================================
+# FreeExplorer - v7.4: O MAPA DO JOGO ("Mapa Final" da Cena Final - Mapa), HERDANDO O v7.3_ronda_02 (11.46M). NAO E DO ZERO.
+#
+#   python tools/mlagents_learn_threads.py config/free_v7.4_final.yaml --run-id=v7.4_final_01 --initialize-from=v7.3_ronda_02 --env="Builds/V7.4/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   Build antes: menu "PROJECT-IA -> v7.4: preparar Cena Final, cena de treino e build" -> Builds/V7.4 (mudou o mapa
+#   do jogo, os prefabs de Maps/Final ou o codigo = rodar de novo). Cena de treino: Scenes/Arthur/v8.3/Cena Final - Treino
+#   (5 arenas "Arena - Cena Final", prefab em Prefabs/Arenas/V7.4).
+#
+# Por que: o cerebro da v7.3 so conhece o Map - V8; o jogo agora usa o mapa novo (21 salas, 27 portas, 961 pontos de
+# visao, 118 x 106 m de NavMesh). Mesma linha da v7.1 -> v7.2 (cerebro herdado num mapa novo): observacao e acao
+# iguais (vetor 126), so o mundo muda.
+#
+# O que muda alem do mapa (tudo para o treino bater com o jogo, que e onde o cerebro vai rodar):
+#   - monstro com os numeros da Cena Final: patrulha 5.5 / alerta 6.5 / perseguicao 8 (eram 6.5 / 7.5 / 9) e olho a
+#     3.18 m (o build da v7.3 tinha 4.2). Vem do prefab: o Mapa Final ja e o monstro do jogo;
+#   - presa com o corpo de corrida do JOGADOR do jogo: hider_speed 8.5 (moveSpeed 5 x sprint 1.7; andando sai 5, pelo
+#     _walkFraction 0.588 da presa) e hider_stamina 10 (sprintDuration do PlayerStamina). Era 10.2 e 8 s, os da V8.2;
+#   - bordas sem parede do Mapa Final (o lado da Entrada e o vao da porta solta) tampadas com bloqueio invisivel no
+#     prefab de treino: Entrada, Saida e teto nao entram na arena. As Garrafas tambem sairam.
+# Igual a v7.3.1: gamma 0.999, bonus de raridade, explore_chance 0.25, chaves em metade dos episodios, presa mista.
+# A raridade das salas recomeca (mapa novo): o Hider/Settles demora ~3M para aparecer, como no v7.3_ronda_01.
+#
+# CRITERIO: em ~1M anotar a base (Caught, Coverage, WallHits, Stuck) - o mapa e outro, os numeros da v7.3 nao comparam.
+# Em ~3M: Movement/Stuck e WallHits sem subir em relacao a base (bloqueios e moveis novos nao viraram armadilha) e
+# Hunt/Caught subindo. Final: Hunt/Caught > 0.45 e nenhuma sala com RoomsFrac/S## < ~0.2.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 como na v7.3: ajuste fino de politica pronta num mapa novo. O schedule linear recomeca do 1e-4 no
+      # --initialize-from (so o --resume continua de onde parou).
+      learning_rate: 0.0001
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v7.3_ronda_02 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # 0.999 da v7.3.1 (~100 s de horizonte): o mapa novo e maior que o Map - V8.
+        gamma: 0.999
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 15M: a v7.2 (mesmo tipo de troca de mapa) se ajustou em ~8-10M; com o LR linear, sobra margem antes de chegar a 0.
+    max_steps: 15000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final, como na v7.3.
+environment_parameters:
+  # 5 = misto (FreeArenaController): presa que foge ou escondida (a rapida esta em 0% no prefab).
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves (KeySpots do Mapa Final).
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA: exploracao x1 e cobertura 0.9 encerra.
+  explore_chance: 0.25
+  # Presa = jogador da Cena Final (ver cabecalho). 0 voltaria aos do FreeHider (10.2 m/s e 8 s, os da V8.2).
+  hider_speed: 8.5
+  hider_stamina: 10
