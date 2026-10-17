@@ -2613,7 +2613,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: VOLTAR AO MENU
+  m_text: SAIR DO JOGO
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae56c74f5cfddd4aa38677824eeb1db, type: 2}
   m_sharedMaterial: {fileID: 276337377110559447, guid: bae56c74f5cfddd4aa38677824eeb1db, type: 2}
