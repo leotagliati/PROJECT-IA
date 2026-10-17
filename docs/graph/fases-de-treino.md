@@ -89,7 +89,7 @@ de nós), usado da v5 à v6. Aqui ele aparece como **mapa Node_5**.
 | **v7.0** | Fase 12 · v8.0 | 10/10 | V8 - Training (mapa Node_5 + NavMesh) | **Explorador livre, do zero** (linha `FreeExplorer`): o corpo e o estado de alerta da v6, mas os nós viram só **pontos gerados pelo NavMesh que ele precisa ver**, sem vizinho nem ligação; paga ver ponto novo e porta nova (andar não paga); foco na presa e pegadas que ele só segue se vir | `v8.0_zero_02`: chegou à caça e pegava ~99% em ~13 s na Foge. Modelo `FreeExplorer_v8.0_9.5M.onnx`. No jogo caçava "em linha de nó": a presa do treino ainda andava de nó em nó |
 | **v7.1** | Fase 13 · v8.1 | 11–13/10 | Arena - V8 (só NavMesh), depois mobiliado (Arena - V9) | **Do zero, currículo completo com chaves**, do Explorar à presa mista (foge, escondida, rápida) com chaves que ela leva para escapar; de 25M em diante no mapa mobiliado, e de 27.9M em diante com visão e velocidade cortadas para os números do jogo | `v8.1_zero_01` (35M): pega ~95% (rápida ~90%), ~13 s da 1ª vista à captura, cobertura ~0.48; salas muito mobiliadas quase nunca concluem. Modelo `FreeExplorer_v8.1M_35M.onnx` ("M" = mobiliado) |
 | **v7.2** | Fase 14 · v8.2 | 13–15/10 | Map - V8 (mapa editado à mão, NavMesh próprio) | **Cérebro da v7.1 no mapa novo com os números do jogo**: visão 80°/30 m, perseguição 9, presa sem a rápida e que se esconde depois de fugir, campar na sala custa, chave e passos fazem barulho, parede mais cara; no `_05`, visão do alvo em 3D, agachar de verdade, corpos de 3 m e presa que nasce e se esconde onde o monstro menos olha | `v8.2_mapa_01`..`_04` (até 3.2M: pega ~0.89, mas faz sempre a mesma ronda). `_05` (10M): Caught caiu a 0.26 antes de voltar a 0.43; parede ótima, cobertura 0.43 → 0.535, mas 9 de 23 salas seguem em < 6% dos episódios. Modelo `FreeExplorer_v8.2_10M.onnx` (o da `Cena Final V8`). `_06` preparado |
-| v7.3 | V8.3 | 16/10 → | Map - V8 | Branch `feature/V8.3-seeker` aberta a partir da main | A definir |
+| v7.3 | V8.3 | 16/10 → | Map - V8 | **Quebrar a ronda fixa, herdando o 10M da v7.2**: ponto novo paga mais quanto menos a arena o viu nos últimos episódios, e 1 em 4 episódios é só de explorar (o plano do `_06`, que não rodou). Branch `feature/v7.3-seeker`. Na v7.3.1, horizonte maior (gamma 0.997 → 0.999) | `v7.3_ronda_01` parado em 3.6M sem mexer na ronda. `v7.3_ronda_02` (v7.3.1) rodando: em 11M pega ~0.48 (0.37 no `_05`), mas a exploração não mudou (portas usadas 0.47, cobertura só de explorar parada em 0.64) |
 | **v8.0** | v9 | 12/10 → | Arena - V9 (TaskFurniture, mobiliado) | **Do zero, cérebro com habilidades**: clone (andarilho ou vigia), lista de eventos, vetor 200 com 32 posições reservadas para habilidades futuras, até 64 salas e 12 portas por sala | `v9_zero_01` abandonado em ~4M (planta de 64 salas = atualização 2.3× mais lenta); `v9_zero_02` (32 salas) rodou em outro PC, sem números aqui. Ver a v8.1 |
 | v8.1 | — | 16/10 → | Map - V8 | **Habilidades sobre a base da v7.2**: o clone e a lista de eventos da v8.0 trazidos para a main (branch `feature/v9-updated-seeker`) | A fazer: falta ligar no Manager e nas observações |
 
@@ -456,9 +456,42 @@ esconderijo, NavMesh próprio, 23 salas e 29 portas).
   presa passou a se instalar nas salas puladas e o Caught caiu de 0.70 para 0.26 antes de voltar a ~0.43; parede
   ótima (presa na parede 0.02% do tempo); cobertura 0.43 → 0.535, mas 9 de 23 salas seguem em < 6% dos episódios.
   Modelo `FreeExplorer_v8.2_10M.onnx`, o que roda na `Cena Final V8`.
-- **Run `_06` (preparado em 15/10, herdando o `_05`, 30M):** contra a ronda fixa, ponto novo paga mais quanto
+- **Run `_06` (preparado em 15/10, herdando o `_05`, 30M; não rodou, virou a v7.3):** contra a ronda fixa, ponto novo paga mais quanto
   menos a arena o viu nos últimos episódios (bônus no raro, em vez de custo no comum), e 1 em 4 episódios é só de
   explorar, sem presa. Critério: `Hunt/Caught` > 0.45 e a fração vista das 9 salas puladas acima de ~0.5.
+
+### v7.3 — Quebrar a ronda fixa, herdando a v7.2, 16/10 →
+
+`config/free_v7.3_ronda.yaml`, run `v7.3_ronda_01`, `--initialize-from=v8.2_mapa_05` (10M). Não é do zero: só muda a
+recompensa e o ambiente, a observação continua a mesma (vetor 126).
+- **O problema, no fim do `_05` (9M–10M):** episódio de ~450 s com 98 travessias de porta, 62% repetidas, mas só 47%
+  das portas usadas e 54% do mapa visto. Ele não fica parado nem preso: roda em circuito na mesma metade do mapa. A
+  presa se instala nas salas que ficam de fora e o Caught caiu de 0.77 para 0.37. (Ler direito: `Rooms/S##` é a
+  fração de episódios em que a sala foi CONCLUÍDA, 90% dos pontos; S04, S06 e S08 ficam em ~1%, mas com ~65% dos
+  pontos vistos: ele vai, só não fecha. As puladas de verdade, pela `RoomsFrac/S##`, são S02, S03, S05, S09, S10,
+  S12 e S13, com 11% a 25% dos pontos vistos.)
+- **Mudanças (o plano do `_06`):** ponto novo paga × (1 + 1.5 × raridade), raridade = quão pouco a arena viu o ponto
+  nos últimos ~20 episódios de caça; e 1 em 4 episódios sem presa, só de explorar (cobertura 0.9 encerra).
+- **Critério:** parcial em ~3M, `Doors/UsedFraction` > 0.55 e `RepeatFraction` < 0.55; final, `Hunt/Caught` > 0.45
+  e `RoomsFrac/S##` das salas puladas acima de ~0.5. Se travar, a próxima etapa é o horizonte: com gamma 0.997 ele
+  enxerga ~33 s à frente, menos que o tempo de atravessar o mapa até uma presa quieta.
+- **Resultado do `v7.3_ronda_01` (parado em 3.6M, 16–17/10):** não passou no parcial. Portas usadas 0.44 (0.45 no
+  começo), cobertura 0.49, e nos episódios só de explorar, onde explorar é a única coisa que paga, a cobertura ficou
+  parada em 0.63 e nunca chegou aos 90%. O tamanho da recompensa não era o gargalo.
+
+### v7.3.1 — O horizonte (gamma 0.999), herdando a v7.3, 17/10 →
+
+`config/free_v7.3_ronda_02.yaml`, run `v7.3_ronda_02`, `--initialize-from=v7.3_ronda_01`, mesmo build. Só muda o
+gamma: 0.997 → 0.999, horizonte de ~33 s para ~100 s. Critério: em ~3M, cobertura só de explorar > 0.70 e portas
+usadas > 0.50; final, `Hunt/Caught` > 0.45 e as salas puladas acima de ~0.5.
+- **Parcial em 11M (17/10):** pega mais. Caught 0.48 e Seen 0.54, contra 0.37 e 0.43 no fim do `_05`, com a presa
+  instalada em 0.63 dos episódios (0.75 no `_05`; a raridade recomeça a cada run e a presa endurece junto, por isso
+  o Caught sai de 0.81 e desce). A exploração não mudou: portas usadas 0.47, repetidas 0.55, cobertura só de explorar
+  em 0.64, o mesmo teto dos três runs, e as salas puladas seguem entre 11% e 25%. A curva está achatada desde ~6M.
+- **Suspeitas para a próxima etapa:** o teto de 0.64 pode ser do mapa, e não da política (pontos que só aparecem de
+  dentro das baias, olho em 4.2 m, 2 portas descartadas por falta de chão). E as 5 arenas geram mapas diferentes
+  desde o `_05` (874 a 924 pontos; as arenas 1 e 4 com 22 salas em vez de 23), então os números `S##` não são a
+  mesma sala em todas.
 
 ## v8 — Habilidades (12/10 em diante)
 
@@ -711,9 +744,9 @@ apagados de `results/`, e o que está aqui vem do registro escrito na época.
 
 ## Próximos passos
 
-- **v7.2, run `_06`** (preparado em 15/10, herdando o `_05`): critério `Hunt/Caught` > 0.45 e a fração vista das
-  9 salas puladas acima de ~0.5.
-- **v7.3** (branch `feature/V8.3-seeker`, aberta em 16/10): a definir.
+- **v7.3.1, run `v7.3_ronda_02`** (branch `feature/v7.3-seeker`, rodando desde 17/10, 30M): terminar e decidir a
+  próxima etapa. Antes de mexer de novo na recompensa, conferir se a cobertura de 0.9 é alcançável no Map - V8 e por
+  que as arenas 1 e 4 geram 22 salas.
 - **v8.1, habilidades** (branch `feature/v9-updated-seeker`): ligar o clone e os eventos no `FreeExplorerManager` e
   nas observações da v7.2. Muda o cérebro: treino do zero ou uma lição nova com as reservas.
 - A linha E4/E5 do Node_4 (v4.3.6) e a v6.0.1 ficam paradas: os cérebros delas não servem nos vetores novos.

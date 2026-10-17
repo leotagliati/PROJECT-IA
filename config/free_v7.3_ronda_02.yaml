@@ -1,0 +1,72 @@
+# ================================================================================================
+# FreeExplorer - v7.3, 2a ETAPA: O HORIZONTE (gamma 0.997 -> 0.999), HERDANDO O v7.3_ronda_01. NAO E DO ZERO.
+#
+#   python tools/mlagents_learn_threads.py config/free_v7.3_ronda_02.yaml --run-id=v7.3_ronda_02 --initialize-from=v7.3_ronda_01 --env="Builds/V8.2/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   SEM build novo: so o YAML muda. O Builds/V8.2 de 16/10 19:33 (olho 4.2) e o mesmo da 1a etapa.
+#
+# Por que: o v7.3_ronda_01 (bonus no ponto raro + 1 em 4 episodios so de explorar) nao passou no criterio parcial.
+# Media 3-3.6M contra 0-1M: Doors/UsedFraction 0.44 (0.45; meta > 0.55), Coverage 0.49 (0.51), e nos episodios SO DE
+# EXPLORAR, onde explorar e a unica coisa que paga, a CoverageExploreOnly ficou parada em 0.635 por 3.5M (~1000
+# atualizacoes) e nunca chegou aos 90%. As salas puladas (S13 S02 S09 S12 S10) nao subiram.
+# Leitura: o tamanho da recompensa nao e o gargalo. Com gamma 0.997 ele enxerga ~33 s a frente (0.997^330 = 0.37), e a
+# sala longe e a presa quieta do outro lado do mapa valem quase nada no momento de escolher a porta. 0.999 = ~100 s.
+#
+# Junto, sem mudar nada: bonus de raridade e explore_chance 0.25 seguem iguais (a 1a etapa e a base desta).
+# Custo conhecido: a raridade das salas vive na memoria do build e recomeca neste run (o Hider/Settles so passou de 0
+# perto dos 3M no _01). O valor (critico) reaprende a escala nos primeiros ~500k: a reward pode cair e voltar.
+#
+# CRITERIO: em ~3M, CoverageExploreOnly > 0.70 e Doors/UsedFraction > 0.50; final Hunt/Caught > 0.45 e RoomsFrac/S##
+# das salas puladas > ~0.5. Historia completa: cabecalhos de config/free_v7.3_ronda.yaml e config/free_v8.2.yaml.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 (era 3e-4 no v8.1 do zero): ajuste fino de uma politica pronta. O ultimo trecho do v8.1 (27.9-35M, que
+      # absorveu visao/velocidade novas) rodou com 7e-5 caindo a 0 e se ajustou bem; 3e-4 arriscaria desfazer a caca.
+      learning_rate: 0.0001
+      # 0.003 (era 0.008): um pouco de exploracao para os cubiculos e a perseguicao mais lenta, sem embaralhar a politica.
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v8.1 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # 0.999 (era 0.997 no v7.3_ronda_01): horizonte de ~33 s para ~100 s (decisao a cada 0.1 s). Ver o cabecalho.
+        gamma: 0.999
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 30M (v7.3; era 10M no v8.2_mapa_05): ~33 h a ~40 s por 10k steps (8 jogos). O _05 ainda subia (Caught 0.26 -> 0.43
+    # entre 4M e 10M) quando o LR linear chegou a 0; com 30M o LR cai devagar e sobra tempo para a ronda mudar.
+    max_steps: 30000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final da v8.1.
+environment_parameters:
+  # 5 = misto (FreeArenaController): sorteia presa que foge, escondida ou rapida.
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  # Pontos e portas valem 0.5 (0.3 ate o v8.2_mapa_04, que decorou uma ronda e pulava salas): pegar (20-45) manda em
+  # tudo (~6 no mapa todo, x2 no 1o minuto) e procurar sala nova vale mais.
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves: o modelo serve com ou sem chaves no jogo.
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA (v8.2_mapa_06): exploracao x1 e cobertura 0.9 encerra (FreeArenaController._explore*).
+  # Mais que isso tira tempo da caca (o _05 pegou 0.43); menos e pouco para manter o habito de varrer o mapa.
+  explore_chance: 0.25
