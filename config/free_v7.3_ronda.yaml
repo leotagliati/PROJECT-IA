@@ -1,0 +1,90 @@
+# ================================================================================================
+# FreeExplorer - v7.3: QUEBRAR A RONDA FIXA, HERDANDO O CEREBRO DA v7.2 (v8.2_mapa_05, 10M). NAO E DO ZERO.
+#
+#   python tools/mlagents_learn_threads.py config/free_v7.3_ronda.yaml --run-id=v7.3_ronda_01 --initialize-from=v8.2_mapa_05 --env="Builds/V8.2/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   (build ANTES: menu PROJECT-IA > "v8.2: preparar mapa, cenas e build". O build de 14/10 22:43 nao tem o bonus de
+#    raridade nem o explore_chance, que entraram no commit 4d86ae5 de 15/10.)
+#   OLHO DO BUILD (16/10 19:33): o Builds/V8.2 deste run saiu com o olho do monstro em 4.2 m, o da cena V8.2 - Teste
+#   (GraphHiderPerception._eyeHeight, e o FreeHider._seekerEyeHeight junto, que e a copia dele que a presa usa para
+#   saber se e vista). Depois do build o Map - V8.prefab VOLTOU para 2.78, a pedido do Arthur. Refazer o build pelo
+#   menu agora sai com 2.78: para o --resume deste run usar o mesmo olho, ponha 4.2 de novo no prefab antes do build.
+#
+# Por que da para herdar: nada aqui muda observacao nem acao (vetor 126, planta 32 x 8, chaves 4 x 7, 4 acoes
+# continuas). Muda so recompensa e ambiente, entao o --initialize-from carrega os pesos do _05 e segue dali.
+#
+# O PROBLEMA, medido no fim do v8.2_mapa_05 (media de 9M a 10M):
+#   episodio ~450 s, Doors/Crossings 98 com RepeatFraction 0.62, mas UsedFraction 0.47 e Coverage 0.537: ele nao
+#   esta parado nem preso (StuckFraction 0.0004), RODA EM CIRCUITO na mesma metade do mapa. Rooms/S06 0.005,
+#   S10 0.016, S02 0.026, S12 0.029, S22 0.031, S08 0.032, S04 0.033, S09 0.035, S13 0.053.
+#   A presa se instala justamente nelas (Hider/Settles 0.74) e o Caught caiu a 0.37 (0.77 no comeco do _05).
+#   Ronda fixa pega a presa que passeia e faz barulho; a que fica quieta numa sala pulada escapa.
+#
+# O QUE MUDA (o plano do "_06" da v7.2, que nunca rodou; o codigo ja esta na main desde 15/10):
+#   - RARIDADE: ponto novo paga x (1 + 1.5 x raridade), raridade = quao pouco esta arena viu o ponto nos ultimos ~20
+#     episodios de caca (FreeRewardSystem._rarityGain, FreeArenaController.SeenRarity). Bonus no raro, nao custo no
+#     comum (escolha do Arthur). Paga um evento que ele causa (ver), sem alvo escolhido por codigo.
+#   - EXPLORAR NO MEIO DA CACA: explore_chance 0.25 = 1 em 4 episodios sem presa (exploracao x1, cobertura 0.9
+#     encerra com +5), sorteado por episodio e arena.
+#   Todo o resto e o da v7.2: historia completa no cabecalho de config/free_v8.2.yaml.
+#
+# CRITERIO (metricas so dos episodios com presa, comparaveis com o _05):
+#   - parcial em ~3M: Doors/UsedFraction > 0.55 e RepeatFraction < 0.55; RoomsFrac/S## das salas puladas subindo.
+#     Se nada mexer ate la, a proxima etapa e o horizonte (gamma 0.997 -> 0.999, abaixo), nao mais recompensa.
+#   - final: Hunt/Caught > 0.45 e RoomsFrac/S## das salas puladas acima de ~0.5.
+#   Exploration/CoverageExploreOnly mostra se ele sabe varrer o mapa quando nao ha presa.
+#
+# PROXIMA ETAPA SE TRAVAR (nao entra agora, uma mudanca por vez): gamma 0.997 = horizonte de ~33 s (decisao a cada
+# 0.1 s). Achar a presa quieta numa sala do outro lado do mapa leva mais que isso, entao a captura chega ao valor
+# descontada a quase nada (0.997^600 = 0.16). 0.999 = ~100 s. Tambem herda (o valor reaprende a escala).
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 (era 3e-4 no v8.1 do zero): ajuste fino de uma politica pronta. O ultimo trecho do v8.1 (27.9-35M, que
+      # absorveu visao/velocidade novas) rodou com 7e-5 caindo a 0 e se ajustou bem; 3e-4 arriscaria desfazer a caca.
+      learning_rate: 0.0001
+      # 0.003 (era 0.008): um pouco de exploracao para os cubiculos e a perseguicao mais lenta, sem embaralhar a politica.
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v8.1 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.997
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 30M (v7.3; era 10M no v8.2_mapa_05): ~33 h a ~40 s por 10k steps (8 jogos). O _05 ainda subia (Caught 0.26 -> 0.43
+    # entre 4M e 10M) quando o LR linear chegou a 0; com 30M o LR cai devagar e sobra tempo para a ronda mudar.
+    max_steps: 30000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final da v8.1.
+environment_parameters:
+  # 5 = misto (FreeArenaController): sorteia presa que foge, escondida ou rapida.
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  # Pontos e portas valem 0.5 (0.3 ate o v8.2_mapa_04, que decorou uma ronda e pulava salas): pegar (20-45) manda em
+  # tudo (~6 no mapa todo, x2 no 1o minuto) e procurar sala nova vale mais.
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves: o modelo serve com ou sem chaves no jogo.
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA (v8.2_mapa_06): exploracao x1 e cobertura 0.9 encerra (FreeArenaController._explore*).
+  # Mais que isso tira tempo da caca (o _05 pegou 0.43); menos e pouco para manter o habito de varrer o mapa.
+  explore_chance: 0.25
