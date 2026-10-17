@@ -32,7 +32,8 @@ public class mainMenu : MonoBehaviour
     [Header("Menu")]
     [Tooltip("Opcional: CanvasGroup do menu, some junto com a aproximação.")]
     [SerializeField] private CanvasGroup _menuGroup;
-    [SerializeField] private int _gameSceneIndex = 1;
+    [Tooltip("Por nome, não por índice: o índice muda sempre que a lista do Build Settings muda.")]
+    [SerializeField] private string _gameScene = "Cena Final V8";
 
     [Header("Loading")]
     [Tooltip("O mesmo prefab da tela do LoadingWarmup da cena de destino. Entra quando o fade fecha e cobre o " +
@@ -67,7 +68,12 @@ public class mainMenu : MonoBehaviour
 
     public void QuitGame()
     {
+        // Application.Quit é no-op no Editor: sem isto o Sair parece quebrado no Play Mode.
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
         Application.Quit();
+#endif
     }
 
     // Sem o voo da câmera: ele é a "entrada no jogo", e os créditos são só um desvio do menu.
@@ -120,7 +126,7 @@ public class mainMenu : MonoBehaviour
 
         // Carrega em paralelo com a animação e só ativa no fim — senão o hitch do load cai
         // no meio do movimento ou a cena troca antes do fade fechar.
-        AsyncOperation load = SceneManager.LoadSceneAsync(_gameSceneIndex);
+        AsyncOperation load = SceneManager.LoadSceneAsync(_gameScene);
         load.allowSceneActivation = false;
 
         Image fade = CreateFadeOverlay();

@@ -2258,7 +2258,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 0}
         m_TargetAssemblyTypeName: PauseControler, Assembly-CSharp
-        m_MethodName: Quit
+        m_MethodName: BackToMenu
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -2613,7 +2613,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: SAIR
+  m_text: VOLTAR AO MENU
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae56c74f5cfddd4aa38677824eeb1db, type: 2}
   m_sharedMaterial: {fileID: 276337377110559447, guid: bae56c74f5cfddd4aa38677824eeb1db, type: 2}

@@ -103507,6 +103507,7 @@ MonoBehaviour:
   settingsScreen: {fileID: 1545490591}
   settingsButton: {fileID: 279588714}
   selectionWaker: {fileID: 7311905142860417002}
+  mainMenuScene: MainMenu
 --- !u!1001 &1013246032
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -218126,10 +218127,6 @@ PrefabInstance:
     - target: {fileID: 430594464080280357, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
       propertyPath: m_Name
       value: GameOverUI
-      objectReference: {fileID: 0}
-    - target: {fileID: 430594464080280357, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
-      propertyPath: m_IsActive
-      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 5216632388080947163, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
       propertyPath: m_Pivot.x

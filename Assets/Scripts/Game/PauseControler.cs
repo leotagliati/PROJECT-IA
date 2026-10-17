@@ -14,6 +14,8 @@ public class PauseControler : MonoBehaviour
     [SerializeField] private Selectable settingsButton;
     [Tooltip("No root do menu: acorda a seleção quando o jogador navega por teclado/controle.")]
     [SerializeField] private MenuSelectionWaker selectionWaker;
+    [Tooltip("Cena carregada pelo botão de voltar ao menu (precisa estar no Build Settings).")]
+    [SerializeField] private string mainMenuScene = "MainMenu";
 
     public static bool IsPaused { get; private set; }
 
@@ -121,6 +123,9 @@ public class PauseControler : MonoBehaviour
         else
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
+
+    // O OnDestroy e o PauseAudio.OnDisable desfazem pausa, input e áudio quando a cena descarrega.
+    public void BackToMenu() => SceneManager.LoadScene(mainMenuScene);
 
     public void Quit()
     {
