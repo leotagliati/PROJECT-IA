@@ -17,7 +17,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class FreeV74Final
 {
-    private const string SourceScene = "Assets/Scenes/Cena Final - Mapa.unity";
+    // 18/10: o mapa novo do Arthur (Mapa 1); a "Cena Final - Mapa" antiga ficou sem o NavMesh dela.
+    private const string SourceScene = "Assets/Scenes/Arthur/Cena Final - Mapa 1.unity";
     private const string SourceRoot = "Mapa Final";
     private const string HiderSourcePrefab = "Assets/Prefabs/Arenas/V8.2/Map - V8.prefab";
     private const string HiderName = "Hider";
