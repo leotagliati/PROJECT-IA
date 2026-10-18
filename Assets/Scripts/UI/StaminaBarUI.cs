@@ -50,6 +50,8 @@ public class StaminaBarUI : MonoBehaviour
     private float fullSince = float.NegativeInfinity;
     private bool paused;
 
+    public float Visibility => group != null ? group.alpha : 0f;
+
     private void OnEnable()
     {
         PauseControler.OnPaused += HandlePaused;
