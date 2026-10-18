@@ -9984,7 +9984,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: ca835942afebf4144b5968f020077eeb, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: f8a374f799774c88853416980fb7af7c, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 2
   m_BehaviorName: FreeExplorer
@@ -10604,7 +10604,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 648
   _visionInterval: 2
-  _roomSeenThreshold: 0.9
+  _roomSeenThreshold: 0.6
   _roomCampBaseSeconds: 15
   _roomCampSecondsPerPoint: 0.25
   _roomCampRecovery: 0.5
@@ -10934,6 +10934,7 @@ MonoBehaviour:
   _gameModeDeterministic: 0
   _gameModeForgetSeconds: 90
   _keySensor: 1
+  _planShowsEntered: 0
   _debugHud: 0
 --- !u!4 &5242481541063741784
 Transform:

@@ -97,6 +97,9 @@ namespace Assets.Scripts.Free
         /// <summary>Vezes que a lanterna do jogador virou pista no episódio.</summary>
         public int EpisodeLightsSeen { get; private set; }
 
+        /// <summary>Luz na cara dele, de perto, neste step: o Manager liga a perseguição.</summary>
+        public bool ChaseCueThisStep { get; private set; }
+
         /// <summary>Um som virou pista neste step (o Manager registra o evento "som" na FreeEventLog).</summary>
         public bool HeardThisStep { get; private set; }
 
@@ -160,6 +163,7 @@ namespace Assets.Scripts.Free
             _listener = position;
             _hasListener = true;
             _seeingTarget = seeingTarget;
+            ChaseCueThisStep = false;
             if (_heardPending)
             {
                 _heardPending = false;
@@ -231,7 +235,8 @@ namespace Assets.Scripts.Free
         }
 
         // Lanterna do jogador (FlashlightExposure, que guarda os ajustes): vira pista como o som, que o cérebro já
-        // conhece. A lente primeiro (entrega o jogador); senão o ponto iluminado. Pista no NavMesh embaixo do que viu.
+        // conhece. Apontada para ele (vê a luz de qualquer lado, sem o cone): pista na posição do jogador, e de perto
+        // ele persegue. Senão, o ponto iluminado no cone dele. Pista no NavMesh embaixo do que viu.
         private bool TrySeeLight(Vector3 position, Vector3 eye, Vector2 forward, float cosHalf)
         {
             foreach (FlashlightExposure light in FlashlightExposure.Active)
@@ -240,12 +245,18 @@ namespace Assets.Scripts.Free
                     continue;
 
                 Vector3 seen = light.Source;
-                bool visible = CanSee(position, eye, forward, cosHalf, seen, light.LensVisibleDistance);
+                float distance = Vector3.Distance(seen, eye);
+                bool aimed = distance <= light.AimedDistance && light.IsAimedAt(eye)
+                             && !Physics.Linecast(seen, eye, _wallLayer, QueryTriggerInteraction.Ignore);
+                bool visible = aimed;
                 if (!visible && light.SpotVisibleDistance > 0f && light.TryGetLitSpot(out seen))
                     visible = CanSee(position, eye, forward, cosHalf, seen, light.SpotVisibleDistance);
 
                 if (!visible || !NavMesh.SamplePosition(seen, out NavMeshHit ground, _noiseSnap, NavMesh.AllAreas))
                     continue;
+
+                if (aimed && distance <= light.ChaseDistance)
+                    ChaseCueThisStep = true;
 
                 Position = ground.position;
                 Heading = Vector3.zero;
