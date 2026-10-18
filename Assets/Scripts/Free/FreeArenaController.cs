@@ -441,7 +441,8 @@ namespace Assets.Scripts.Free
         {
             EnsureRoomStats();
             for (int r = 0; r < _roomSeenRate.Length; r++)
-                _roomSeenRate[r] = Mathf.Lerp(_roomSeenRate[r], memory.IsRoomSeen(r) ? 1f : 0f, _roomRateSmoothing);
+                // Por ENTRADA (v7.4.3): o objetivo é visitar; sala vista da porta não sai da lista das raras.
+                _roomSeenRate[r] = Mathf.Lerp(_roomSeenRate[r], memory.IsRoomEntered(r) ? 1f : 0f, _roomRateSmoothing);
 
             _mostSeenPointRate = 0f;
             for (int p = 0; p < _pointSeenRate.Length; p++)

@@ -44,8 +44,9 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(1)] private int _visionInterval = 2;
 
         [Header("-----Salas-----")]
-        // Fração dos pontos vistos para a sala contar como "vista" (observação e métricas; nada paga por sala).
-        [SerializeField, Range(0.1f, 1f)] private float _roomSeenThreshold = 0.9f;
+        // Fração dos pontos vistos para a sala contar como concluída (observação, métricas e o prêmio de sala).
+        // 0.6 (v7.4.2; era 0.9): com móveis no meio, 90% das salas da Cena Final quase nunca fechava.
+        [SerializeField, Range(0.1f, 1f)] private float _roomSeenThreshold = 0.6f;
 
         [Header("-----Campar numa sala (v8.2)-----")]
         // Tempo numa sala antes de contar como CAMPAR: base + por ponto da sala, porque sala grande demora mais para
@@ -67,6 +68,9 @@ namespace Assets.Scripts.Free
         private int[] _roomSeenCount;
         // Sala já paga no episódio: com o esquecer do jogo ela pode cair abaixo do limite e voltar.
         private bool[] _roomPaid;
+        private bool[] _roomEntered;
+        private int _roomsEntered;
+        private readonly List<int> _enteredRooms = new List<int>();
         private bool[] _doorCrossed;
         private float[] _seenTime;
         private float[] _doorTime;
@@ -97,6 +101,17 @@ namespace Assets.Scripts.Free
 
         /// <summary>Salas que passaram do limite de vistas neste step (uma vez por episódio).</summary>
         public IReadOnlyList<int> NewRoomList => _newRooms;
+
+        /// <summary>Salas em que o corpo entrou pela 1ª vez neste step (fora a do spawn).</summary>
+        public IReadOnlyList<int> EnteredRoomList => _enteredRooms;
+
+        public bool IsRoomEntered(int room) => room >= 0 && _roomEntered[room];
+
+        /// <summary>Salas em que o corpo esteve no episódio, contando a do spawn.</summary>
+        public int RoomsEnteredCount => _roomsEntered;
+
+        /// <summary>Acabou de entrar na última sala que faltava (uma vez por episódio).</summary>
+        public bool AllRoomsEnteredThisStep { get; private set; }
         public int NewDoorsThisStep { get; private set; }
 
         /// <summary>Steps de física desde o último ponto ou porta novos (a estagnação lê isto).</summary>
@@ -170,6 +185,7 @@ namespace Assets.Scripts.Free
             _seen = new bool[_map.PointCount];
             _roomSeenCount = new int[_map.RoomCount];
             _roomPaid = new bool[_map.RoomCount];
+            _roomEntered = new bool[_map.RoomCount];
             _doorCrossed = new bool[_map.DoorCount];
             _seenTime = new float[_map.PointCount];
             _doorTime = new float[_map.DoorCount];
@@ -192,6 +208,8 @@ namespace Assets.Scripts.Free
             System.Array.Clear(_seen, 0, _seen.Length);
             System.Array.Clear(_roomSeenCount, 0, _roomSeenCount.Length);
             System.Array.Clear(_roomPaid, 0, _roomPaid.Length);
+            System.Array.Clear(_roomEntered, 0, _roomEntered.Length);
+            _roomsEntered = 0;
             System.Array.Clear(_doorCrossed, 0, _doorCrossed.Length);
             System.Array.Clear(_roomTime, 0, _roomTime.Length);
             IsRoomCamping = false;
@@ -218,6 +236,8 @@ namespace Assets.Scripts.Free
             NewDoorsThisStep = 0;
             _newPoints.Clear();
             _newRooms.Clear();
+            _enteredRooms.Clear();
+            AllRoomsEnteredThisStep = false;
         }
 
         /// <summary>Um step de física, com a posição que a física acabou de dar ao corpo: sala, portas e visão.</summary>
@@ -239,6 +259,8 @@ namespace Assets.Scripts.Free
                 if (point >= 0)
                     CurrentRoom = _map.RoomOfPoint(point);
             }
+
+            NoteEntered(CurrentRoom);
 
             _lastView = new Vector3(view.x, 0f, view.z).normalized;
             if (_forgetSeconds > 0f && Time.time >= _nextForget)
@@ -303,6 +325,19 @@ namespace Assets.Scripts.Free
             _zoneSide = _map.GetDoor(entered).Across(ground);
             if (Mathf.Abs(_zoneSide) < 1e-3f)
                 _zoneSide = 1e-3f;
+        }
+
+        // A sala do spawn é marcada sem pagar: só entrar numa sala NOVA conta.
+        private void NoteEntered(int room)
+        {
+            if (room < 0 || _roomEntered[room])
+                return;
+
+            _roomEntered[room] = true;
+            if (_roomsEntered++ > 0)
+                _enteredRooms.Add(room);
+            if (_roomsEntered == _map.RoomCount)
+                AllRoomsEnteredThisStep = true;
         }
 
         private void Cross(int door, int toRoom)

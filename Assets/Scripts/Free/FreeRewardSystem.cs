@@ -57,9 +57,11 @@ namespace Assets.Scripts.Free
         // Viu coverage_target dos pontos. Encerra o episódio: o mapa inteiro vale mais que parar nos 80% fáceis.
         [SerializeField, Min(0f)] private float _coverageReward = 5f;
 
-        // Sala concluída no episódio (v7.4.1): a planta mostra quais faltam, então fazer todas vira o objetivo da ronda.
-        // 21 salas x 0.4 = 8.4 (x escala 0.5 = 4.2), mais o bônus de raridade; abaixo da captura (20-45).
-        [SerializeField, Min(0f)] private float _roomSeenReward = 0.4f;
+        // v7.4.3: o objetivo é ENTRAR em toda sala, não concluir. Entrar 0.5 (20 salas = 10, x0.5 = 5), concluir 0.15
+        // (era 0.4) e todas no episódio +3. Com a raridade, teto ~15-20, abaixo da captura (20-45).
+        [SerializeField, Min(0f)] private float _roomSeenReward = 0.15f;
+        [SerializeField, Min(0f)] private float _roomEnterReward = 0.5f;
+        [SerializeField, Min(0f)] private float _allRoomsEnteredReward = 3f;
 
         // COMEÇO DO EPISÓDIO = EXPLORAR (v8.2, 14/10): ponto e porta novos valem x (1 + isto) no step 0, caindo em linha
         // reta até x1 em _earlyExplorationSteps (steps de física; 3000 = 60 s). Ele saía direto na ronda decorada; com o
@@ -173,6 +175,10 @@ namespace Assets.Scripts.Free
                 reward += _allPointsReward * (context.NewPoints + _rareBonus * context.NewPointsRarity) / context.PointCount * discovery;
             if (context.NewRooms > 0)
                 reward += _roomSeenReward * (context.NewRooms + _rareBonus * context.NewRoomsRarity) * discovery;
+            if (context.EnteredRooms > 0)
+                reward += _roomEnterReward * (context.EnteredRooms + _rareBonus * context.EnteredRoomsRarity) * discovery;
+            if (context.AllRoomsEntered)
+                reward += _allRoomsEnteredReward * context.DiscoveryRewardScale;
             reward += _newDoorReward * context.NewDoors * discovery;
 
             // Caça.

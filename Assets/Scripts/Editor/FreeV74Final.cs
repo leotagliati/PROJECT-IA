@@ -191,6 +191,8 @@ public static class FreeV74Final
         agent.gameObject.SetActive(true);
         var agentSettings = new SerializedObject(agent);
         agentSettings.FindProperty("_keySensor").boolValue = true;
+        // O treino usa sempre a planta atual; a cena de jogo pode estar na antiga por causa do .onnx dela.
+        agentSettings.FindProperty("_planShowsEntered").boolValue = true;
         agentSettings.ApplyModifiedPropertiesWithoutUndo();
         var behavior = new SerializedObject(agent.GetComponent<Unity.MLAgents.Policies.BehaviorParameters>());
         behavior.FindProperty("m_Model").objectReferenceValue = null;
