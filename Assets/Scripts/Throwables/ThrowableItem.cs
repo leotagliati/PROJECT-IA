@@ -62,11 +62,25 @@ public class ThrowableItem : MonoBehaviour, IInteractable
 
     public bool IsHeld { get; private set; }
 
+    /// <summary>Meia-espessura do item no mundo (o menor lado do colisor): o raio da esfera da previsão.</summary>
+    public float Radius { get; private set; } = 0.05f;
+
+    public float LinearDamping => body.linearDamping;
+
     private void Awake()
     {
         body = GetComponent<Rigidbody>();
         colliders = GetComponentsInChildren<Collider>();
         worldScale = transform.lossyScale;
+
+        // No Awake os colisores ainda estão ligados (na mão eles ficam desligados e as bounds zeram).
+        if (colliders.Length > 0)
+        {
+            Bounds bounds = colliders[0].bounds;
+            foreach (Collider c in colliders)
+                bounds.Encapsulate(c.bounds);
+            Radius = Mathf.Max(0.01f, Mathf.Min(bounds.size.x, Mathf.Min(bounds.size.y, bounds.size.z)) * 0.5f);
+        }
 
         if (shatter == null)
             shatter = GetComponentInChildren<GlassShatter>(true);
