@@ -71,7 +71,8 @@ public class AudioPool : MonoBehaviour
         }
     }
 
-    public AudioHandle Play(string id, Vector3 position, Transform follow, bool loop, float volumeScale)
+    /// <param name="pitchScale">Multiplica o pitch da entrada (com o jitter): o mesmo clipe mais grave (abaixo de 1) ou agudo.</param>
+    public AudioHandle Play(string id, Vector3 position, Transform follow, bool loop, float volumeScale, float pitchScale = 1f)
     {
         if (Muted)
             return AudioHandle.None;
@@ -88,7 +89,7 @@ public class AudioPool : MonoBehaviour
         source.Stop();
         source.clip = entry.Clips[Random.Range(0, entry.Clips.Length)];
         source.volume = entry.Volume * volumeScale;
-        source.pitch = 1f + Random.Range(-entry.PitchJitter, entry.PitchJitter);
+        source.pitch = (1f + Random.Range(-entry.PitchJitter, entry.PitchJitter)) * pitchScale;
         source.minDistance = _library.MinDistance;
         source.maxDistance = entry.MaxDistance > 0f ? entry.MaxDistance : _library.MaxDistance;
         source.loop = loop;
