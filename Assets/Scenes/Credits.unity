@@ -6674,8 +6674,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 0}
   m_AnchorMax: {x: 1, y: 0}
-  m_AnchoredPosition: {x: -130.79999, y: 18.400024}
-  m_SizeDelta: {x: 446.20453, y: 37.064697}
+  m_AnchoredPosition: {x: -259, y: 41}
+  m_SizeDelta: {x: 800, y: 37.064697}
   m_Pivot: {x: 0.50000006, y: 0.5}
 --- !u!114 &2065129558
 MonoBehaviour:
@@ -6699,8 +6699,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: '[LMB para continuar]'
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 2e498d1c8094910479dc3e1b768306a4, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 2e498d1c8094910479dc3e1b768306a4, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: d2a9c435aba635e40bef3bb90372bd72, type: 2}
+  m_sharedMaterial: {fileID: 6556489431684911035, guid: d2a9c435aba635e40bef3bb90372bd72, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -6724,8 +6724,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.5
-  m_fontSizeBase: 45.5
+  m_fontSize: 55
+  m_fontSizeBase: 55
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -23510,7 +23510,8 @@ PrefabInstance:
       objectReference: {fileID: 2065129558}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: typingPrompt
-      value: Aperte para digitar o contrato
+      value: " Aperte qualquer tecla para digitar Aperte espa\xE7o para pular para
+        o final "
       objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: pageReadPoint
