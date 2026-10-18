@@ -6674,8 +6674,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 0}
   m_AnchorMax: {x: 1, y: 0}
-  m_AnchoredPosition: {x: -130.79999, y: 18.400024}
-  m_SizeDelta: {x: 446.20453, y: 37.064697}
+  m_AnchoredPosition: {x: -259, y: 41}
+  m_SizeDelta: {x: 800, y: 37.064697}
   m_Pivot: {x: 0.50000006, y: 0.5}
 --- !u!114 &2065129558
 MonoBehaviour:
@@ -6699,8 +6699,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: '[LMB para continuar]'
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 2e498d1c8094910479dc3e1b768306a4, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 2e498d1c8094910479dc3e1b768306a4, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: d2a9c435aba635e40bef3bb90372bd72, type: 2}
+  m_sharedMaterial: {fileID: 6556489431684911035, guid: d2a9c435aba635e40bef3bb90372bd72, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -6724,8 +6724,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.5
-  m_fontSizeBase: 45.5
+  m_fontSize: 55
+  m_fontSizeBase: 55
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -23504,13 +23504,29 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1796040134414277422, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      propertyPath: m_text
+      value: "CL\xC1USULA 1\xAA: QUADRO DE FUNCION\xC1RIOS\n\nFicam registrados como
+        respons\xE1veis pelo projeto:\n\n...... Andr\xE9 Renato Almeida Abreu\n......
+        Arthur Jin Woo Lee\n...... Fernando Minharro Alves Gimenez\n...... Leonardo
+        Henrique Dias Moura\n...... Leonardo Tagliati da Silva\n\nObserva\xE7\xE3o:
+        nenhum dos funcion\xE1rios acima recebeu hora extra. \n---\n\nCL\xC1USULA
+        2\xAA: AGRADECIMENTOS\r\n\r\nA empresa registra sua gratid\xE3o:\r\n\r\nI.  
+        \xC0s nossas fam\xEDlias, pela paci\xEAncia com as noites viradas e por perguntarem
+        \"e o joguinho?\" sem desistir.\r\n\r\nII.  Ao professor Carlos Eduardo Dantas
+        de Menezes e ao Instituto Mau\xE1 de Tecnologia, pelo apoio e pelas orienta\xE7\xF5es
+        ao longo do projeto.\r\n\r\nIII. Aos amigos que testaram o jogo, levaram
+        susto e voltaram para jogar de novo.\r\n\r\nIV.  Aos integrantes que participaram
+        do desenvolvimento e acreditaram nele antes de ele funcionar."
+      objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: promptText
       value: 
       objectReference: {fileID: 2065129558}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: typingPrompt
-      value: Aperte para digitar o contrato
+      value: " Aperte qualquer tecla para digitar Aperte espa\xE7o para pular para
+        o final "
       objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: pageReadPoint

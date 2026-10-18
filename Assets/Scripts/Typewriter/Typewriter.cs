@@ -72,7 +72,7 @@ public class Typewriter : MonoBehaviour
              "ou botão vale, e um ícone específico mentiria.")]
     [SerializeField] private TMP_Text promptText;
 
-    [SerializeField] private string typingPrompt = "Aperte qualquer tecla para digitar o contrato";
+    [SerializeField] private string typingPrompt = "Aperte qualquer tecla para digitar\nAperte espaço para pular para o final";
     [SerializeField] private string nextPagePrompt = "Aperte qualquer tecla para a próxima página";
     [SerializeField] private string lastPagePrompt = "Aperte qualquer tecla para voltar ao menu";
 
@@ -262,28 +262,81 @@ public class Typewriter : MonoBehaviour
 
     private void OnAnyButton(InputControl control)
     {
-        // Esc e Start ficam com o pause/menu.
+        // Esc e Start continuam reservados para voltar ao menu.
         if (control is KeyControl key && key.keyCode == Key.Escape)
             return;
 
         if (control.device is Gamepad pad && control == pad.startButton)
             return;
 
+        // Durante a leitura, qualquer botão continua podendo pular a espera.
         if (_reading)
         {
             if (Time.time - _readStart >= readSkipDelay)
                 _skipRead = true;
+
             return;
         }
 
         if (_changingPage || IsFinished)
             return;
 
-        // Livre: bate na hora, sem esperar o Update (latência zero na digitação calma).
+        // Espaço completa instantaneamente a folha atual.
+        if (control is KeyControl spaceKey && spaceKey.keyCode == Key.Space)
+        {
+            CompleteCurrentPage();
+            return;
+        }
+
+        // Os demais botões mantêm o comportamento original.
         if (_cooldown <= 0f && _queued == 0)
             Fire(true);
         else if (_queued < maxQueued)
             _queued++;
+    }
+
+    private void CompleteCurrentPage()
+    {
+        if (IsFinished || _changingPage || _reading ||
+            _script == null || _cursor >= _script.Length)
+            return;
+
+        // Cancela as batidas que ainda estavam na fila.
+        _queued = 0;
+        _cooldown = 0f;
+
+        // Revela todo o texto restante de uma vez.
+        _cursor = _script.Length;
+        paperText.text = _script;
+        paperText.ForceMeshUpdate();
+
+        TMP_TextInfo info = paperText.textInfo;
+
+        // Atualiza a posição final da folha e do injetor sem reproduzir
+        // uma batida de tecla para cada caractere pulado.
+        if (info.characterCount > 0)
+        {
+            TMP_CharacterInfo last = info.characterInfo[info.characterCount - 1];
+            _line = last.lineNumber;
+
+            if (sheet != null && info.lineCount > 0)
+            {
+                float rise = info.lineInfo[0].baseline - info.lineInfo[_line].baseline;
+                Vector3 worldRise = paperText.transform.TransformVector(0f, rise, 0f);
+                Transform parent = sheet.parent;
+                float riseY = parent != null
+                    ? parent.InverseTransformVector(worldRise).y
+                    : worldRise.y;
+
+                _sheetTargetY = _sheetRestY + riseY * feedScale;
+            }
+
+            if (!IsLineBreak(last.character))
+                MoveInjector(info, last);
+        }
+
+        // Reutiliza a sequência normal de conclusão, leitura e troca de página.
+        StartCoroutine(PageDone());
     }
 
     private void Fire(bool fromPlayer)
