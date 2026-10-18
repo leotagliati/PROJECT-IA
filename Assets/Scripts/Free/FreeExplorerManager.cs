@@ -51,6 +51,8 @@ namespace Assets.Scripts.Free
         [SerializeField] private SeekerChaseState _chaseState;
         [SerializeField] private SeekerAudioSystem _audioSystem;
         [SerializeField] private SeekerStaticVisual _staticVisual;
+        // Grito de raiva ao desistir do jogador, só no jogo. Vazio = acha ou cria.
+        [SerializeField] private SeekerLostRoar _lostRoar;
         // Vazio = o FreeArenaController nos pais.
         [SerializeField] private FreeArenaController _arenaController;
 
@@ -155,7 +157,11 @@ namespace Assets.Scripts.Free
         {
             // Assina ANTES do base, como na v5: o base.OnEnable pode rodar o OnEpisodeBegin na hora.
             if (IsGameMode)
+            {
                 GameManager.StateChanged += HandleGameState;
+                if (_locomotion != null)
+                    _locomotion.GaveUp += HandleGaveUp;
+            }
 
             base.OnEnable();
 
@@ -167,7 +173,17 @@ namespace Assets.Scripts.Free
         {
             base.OnDisable();
             if (IsGameMode)
+            {
                 GameManager.StateChanged -= HandleGameState;
+                if (_locomotion != null)
+                    _locomotion.GaveUp -= HandleGaveUp;
+            }
+        }
+
+        private void HandleGaveUp()
+        {
+            if (_matchRunning && _lostRoar != null)
+                _lostRoar.Play();
         }
 
         private void HandleGameState(GameState state)
@@ -175,6 +191,8 @@ namespace Assets.Scripts.Free
             _matchRunning = state == GameState.Playing;
             if (!_matchRunning && _locomotion != null)
                 _locomotion.Stop();
+            if (!_matchRunning && _lostRoar != null)
+                _lostRoar.Cancel();
 
             // Fim de jogo: o monstro cala; dali em diante só o áudio da PlayerCaughtSequence.
             if ((state == GameState.Won || state == GameState.Lost) && _audioSystem != null)
@@ -222,6 +240,9 @@ namespace Assets.Scripts.Free
             _chaseState = Find(_chaseState);
             _audioSystem = Find(_audioSystem);
             _staticVisual = Find(_staticVisual);
+            _lostRoar = Find(_lostRoar);
+            if (_lostRoar == null && IsGameMode && _animationSystem != null)
+                _lostRoar = _animationSystem.gameObject.AddComponent<SeekerLostRoar>();
             _rigidbody = GetComponent<Rigidbody>();
         }
 
@@ -407,6 +428,9 @@ namespace Assets.Scripts.Free
             }
 
             _locomotion.UpdateAwareness(_perception.IsSeeing);
+            // Ver o jogador no meio do grito corta o grito: não é janela grátis para passar.
+            if (_lostRoar != null && _lostRoar.IsRoaring && _perception.IsSeeing)
+                _lostRoar.Cancel();
             _memory.Tick(transform.position, _locomotion.ViewDirection);
             // Campar conta também PROCURANDO (perdeu de vista há < 20 s): parar no último lugar em que viu o alvo e
             // esperar ele voltar era de graça (o relógio ficava parado os 20 s e só depois andava). Pausa só com o alvo
@@ -501,9 +525,10 @@ namespace Assets.Scripts.Free
 
             // Agir: andar [0..1] e olhar [2..3], no referencial do mundo. O corpo vai para onde anda; o olhar só vira
             // a cabeça (o cone de visão), até o limite do pescoço.
-            // Fora da partida (preparação, fim de jogo) o monstro fica parado.
-            var move3 = _matchRunning ? new Vector3(move.x, 0f, move.y) : Vector3.zero;
-            var look3 = _matchRunning ? new Vector3(look.x, 0f, look.y) : Vector3.zero;
+            // Fora da partida e durante o grito o corpo fica parado; a política segue decidindo.
+            bool acting = _matchRunning && (_lostRoar == null || !_lostRoar.IsRoaring);
+            var move3 = acting ? new Vector3(move.x, 0f, move.y) : Vector3.zero;
+            var look3 = acting ? new Vector3(look.x, 0f, look.y) : Vector3.zero;
             _locomotion.Drive(move3, look3);
             _perception.SetViewDirection(_locomotion.ViewDirection);
             // Animação pela velocidade real do corpo (só visual; no treino o Animator fica desligado).

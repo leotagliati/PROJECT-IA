@@ -26,6 +26,8 @@ GameObject:
   - component: {fileID: 5823019473618230411}
   - component: {fileID: 2715508830264019937}
   - component: {fileID: 6402719384510275933}
+  - component: {fileID: 4833423270184417861}
+  - component: {fileID: 8987378906732180425}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -404,6 +406,7 @@ MonoBehaviour:
   animator: {fileID: 0}
   handSocket: {fileID: 4933804440829809721}
   interaction: {fileID: 0}
+  movement: {fileID: 0}
   layerName: Throw
   holdState: Hold
   aimState: Aim
@@ -412,8 +415,11 @@ MonoBehaviour:
   layerBlendSpeed: 8
   minThrowSpeed: 6
   maxThrowSpeed: 24
-  chargeTime: 0.8
-  upwardBias: 0.15
+  chargeTime: 1.6
+  minArcAngle: 5
+  maxArcAngle: 25
+  maxLaunchPitch: 70
+  cancelOnSprint: 1
   releaseTimeout: 0.6
   maxRecoverTime: 1.2
 --- !u!114 &5823019473618230411
@@ -483,6 +489,52 @@ MonoBehaviour:
   noiseScale: 1.5
   noiseDrift: {x: 0.05, y: 0.08, z: 0.03}
   segments: 24
+--- !u!114 &4833423270184417861
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f0ed740e6c5ac6a4eb8972c596339c12, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  thrower: {fileID: 0}
+  maxFlightTime: 3
+  step: 0.03
+  color: {r: 1, g: 1, b: 1, a: 1}
+  startWidth: 0.03
+  endWidth: 0.12
+  fadeInFraction: 0.15
+  alpha: 0.85
+  markerRadius: 0.35
+  markerWidth: 0.06
+  markerSegments: 24
+  markerLift: 0.03
+  material: {fileID: 0}
+--- !u!114 &8987378906732180425
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 106e83231e628c04c8b809fe6318a839, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cameraShake: {fileID: 0}
+  fullEffectDistance: 12
+  maxDistance: 45
+  shakeMagnitude: 0.03
+  shakeDuration: 1.2
+  fogMultiplier: 2.2
+  fogRiseSeconds: 0.5
+  fogHoldSeconds: 1
+  fogFallSeconds: 2.5
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0

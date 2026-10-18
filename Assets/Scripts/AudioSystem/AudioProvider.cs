@@ -108,13 +108,14 @@ public static class AudioProvider
         return pool == null ? AudioHandle.None : pool.Play(id, position, null, false, volumeScale);
     }
 
-    public static AudioHandle PlayFollowing(string id, Transform target, float volumeScale = 1f)
+    /// <param name="pitchScale">Multiplica o pitch da entrada.</param>
+    public static AudioHandle PlayFollowing(string id, Transform target, float volumeScale = 1f, float pitchScale = 1f)
     {
         if (_muted || target == null)
             return AudioHandle.None;
 
         AudioPool pool = Pool;
-        return pool == null ? AudioHandle.None : pool.Play(id, target.position, target, false, volumeScale);
+        return pool == null ? AudioHandle.None : pool.Play(id, target.position, target, false, volumeScale, pitchScale);
     }
 
     /// <summary>Loop ocupa o slot até alguém chamar Stop — guarde o handle.</summary>

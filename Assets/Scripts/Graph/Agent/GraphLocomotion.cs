@@ -95,6 +95,14 @@ namespace Assets.Scripts.Graph
         private float _chaseHoldLeft;
         private bool _heardThisStep;
 
+        // Distingue "perdi o alvo" de "ouvi algo e esqueci" ao voltar à Patrulha.
+        private bool _chasedSinceCalm;
+
+        /// <summary>
+        /// Voltou à Patrulha depois de PERSEGUIR, sem pista nenhuma. Só informa; o treino não escuta.
+        /// </summary>
+        public event System.Action GaveUp;
+
         // Métricas do episódio (Movement/ChaseFraction, AlertFraction, MeanSpeed).
         private int _steps;
         private int _chaseSteps;
@@ -153,6 +161,7 @@ namespace Assets.Scripts.Graph
             _alertLeft = 0f;
             _chaseHoldLeft = 0f;
             _heardThisStep = false;
+            _chasedSinceCalm = false;
             _steps = 0;
             _chaseSteps = 0;
             _alertSteps = 0;
@@ -177,6 +186,7 @@ namespace Assets.Scripts.Graph
         public void UpdateAwareness(bool seeingTarget)
         {
             float dt = Time.fixedDeltaTime;
+            Awareness previous = State;
             if (seeingTarget)
             {
                 State = Awareness.Chase;
@@ -198,6 +208,18 @@ namespace Assets.Scripts.Graph
                     _alertLeft = Mathf.Max(0f, _alertLeft - dt);
 
                 State = _alertLeft > 0f ? Awareness.Alert : Awareness.Patrol;
+            }
+
+            if (State == Awareness.Chase)
+            {
+                _chasedSinceCalm = true;
+            }
+            else if (State == Awareness.Patrol && previous != Awareness.Patrol)
+            {
+                bool lostTarget = _chasedSinceCalm;
+                _chasedSinceCalm = false;
+                if (lostTarget)
+                    GaveUp?.Invoke();
             }
 
             _heardThisStep = false;
