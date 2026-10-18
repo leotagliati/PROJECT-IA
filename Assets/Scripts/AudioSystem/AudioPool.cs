@@ -71,7 +71,7 @@ public class AudioPool : MonoBehaviour
         }
     }
 
-    /// <param name="pitchScale">Multiplica o pitch da entrada (com o jitter): o mesmo clipe mais grave (abaixo de 1) ou agudo.</param>
+    /// <param name="pitchScale">Multiplica o pitch da entrada.</param>
     public AudioHandle Play(string id, Vector3 position, Transform follow, bool loop, float volumeScale, float pitchScale = 1f)
     {
         if (Muted)

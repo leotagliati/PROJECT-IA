@@ -20,6 +20,9 @@ public class Flashlight : MonoBehaviour
     [Tooltip("Deixe vazio para a lanterna criar a própria Light na inicialização.")]
     [SerializeField] private Light spotLight;
 
+    [Tooltip("Luzes que acompanham o feixe. Vazio = as outras Lights do pai da spotLight.")]
+    [SerializeField] private Light[] companionLights;
+
     [Header("Luz")]
     [SerializeField] private float range = 28f;
     [SerializeField] private float innerAngle = 22f;
@@ -116,6 +119,9 @@ public class Flashlight : MonoBehaviour
     private Texture2D generatedCookie;
     private GameObject generatedLightObject;
 
+    // Intensidade de cada companheira acesa; o feixe aplica a fração por cima.
+    private float[] companionIntensities;
+
     /// <summary>Estado atual da lanterna. Áudio e IA podem olhar isso.</summary>
     public bool IsOn => isOn;
 
@@ -163,7 +169,45 @@ public class Flashlight : MonoBehaviour
         spotLight.intensity = currentIntensity;
         spotLight.enabled = isOn;
 
+        CollectCompanions();
+        ApplyCompanions(isOn ? 1f : 0f);
+
         SnapToCamera();
+    }
+
+    // A spot gerada no Start não tem pai, então não há companheira.
+    private void CollectCompanions()
+    {
+        if ((companionLights == null || companionLights.Length == 0) && spotLight.transform.parent != null)
+        {
+            var found = new System.Collections.Generic.List<Light>();
+            foreach (Light light in spotLight.transform.parent.GetComponentsInChildren<Light>(true))
+                if (light != spotLight)
+                    found.Add(light);
+            companionLights = found.ToArray();
+        }
+
+        if (companionLights == null)
+            companionLights = new Light[0];
+        companionIntensities = new float[companionLights.Length];
+        for (int i = 0; i < companionLights.Length; i++)
+            companionIntensities[i] = companionLights[i] != null ? companionLights[i].intensity : 0f;
+    }
+
+    private void ApplyCompanions(float fraction)
+    {
+        if (companionLights == null)
+            return;
+
+        for (int i = 0; i < companionLights.Length; i++)
+        {
+            Light light = companionLights[i];
+            if (light == null)
+                continue;
+
+            light.intensity = companionIntensities[i] * fraction;
+            light.enabled = fraction > 0.001f;
+        }
     }
 
     /// <summary>
@@ -469,6 +513,8 @@ public class Flashlight : MonoBehaviour
         // senão uma piscada mataria a luz no meio da rajada.
         if (!isOn && currentIntensity < 0.01f && spotLight.enabled)
             spotLight.enabled = false;
+
+        ApplyCompanions(spotLight.enabled && intensity > 0f ? currentIntensity * flickerLevel / intensity : 0f);
     }
 
     private void SnapToCamera()

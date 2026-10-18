@@ -76,10 +76,7 @@ public class CameraShake : MonoBehaviour
         running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude, notify: true));
     }
 
-    /// <summary>
-    /// Tremor avulso (o grito do monstro, RoarFeedback): NÃO chama o <c>finished</c>, que é o sinal do tutorial do
-    /// início da partida. E não interrompe o tremor da abertura: cortado, ele nunca avisaria o fim e a dica travaria.
-    /// </summary>
+    /// <summary>Tremor avulso: não chama o <c>finished</c> (sinal do tutorial) nem corta o da abertura.</summary>
     public void Impulse(float shakeDuration, float shakeMagnitude)
     {
         if (running != null && notifyRunning)

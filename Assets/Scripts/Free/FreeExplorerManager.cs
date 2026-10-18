@@ -51,8 +51,7 @@ namespace Assets.Scripts.Free
         [SerializeField] private SeekerChaseState _chaseState;
         [SerializeField] private SeekerAudioSystem _audioSystem;
         [SerializeField] private SeekerStaticVisual _staticVisual;
-        // Grito de raiva ao desistir do jogador, só no jogo. Vazio = acha no modelo, ou cria no objeto da animação;
-        // desligar o componente desliga o grito.
+        // Grito de raiva ao desistir do jogador, só no jogo. Vazio = acha ou cria.
         [SerializeField] private SeekerLostRoar _lostRoar;
         // Vazio = o FreeArenaController nos pais.
         [SerializeField] private FreeArenaController _arenaController;
@@ -181,7 +180,6 @@ namespace Assets.Scripts.Free
             }
         }
 
-        // Perseguiu e perdeu todo rastro: grita de raiva (parado; ver o jogador no meio corta, no FixedUpdate).
         private void HandleGaveUp()
         {
             if (_matchRunning && _lostRoar != null)
@@ -430,7 +428,7 @@ namespace Assets.Scripts.Free
             }
 
             _locomotion.UpdateAwareness(_perception.IsSeeing);
-            // Viu o jogador no meio do grito de raiva: corta e caça na hora (o grito não é janela grátis para passar).
+            // Ver o jogador no meio do grito corta o grito: não é janela grátis para passar.
             if (_lostRoar != null && _lostRoar.IsRoaring && _perception.IsSeeing)
                 _lostRoar.Cancel();
             _memory.Tick(transform.position, _locomotion.ViewDirection);
@@ -527,8 +525,7 @@ namespace Assets.Scripts.Free
 
             // Agir: andar [0..1] e olhar [2..3], no referencial do mundo. O corpo vai para onde anda; o olhar só vira
             // a cabeça (o cone de visão), até o limite do pescoço.
-            // Fora da partida (preparação, fim de jogo) e durante o grito de raiva (só no jogo) o monstro fica parado:
-            // a política segue decidindo, mas a ação não chega ao corpo.
+            // Fora da partida e durante o grito o corpo fica parado; a política segue decidindo.
             bool acting = _matchRunning && (_lostRoar == null || !_lostRoar.IsRoaring);
             var move3 = acting ? new Vector3(move.x, 0f, move.y) : Vector3.zero;
             var look3 = acting ? new Vector3(look.x, 0f, look.y) : Vector3.zero;

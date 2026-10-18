@@ -3,21 +3,8 @@ using UnityEngine;
 namespace Assets.Scripts.Seeker
 {
     /// <summary>
-    /// Grito de raiva quando o monstro DESISTE do jogador (GraphLocomotion.GaveUp: perseguiu e o Alerta acabou sem pista
-    /// nenhuma). Ele para, ergue a cabeça e grita, sacode a cabeça de um lado para o outro e levanta os braços com as
-    /// mãos um pouco acima dos cotovelos, frustrado, e depois volta a patrulhar. Não olha para o jogador: ele não sabe
-    /// onde o jogador está.
-    ///
-    /// PROCEDURAL, por cima do clipe parado (o rig não tem Avatar humano, então clipe pronto não encaixa):
-    ///   - peito, pescoço e cabeça giram em eixos do CORPO (direita do corpo para erguer, vertical para sacudir);
-    ///   - os braços são APONTADOS para direções no espaço do corpo (braço do lado e um pouco à frente, antebraço para a
-    ///     frente e para cima), em vez de girar em eixos locais: os eixos dos ossos que vêm do Blender não importam.
-    /// Tudo é uma curva no tempo: sobe em _riseSeconds, segura, e solta em _releaseSeconds.
-    ///
-    /// Só visual e só no jogo: o FreeExplorerManager dispara (Play), segura o corpo parado enquanto IsRoaring e corta
-    /// (Cancel) se o monstro vir o jogador no meio. O lado do jogador reage pelo SeekerRoarEvents. No treino o Animator
-    /// fica desligado e nada aqui roda. Desligar o componente desliga o grito.
-    /// Ordem 10: depois do Animator e do GraphAnimationSystem (0), que reescrevem os ossos no LateUpdate.
+    /// Grito procedural de raiva quando o monstro desiste do jogador (GraphLocomotion.GaveUp): ergue a cabeça, sacode e levanta os braços.
+    /// Só visual e só no jogo. Ordem 10: depois do Animator e do GraphAnimationSystem (0), que reescrevem os ossos no LateUpdate.
     /// </summary>
     [DefaultExecutionOrder(10)]
     public class SeekerLostRoar : MonoBehaviour
@@ -34,7 +21,6 @@ namespace Assets.Scripts.Seeker
         [SerializeField] private Transform _forearmR;
         [SerializeField] private Transform _handR;
 
-        // Nomes do rig Rigify do monstro: spine.003 = peito, .004 = pescoço, .006 = cabeça.
         [SerializeField] private string _chestName = "spine.003";
         [SerializeField] private string _neckName = "spine.004";
         [SerializeField] private string _headName = "spine.006";
@@ -44,46 +30,45 @@ namespace Assets.Scripts.Seeker
         [SerializeField, Min(0.05f)] private float _riseSeconds = 0.35f;
         [SerializeField, Min(0.05f)] private float _releaseSeconds = 0.6f;
 
-        [Tooltip("Corte quando ele vê o jogador no meio do grito: a pose se desfaz neste tempo e ele já corre.")]
+        [Tooltip("Tempo para desfazer a pose se ele vê o jogador no meio do grito.")]
         [SerializeField, Min(0.05f)] private float _cancelSeconds = 0.2f;
 
         [Header("-----Cabeça e peito (graus)-----")]
-        [Tooltip("Quanto a cabeça sobe no grito (dividido entre pescoço 40% e cabeça 60%).")]
+        [Tooltip("Quanto a cabeça sobe (40% pescoço, 60% cabeça).")]
         [SerializeField, Range(0f, 80f)] private float _lookUpAngle = 40f;
 
-        [Tooltip("Quanto o peito arqueia para trás junto.")]
+        [Tooltip("Arqueio do peito para trás.")]
         [SerializeField, Range(0f, 40f)] private float _chestArch = 12f;
 
-        [Tooltip("Giro de um lado para o outro (frustração), olhando para cima.")]
+        [Tooltip("Giro da cabeça de um lado para o outro.")]
         [SerializeField, Range(0f, 60f)] private float _shakeAngle = 25f;
 
-        [Tooltip("Idas e vindas da cabeça durante o grito.")]
+        [Tooltip("Idas e vindas da cabeça.")]
         [SerializeField, Range(0.5f, 6f)] private float _shakeCycles = 2.5f;
 
-        [Tooltip("Segundos depois do início em que a cabeça começa a sacudir (antes disso é só o grito para cima).")]
+        [Tooltip("Segundos até a cabeça começar a sacudir.")]
         [SerializeField, Min(0f)] private float _shakeDelay = 0.5f;
 
-        [Tooltip("Inverte o sentido de 'para cima' se o rig girar ao contrário.")]
+        [Tooltip("Inverte o 'para cima' se o rig girar ao contrário.")]
         [SerializeField] private bool _invertPitch = false;
 
         [Header("-----Braços (direções no espaço do corpo, braço DIREITO; o esquerdo é espelhado)-----")]
         [SerializeField, Range(0f, 1f)] private float _armWeight = 0.85f;
 
-        [Tooltip("Do ombro ao cotovelo: x = para o lado, y = para cima, z = para a frente. Cotovelos abertos e baixos.")]
+        [Tooltip("Ombro ao cotovelo: x = lado, y = cima, z = frente.")]
         [SerializeField] private Vector3 _upperArmDirection = new Vector3(0.45f, -0.8f, 0.25f);
 
-        [Tooltip("Do cotovelo à mão: para a frente e um pouco para cima, deixando as mãos um pouco acima dos cotovelos.")]
+        [Tooltip("Cotovelo à mão: x = lado, y = cima, z = frente.")]
         [SerializeField] private Vector3 _forearmDirection = new Vector3(0.3f, 0.45f, 0.8f);
 
         [Header("-----Som-----")]
-        [Tooltip("Entrada da AudioLibrary (vazio = sem som). O mesmo grito de quando ele vê o jogador (o 'jumpscare' do " +
-                 "ChaseMusic), só que mais baixo e mais grave: é o mesmo monstro, agora com raiva e não no ataque.")]
+        [Tooltip("Entrada da AudioLibrary (vazio = sem som).")]
         [SerializeField] private string _roarSoundId = "jumpscare";
 
-        [Tooltip("Volume em relação ao da entrada. Mais baixo que o susto: aqui o jogador não está na mira.")]
+        [Tooltip("Volume em relação ao da entrada.")]
         [SerializeField, Range(0f, 2f)] private float _roarVolume = 0.6f;
 
-        [Tooltip("Pitch em relação ao da entrada (< 1 = mais grave e mais lento, 'grosso').")]
+        [Tooltip("Pitch em relação ao da entrada (< 1 = mais grave).")]
         [SerializeField, Range(0.3f, 1.5f)] private float _roarPitch = 0.7f;
 
         private float _time = -1f;
@@ -91,7 +76,6 @@ namespace Assets.Scripts.Seeker
         private float _cancelWeight;
         private AudioHandle _sound;
 
-        /// <summary>No meio do grito: o corpo fica parado (quem segura é o FreeExplorerManager).</summary>
         public bool IsRoaring => _time >= 0f && _cancelFrom < 0f;
 
         private void Awake()
@@ -137,7 +121,6 @@ namespace Assets.Scripts.Seeker
             SeekerRoarEvents.Emit(mouth);
         }
 
-        /// <summary>Viu o jogador (ou a partida acabou): desfaz a pose rápido e solta o corpo na hora.</summary>
         public void Cancel()
         {
             if (!IsRoaring)
@@ -180,7 +163,6 @@ namespace Assets.Scripts.Seeker
             ApplyPose(pose, Shake());
         }
 
-        // Sobe em rise, segura, solta nos últimos _releaseSeconds. Suave nas duas pontas.
         private float Envelope(float t, float rise)
         {
             float up = Mathf.SmoothStep(0f, 1f, t / rise);
@@ -188,7 +170,6 @@ namespace Assets.Scripts.Seeker
             return Mathf.Min(up, down);
         }
 
-        // Seno que entra depois de _shakeDelay e morre junto com a pose; em graus.
         private float Shake()
         {
             float span = _duration - _shakeDelay - _releaseSeconds * 0.5f;
@@ -196,7 +177,7 @@ namespace Assets.Scripts.Seeker
                 return 0f;
 
             float u = Mathf.Clamp01((_time - _shakeDelay) / span);
-            float fade = Mathf.Sin(u * Mathf.PI); // entra e sai sem tranco
+            float fade = Mathf.Sin(u * Mathf.PI);
             return Mathf.Sin(u * _shakeCycles * 2f * Mathf.PI) * _shakeAngle * fade;
         }
 
@@ -205,11 +186,10 @@ namespace Assets.Scripts.Seeker
             if (pose <= 0f)
                 return;
 
-            // O corpo é a referência: Visual gira junto com o agente.
             Vector3 right = transform.right;
-            float up = _invertPitch ? 1f : -1f; // no Unity, girar em +direita abaixa a frente
+            float up = _invertPitch ? 1f : -1f; // girar em +direita abaixa a frente
 
-            // Pai antes dos filhos: o giro do peito leva pescoço, cabeça e ombros, e os de baixo somam por cima.
+            // Pai antes dos filhos: o giro do peito leva pescoço e cabeça.
             Rotate(_chest, right, up * _chestArch * pose);
             Rotate(_neck, right, up * _lookUpAngle * 0.4f * pose);
             Rotate(_neck, Vector3.up, shake * 0.4f);
@@ -254,8 +234,6 @@ namespace Assets.Scripts.Seeker
         }
 
 #if UNITY_EDITOR
-        // Para acertar a pose sem esperar ele perseguir e desistir: ⋮ do componente no Play. O corpo não para (quem
-        // segura é o FreeExplorerManager, pelo GaveUp), só a pose, o som e o efeito no jogador.
         [ContextMenu("Testar grito (Play)")]
         private void TestRoar()
         {

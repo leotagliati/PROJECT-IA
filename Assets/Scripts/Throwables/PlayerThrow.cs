@@ -12,7 +12,6 @@ using UnityEngine.InputSystem;
 /// a Release — de Any State porque soltar o botão no meio do crossfade Hold → Aim ainda tem que
 /// arremessar. O clipe do Release chama o evento ThrowRelease no frame em que a mão abre
 /// (<see cref="ThrowAnimationEvents"/>, adicionado no Animator por aqui se faltar).
-/// Correr durante a mira a cancela (<see cref="cancelOnSprint"/>): o item fica na mão.
 /// </summary>
 public class PlayerThrow : MonoBehaviour
 {
@@ -33,7 +32,7 @@ public class PlayerThrow : MonoBehaviour
     [Tooltip("Vazio = procura nos filhos. Dá a câmera (direção) e o estado de arrasto de porta.")]
     [SerializeField] private InteractionController interaction;
 
-    [Tooltip("Vazio = procura neste objeto. Dá o estado Running, que cancela a mira.")]
+    [Tooltip("Vazio = procura neste objeto. Dá o estado Running.")]
     [SerializeField] private PlayerMovement movement;
 
     [Header("Animator")]
@@ -56,23 +55,19 @@ public class PlayerThrow : MonoBehaviour
 
     [SerializeField] private float maxThrowSpeed = 14f;
 
-    [Tooltip("Segundos de mira até a força e o ângulo máximos. 1.6 (era 0.8): com o arco crescendo junto, 0.8 passava " +
-             "do toque à carga cheia rápido demais para escolher o ponto pela linha.")]
+    [Tooltip("Segundos de mira até a força e o ângulo máximos.")]
     [SerializeField] private float chargeTime = 1.6f;
 
-    [Tooltip("Graus que o arremesso sobe acima da mira SEM carga. O ângulo cresce com a carga junto com a força: " +
-             "toque rápido = lançamento baixo e curto, carga cheia = arco alto e longe. Era o upwardBias 0.15 (~8°, " +
-             "fixo), que saía quase reto. A ThrowTrajectory mostra onde cai.")]
+    [Tooltip("Graus acima da mira sem carga; o ângulo cresce com a carga.")]
     [SerializeField, Range(0f, 45f)] private float minArcAngle = 5f;
 
     [Tooltip("Graus acima da mira com a carga cheia.")]
     [SerializeField, Range(0f, 60f)] private float maxArcAngle = 25f;
 
-    [Tooltip("Teto da direção final em graus acima do horizonte: olhando para cima, o arco não vira tiro vertical.")]
+    [Tooltip("Teto da direção final, em graus acima do horizonte.")]
     [SerializeField, Range(30f, 89f)] private float maxLaunchPitch = 70f;
 
-    [Tooltip("Correr cancela a mira: o item fica na mão e o braço volta ao Hold. Vale apertar Sprint (mesmo sem " +
-             "fôlego, quando o estado não chega a Running) ou já estar correndo. Para mirar de novo, aperte Throw outra vez.")]
+    [Tooltip("Correr (ou apertar Sprint) cancela a mira; o item fica na mão.")]
     [SerializeField] private bool cancelOnSprint = true;
 
     [Tooltip("Sem o evento ThrowRelease (ou sem a camada), solta depois disto (s) do botão solto.")]
@@ -93,9 +88,7 @@ public class PlayerThrow : MonoBehaviour
     private float recoverStartTime;
     private float charge;
 
-    // Travados ao soltar o botão: a mão só abre no evento ThrowRelease (até releaseTimeout depois), e nesse meio a
-    // câmera e a mão se mexem. Sair com o que a ThrowTrajectory mostrou no último frame de mira é o que torna a linha
-    // confiável. A origem anda junto com o corpo (lockedRoot), para não ficar para trás de quem arremessa correndo.
+    // Travados ao soltar o botão: a mão só abre no evento ThrowRelease, e a linha da ThrowTrajectory tem que valer.
     private Vector3 lockedOrigin;
     private Vector3 lockedVelocity;
     private Vector3 lockedRoot;
@@ -104,12 +97,10 @@ public class PlayerThrow : MonoBehaviour
 
     public bool IsAiming => phase == Phase.Aiming;
 
-    /// <summary>0–1: a carga da mira em curso, ou a do arremesso já decidido.</summary>
     public float Charge => phase == Phase.Aiming ? ChargeAt(Time.time) : charge;
 
     public ThrowableItem HeldItem => held;
 
-    /// <summary>Colisores do próprio jogador: o item os ignora no voo, e a previsão também.</summary>
     public Collider[] OwnColliders => ownColliders;
 
     /// <summary>Mirando ou no meio do arremesso: a mão está ocupada para interagir.</summary>
@@ -175,10 +166,7 @@ public class PlayerThrow : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// De onde e com que velocidade o item sai: durante a mira, o arremesso de agora com a carga atual; depois de
-    /// soltar o botão, o travado. Fonte única do <see cref="ThrowRelease"/> e da <see cref="ThrowTrajectory"/>.
-    /// </summary>
+    /// <summary>Origem e velocidade de saída; fonte única do arremesso e da ThrowTrajectory.</summary>
     public bool TryGetLaunch(out Vector3 origin, out Vector3 velocity)
     {
         origin = velocity = Vector3.zero;
@@ -249,8 +237,7 @@ public class PlayerThrow : MonoBehaviour
             ThrowRelease();
     }
 
-    // Volta ao Idle sem arremessar. O botão ainda pode estar apertado: soltá-lo depois não faz nada
-    // (o OnThrowCanceled só age em Aiming), e a ThrowTrajectory some porque o IsAiming caiu.
+    // Soltar o botão depois não faz nada: o OnThrowCanceled só age em Aiming.
     private void CancelAim()
     {
         phase = Phase.Idle;
@@ -312,7 +299,6 @@ public class PlayerThrow : MonoBehaviour
         return main != null ? main.transform : null;
     }
 
-    // A mira da câmera sobe o ângulo da carga (no plano vertical dela, com teto em maxLaunchPitch) e sai da mão.
     private bool ComputeLaunch(float charge01, out Vector3 origin, out Vector3 velocity)
     {
         origin = velocity = Vector3.zero;

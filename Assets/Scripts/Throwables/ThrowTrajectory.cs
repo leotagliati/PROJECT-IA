@@ -1,11 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Enquanto o jogador mira (segura Throw com item na mão), mostra o arco que o item vai fazer: uma linha branca que
-/// cresce com a carga e um anel no ponto em que ele bate. Só lê o <see cref="PlayerThrow.TryGetLaunch"/>, a mesma
-/// origem e velocidade com que o arremesso sai, e simula o voo com a física do item (gravidade, arrasto do Rigidbody,
-/// espessura): a linha é a do arremesso, não uma aproximação. Monta os LineRenderers por código, sem asset.
-/// Na ordem da câmera depois de tudo que a move (130, como o ItemIcon): a linha sai da mão já na pose final do frame.
+/// Mostra o arco do arremesso enquanto o jogador mira: linha que cresce com a carga e anel no ponto de batida,
+/// simulados com a física do item. Ordem 130: depois de tudo que move a câmera.
 /// </summary>
 [DefaultExecutionOrder(130)]
 public class ThrowTrajectory : MonoBehaviour
@@ -14,21 +11,21 @@ public class ThrowTrajectory : MonoBehaviour
     [SerializeField] private PlayerThrow thrower;
 
     [Header("Simulação")]
-    [Tooltip("Segundos de voo simulados: o que não bate antes disto não ganha anel.")]
+    [Tooltip("Segundos de voo simulados; sem batida antes disso, sem anel.")]
     [SerializeField, Min(0.2f)] private float maxFlightTime = 3f;
 
-    [Tooltip("Passo da simulação (s). Menor = curva mais lisa e mais raycasts por frame (pontos = tempo / passo).")]
+    [Tooltip("Passo da simulação (s); menor = curva mais lisa e mais raycasts.")]
     [SerializeField, Range(0.01f, 0.1f)] private float step = 0.03f;
 
     [Header("Linha")]
     [SerializeField] private Color color = Color.white;
 
-    [Tooltip("Largura (m) perto da mão e no fim: no fim é mais grossa para não sumir na RenderTexture de 512x256.")]
+    [Tooltip("Largura (m) na mão; no fim é mais grossa para não sumir na RenderTexture.")]
     [SerializeField, Min(0.001f)] private float startWidth = 0.03f;
 
     [SerializeField, Min(0.001f)] private float endWidth = 0.12f;
 
-    [Tooltip("Fração da linha, a partir da mão, em que ela aparece aos poucos: colada na câmera ela tapa a vista.")]
+    [Tooltip("Fração da linha, a partir da mão, que aparece aos poucos (colada na câmera tapa a vista).")]
     [SerializeField, Range(0f, 0.5f)] private float fadeInFraction = 0.15f;
 
     [SerializeField, Range(0f, 1f)] private float alpha = 0.85f;
@@ -40,10 +37,10 @@ public class ThrowTrajectory : MonoBehaviour
 
     [SerializeField, Range(8, 64)] private int markerSegments = 24;
 
-    [Tooltip("Afasta o anel da superfície (m) para não brigar com ela no depth.")]
+    [Tooltip("Afasta o anel da superfície (m) para não brigar no depth.")]
     [SerializeField, Min(0f)] private float markerLift = 0.03f;
 
-    [Tooltip("Vazio = Sprites/Default (unlit, transparente, e está nos shaders sempre incluídos do build).")]
+    [Tooltip("Vazio = Sprites/Default (já incluído no build).")]
     [SerializeField] private Material material;
 
     private LineRenderer arc;
@@ -99,8 +96,7 @@ public class ThrowTrajectory : MonoBehaviour
             marker.enabled = false;
     }
 
-    // O mesmo integrador da física (velocidade, depois posição; arrasto 1/(1 + dt·d) como o PhysX), com uma
-    // SphereCast por passo do tamanho do item. Ignora os colisores do jogador, como o voo de verdade.
+    // Mesmo integrador do PhysX (velocidade, depois posição; arrasto 1/(1 + dt·d)); ignora os colisores do jogador.
     private int Simulate(Vector3 origin, Vector3 velocity, float radius, float damping, out bool landed, out RaycastHit landing)
     {
         landed = false;

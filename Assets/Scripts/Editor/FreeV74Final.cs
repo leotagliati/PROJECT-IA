@@ -12,26 +12,8 @@ using UnityEngine.AI;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// v7.4 (17/10): o MAPA DO JOGO ("Mapa Final" da cena "Cena Final - Mapa", o mapa dividido em prefabs Floors/Walls/
-/// Map_Objects/KeySpots) vira arena de treino, herdando o cérebro da v7.3. Mesmo molde do menu da v8.2 (FreeV82Map).
-///   "v7.4: preparar Cena Final, cena de treino e build"  faz tudo, em ordem:
-///     1. cria o "Arena - Cena Final" a partir do Mapa Final, SÓ se ainda não existir. O Mapa Final da cena não tem presa
-///        (o jogo usa o jogador): a "Hider" vem do Map - V8 (mesma presa da v7.2/v7.3). Floors/Walls/Map_Objects/KeySpots
-///        seguem como prefabs aninhados: mexeu no mapa do jogo, vale para o treino (rodando este menu de novo);
-///     2. tira o que não serve ao treino (as Garrafas: item do jogador, no treino seriam só objetos soltos que o monstro
-///        empurra) e põe em estado de TREINO: monstro sem .onnx, presa ligada, jogador desligado, sem modo de jogo. O
-///        monstro fica com os números do JOGO (velocidade, olho): é com eles que o cérebro vai jogar. A presa usa o olho
-///        do monstro para escolher esconderijo, então o _seekerEyeHeight dela é copiado da visão dele;
-///     3. assa o NavMesh com os atores desligados num asset PRÓPRIO (o NavMesh-Mapa Final da cena de jogo fica intacto);
-///     4. TAMPA AS BORDAS ABERTAS: Entrada, Saída e Teto ficam fora do Mapa Final (o NavMesh do jogo também só junta os
-///        filhos dele), e onde o chão do Mapa Final acaba sem parede (o vão da porta da Entrada, por exemplo) o monstro e
-///        a presa sairiam andando para o vazio: não há nada no código que trate queda. Cada trecho de borda sem parede e
-///        sem chão do outro lado vira uma caixa invisível na layer Wall (grupo "Bloqueios de borda (treino)"), refeita
-///        a cada rodada. No jogo esses vãos têm porta, então para o monstro é a mesma coisa: parede;
-///     5. relatórios (salas/portas do FreeMap, esconderijos que a visão atravessa), "Cena Final - Treino" (5 arenas) e o
-///        build em Builds/V7.4. A cena de treino é REFEITA a cada rodada (era uma cópia da cena de jogo).
-/// Mexeu no mapa (Cena Final - Mapa ou os prefabs de Maps/Final) ou no código: rode de novo antes do treino.
-/// O jogo (Cena Final - Mapa) não é tocado: o .onnx treinado vai no Behavior Parameters do monstro de lá.
+/// v7.4: transforma o "Mapa Final" da "Cena Final - Mapa" em arena de treino (prefab, NavMesh, bordas tampadas, cena de treino
+/// e build em Builds/V7.4), herdando o cérebro da v7.3. Refazer ao mexer no mapa ou no código. O jogo não é tocado.
 /// </summary>
 public static class FreeV74Final
 {
@@ -48,15 +30,14 @@ public static class FreeV74Final
     private const string BlockerGroup = "Bloqueios de borda (treino)";
     private const string EdgeDump = "Logs/v7.4_navmesh.txt";
 
-    // Peça do NavMesh que conta como chão: >= esta fração da área da maior (tampo de móvel fica bem abaixo).
+    // Fração mínima da área da maior peça do NavMesh para contar como chão (tampo de móvel fica abaixo).
     private const float MainFloorFraction = 0.05f;
     private const string PlayerTag = "Goal";
     private const int Arenas = 5;
 
-    // Filhos do Mapa Final que o treino não usa.
     private static readonly string[] IrrelevantChildren = { "Garrafas" };
 
-    // Arenas lado a lado em X: o tamanho do NavMesh + esta folga (a visão vai a 35 m travada; 60 m sobra).
+    // Folga entre arenas em X; maior que a visão travada (35 m).
     private const float ArenaGap = 60f;
 
     [MenuItem("PROJECT-IA/v7.4: preparar Cena Final, cena de treino e build")]
@@ -101,12 +82,7 @@ public static class FreeV74Final
         return Application.isBatchMode || EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
     }
 
-    // ================================================================================
-    // 1-2. Prefab e estado de treino
-    // ================================================================================
-
-    // Só cria se não existir (como na v8.2: o prefab pode ganhar ajustes à mão). A cena de jogo é aberta e fechada SEM
-    // salvar: a presa e o desempacotamento do Map - V8 só existem no prefab novo.
+    // Só cria se não existir (o prefab pode ganhar ajustes à mão); a cena de jogo é fechada sem salvar.
     private static bool EnsurePrefab()
     {
         if (AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath) != null)
@@ -142,8 +118,7 @@ public static class FreeV74Final
         }
     }
 
-    // A "Hider" do Map - V8 (instância do PlayerDummy - V5 training com o FreeHider por cima). O Map - V8 é desempacotado
-    // só um nível: a Hider continua instância do prefab dela, com os overrides (altura, FreeHider) junto.
+    // A Hider do Map - V8; desempacotado só um nível para ela manter os overrides.
     private static bool BringHider(Scene scene, Transform arenaRoot)
     {
         var source = AssetDatabase.LoadAssetAtPath<GameObject>(HiderSourcePrefab);
@@ -215,7 +190,6 @@ public static class FreeV74Final
         arenaSettings.FindProperty("_hider").objectReferenceValue = hider;
         arenaSettings.ApplyModifiedPropertiesWithoutUndo();
 
-        // Sem .onnx e com o vetor certo já salvo (como na v8.2).
         agent.gameObject.SetActive(true);
         var agentSettings = new SerializedObject(agent);
         agentSettings.FindProperty("_keySensor").boolValue = true;
@@ -226,8 +200,7 @@ public static class FreeV74Final
         behavior.FindProperty("m_BrainParameters.VectorObservationSize").intValue = FreeObservations.Size;
         behavior.ApplyModifiedPropertiesWithoutUndo();
 
-        // O olho do monstro do jogo (3.18 na Cena Final; o Map - V8 tinha 2.78) vale também para a presa medir de onde
-        // ele a veria. Uma fonte só: a visão do monstro.
+        // A presa usa o olho do monstro para escolher esconderijo.
         GraphHiderPerception perception = agent.GetComponentInChildren<GraphHiderPerception>(true);
         if (perception != null)
         {
@@ -245,14 +218,12 @@ public static class FreeV74Final
         return true;
     }
 
-    // Os campos do FreeFootprintTrail do jogador vão para o da presa (criado se faltar), como na v8.2.
     private static void CopyPlayerTrail(Transform player, FreeHider hider)
     {
         FreeFootprintTrail source = player != null ? player.GetComponentInChildren<FreeFootprintTrail>(true) : null;
         if (source == null)
         {
-            // Na Cena Final o jogador não tem o componente: no jogo o FreeExplorerManager cria o rastro com o padrão do
-            // código, e a presa sem ele treina com o mesmo padrão. Só avisa se a presa tiver um próprio (aí difere).
+            // Sem componente no jogador, o jogo usa o padrão do código; só difere se a presa tiver um próprio.
             if (hider.GetComponent<FreeFootprintTrail>() != null)
                 Debug.LogWarning("[FreeV74Final] o jogador do Mapa Final não tem FreeFootprintTrail e a presa tem: o rastro do treino difere do jogo.");
             return;
@@ -298,10 +269,6 @@ public static class FreeV74Final
             .Distinct();
     }
 
-    // ================================================================================
-    // 3-4. NavMesh, bordas abertas e relatórios
-    // ================================================================================
-
     private static bool BakeSealAndReport(out float spacing)
     {
         spacing = 0f;
@@ -315,7 +282,7 @@ public static class FreeV74Final
             return false;
         }
 
-        // Bloqueios velhos fora: a detecção abaixo tem de ver a borda como ela é, senão nunca refaz um que mudou.
+        // Bloqueios velhos fora: a detecção precisa ver a borda como ela é.
         Transform oldGroup = instance.transform.Find(BlockerGroup);
         if (oldGroup != null)
             Object.DestroyImmediate(oldGroup.gameObject);
@@ -344,7 +311,7 @@ public static class FreeV74Final
                 actor.SetActive(true);
         }
 
-        // Asset próprio; se já existe, COPIA por cima (apagar e recriar deixou o prefab da v8.2 sem NavMesh no build).
+        // COPIA por cima do asset existente: apagar e recriar deixou o prefab sem NavMesh no build.
         var data = AssetDatabase.LoadAssetAtPath<NavMeshData>(NavMeshAssetPath);
         if (data != null)
         {
@@ -366,7 +333,6 @@ public static class FreeV74Final
 
         surface.navMeshData = data;
 
-        // Prefab: NavMesh ligado e os bloqueios refeitos (posições locais à raiz, as mesmas da instância).
         GameObject contents = PrefabUtility.LoadPrefabContents(ArenaPrefabPath);
         try
         {
@@ -421,16 +387,14 @@ public static class FreeV74Final
         public float Width;
     }
 
-    // Borda do NavMesh = aresta de um triângulo só. Na borda que encosta em parede, um raio horizontal para fora bate
-    // nela em ~raio do agente; na borda que dá para outro piso (debaixo de mesa, degrau) há chão do outro lado. Sem os
-    // dois é borda aberta: o chão acaba e não há nada segurando. Amostra a cada 0.5 m e junta amostras vizinhas.
+    // Borda aberta = aresta de um triângulo só, sem parede nem chão do outro lado. Amostra a cada 0.5 m.
     private static List<Blocker> FindOpenEdges(float agentRadius)
     {
         NavMeshTriangulation tri = NavMesh.CalculateTriangulation();
         Vector3[] vertices = tri.vertices;
         int[] indices = tri.indices;
 
-        // Solda vértices iguais (os tiles do NavMesh repetem vértices na emenda).
+        // Os tiles do NavMesh repetem vértices na emenda.
         var weld = new Dictionary<Vector3Int, int>();
         var ids = new int[vertices.Length];
         for (int i = 0; i < vertices.Length; i++)
@@ -470,9 +434,7 @@ public static class FreeV74Final
             }
         }
 
-        // Só o chão de verdade: a maior peça conexa do NavMesh e as que têm pelo menos MainFloorFraction da área dela.
-        // Tampo de mesa e de armário também sai andável no bake (ilha de poucos m² a 2.6 m), mas ninguém chega lá:
-        // bloquear a borda deles só taparia a visão por cima dos móveis.
+        // Tampo de mesa e de armário sai andável no bake, mas ninguém chega lá: bloquear só taparia a visão.
         var area = new Dictionary<int, float>();
         for (int t = 0; t < triangles; t++)
         {
@@ -509,7 +471,6 @@ public static class FreeV74Final
                 if (wall)
                     continue;
 
-                // Chão em qualquer uma de 3 distâncias = não é borda de queda (vão de batente sem piso, degrau).
                 bool floor = false;
                 foreach (float d in new[] { beyond, beyond + 0.6f, beyond + 1.4f })
                     floor |= Physics.Raycast(p + outward * d + Vector3.up * 2f, Vector3.down, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
@@ -520,7 +481,6 @@ public static class FreeV74Final
 
         WriteEdgeDump(vertices, indices, t => Root(t), floors, open.Select(o => o.point));
 
-        // Agrupa amostras a < 1.5 m (mesma direção para fora) num bloqueio só.
         var blockers = new List<Blocker>();
         var used = new bool[open.Count];
         for (int i = 0; i < open.Count; i++)
@@ -555,8 +515,7 @@ public static class FreeV74Final
         return blockers;
     }
 
-    // Logs/v7.4_navmesh.txt: triângulos (T x z x z x z y chão?) e amostras abertas (O x y z), para desenhar a planta
-    // fora do Unity e conferir onde os bloqueios caíram.
+    // Logs/v7.4_navmesh.txt: triângulos (T) e amostras abertas (O), para conferir os bloqueios fora do Unity.
     private static void WriteEdgeDump(Vector3[] vertices, int[] indices, System.Func<int, int> component,
                                       HashSet<int> floors, IEnumerable<Vector3> open)
     {
@@ -576,8 +535,7 @@ public static class FreeV74Final
         File.WriteAllText(EdgeDump, text.ToString());
     }
 
-    // Caixa de 0.5 m de espessura logo depois da borda (fora do NavMesh, a ~raio do agente), 6 m de altura, 0.5 m a mais
-    // de cada lado da borda aberta. Layer Wall: o monstro a vê, os raios a medem e a presa não passa.
+    // Caixa na layer Wall logo depois da borda aberta: o monstro a vê e a presa não passa.
     private static void CreateBlockers(Transform prefabRoot, Transform instanceRoot, List<Blocker> blockers)
     {
         var group = new GameObject(BlockerGroup);
@@ -596,7 +554,6 @@ public static class FreeV74Final
         }
     }
 
-    // Móvel com colisor que a visão do monstro atravessa (fora das layers de parede da arena), como na v8.2.
     private static void ReportSeeThroughCover(GameObject arenaRoot)
     {
         FreeArenaController arena = arenaRoot.GetComponentInChildren<FreeArenaController>(true);
@@ -624,10 +581,6 @@ public static class FreeV74Final
                              $"Obstacle ou Wall para virar esconderijo):\n  {string.Join("\n  ", leaks.Take(40))}" +
                              (leaks.Count > 40 ? $"\n  ... e mais {leaks.Count - 40}" : ""));
     }
-
-    // ================================================================================
-    // 5. Cena de treino e build
-    // ================================================================================
 
     private static bool SetUpTrainingScene(float spacing)
     {

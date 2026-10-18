@@ -108,7 +108,7 @@ public static class AudioProvider
         return pool == null ? AudioHandle.None : pool.Play(id, position, null, false, volumeScale);
     }
 
-    /// <param name="pitchScale">Multiplica o pitch da entrada: reaproveitar um clipe mais grave (&lt; 1) ou agudo.</param>
+    /// <param name="pitchScale">Multiplica o pitch da entrada.</param>
     public static AudioHandle PlayFollowing(string id, Transform target, float volumeScale = 1f, float pitchScale = 1f)
     {
         if (_muted || target == null)

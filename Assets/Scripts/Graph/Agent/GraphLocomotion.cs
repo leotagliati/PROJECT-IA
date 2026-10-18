@@ -95,13 +95,11 @@ namespace Assets.Scripts.Graph
         private float _chaseHoldLeft;
         private bool _heardThisStep;
 
-        // Perseguiu desde a última Patrulha: só aí voltar à Patrulha é "perdi o alvo", e não "ouvi algo e esqueci".
+        // Distingue "perdi o alvo" de "ouvi algo e esqueci" ao voltar à Patrulha.
         private bool _chasedSinceCalm;
 
         /// <summary>
-        /// Desistiu: voltou à Patrulha depois de PERSEGUIR, com o Alerta esgotado sem pista nenhuma (nem visão, nem
-        /// rastro, nem som). Só informa; nada no treino escuta (observação e recompensa não mudam). No jogo dispara o
-        /// grito de raiva (SeekerLostRoar, pelo FreeExplorerManager).
+        /// Voltou à Patrulha depois de PERSEGUIR, sem pista nenhuma. Só informa; o treino não escuta.
         /// </summary>
         public event System.Action GaveUp;
 

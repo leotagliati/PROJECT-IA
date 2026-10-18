@@ -11,12 +11,8 @@ using UnityEngine.AI;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// v7.4 (17/10): números para acertar o AGACHAR do jogador contra a visão do monstro, medidos na "Cena Final - Mapa".
-/// A visão do alvo mira nas bounds do colisor do jogador (GraphHiderPerception.CountVisibleSamples, grade 4x3 do corpo):
-/// é a altura do CharacterController agachado, e não a da câmera, que decide se o móvel esconde. A câmera só precisa
-/// ficar DENTRO dele (acima do colisor, o jogador espia por cima do móvel sem que o monstro o veja).
-/// Grava Logs/v7.4_crouch.txt: chão, olho do monstro, jogador em pé/agachado (colisor e câmera, a câmera agachada pela
-/// amostra do clipe Crouch-* no osso que o SpineLook segue), a presa de treino e as alturas dos móveis que tapam a visão.
+/// Mede o agachar do jogador contra a visão do monstro na "Cena Final - Mapa" e grava Logs/v7.4_crouch.txt.
+/// Quem esconde o jogador é a altura do colisor agachado (a visão mira nas bounds dele), não a da câmera.
 /// A cena é aberta em modo aditivo e fechada sem salvar (a amostra do clipe mexe nos ossos).
 /// </summary>
 public static class FreeV74CrouchReport
@@ -85,14 +81,14 @@ public static class FreeV74CrouchReport
         float floor = Floor(player.transform.position);
         r.AppendLine($"chão sob o jogador: y = {floor:0.00} (alturas abaixo são acima do chão, em metros do mundo)");
 
-        // Monstro: o olho sai da raiz dele + _eyeHeight. A raiz pode não estar no chão na cena.
+        // A raiz do monstro pode não estar no chão na cena.
         GraphHiderPerception perception = seeker.GetComponentInChildren<GraphHiderPerception>(true);
         float eyeHeight = perception != null ? new SerializedObject(perception).FindProperty("_eyeHeight").floatValue : 0f;
         float seekerFloor = Floor(seeker.transform.position);
         r.AppendLine($"monstro: olho a {seeker.transform.position.y + eyeHeight - seekerFloor:0.00} m do chão " +
                      $"(_eyeHeight {eyeHeight:0.00}, raiz a {seeker.transform.position.y - seekerFloor:0.00} do chão)");
 
-        // Jogador: colisor em pé e agachado como o PlayerMovement aplica (Clamp(crouchHeight, 2 x raio, em pé)).
+        // Mesmo Clamp que o PlayerMovement aplica ao colisor agachado.
         var controller = player.GetComponent<CharacterController>();
         float scaleY = player.transform.lossyScale.y;
         float scaleXZ = Mathf.Max(player.transform.lossyScale.x, player.transform.lossyScale.z);
@@ -107,8 +103,7 @@ public static class FreeV74CrouchReport
         r.AppendLine($"  colisor agachado: crouchHeight {crouchField:0.00} -> {crouchLocal:0.00} local = {crouchLocal * scaleY:0.00} m" +
                      (crouchLocal > crouchField + 1e-3f ? $"  (TRAVADO no mínimo 2 x raio = {controller.radius * 2f:0.00} local)" : ""));
 
-        // Câmera: em pé pela posição salva; agachada pela amostra do clipe Crouch-* no osso que o SpineLook segue (a
-        // câmera anda junto com ele) menos o crouchCameraDrop do CameraJuice.
+        // Agachada = amostra do clipe Crouch-* no osso que o SpineLook segue, menos o crouchCameraDrop.
         Camera camera = player.GetComponentInChildren<Camera>(true);
         Animator animator = player.GetComponentInChildren<Animator>(true);
         Transform bone = animator != null ? FindDeep(animator.transform, FollowBoneName) : null;
@@ -139,7 +134,6 @@ public static class FreeV74CrouchReport
 
         r.AppendLine($"  (raiz do jogador a {rootToBottom:0.00} m acima da base do colisor)");
 
-        // A presa que o cérebro treina (prefab de treino): o mesmo critério de "escondido" tem de valer para o jogador.
         var arenaPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath);
         FreeHider hider = arenaPrefab != null ? arenaPrefab.GetComponentInChildren<FreeHider>(true) : null;
         CapsuleCollider hiderBody = hider != null ? hider.GetComponent<CapsuleCollider>() : null;
@@ -151,7 +145,6 @@ public static class FreeV74CrouchReport
                          $"raio {hiderBody.radius * Mathf.Max(hider.transform.lossyScale.x, hider.transform.lossyScale.z):0.00} m");
         }
 
-        // Móveis que tapam a visão (layers de parede da arena), pela altura do topo acima do chão.
         FreeArenaController arenaController = arena.GetComponent<FreeArenaController>();
         int mask = arenaController != null ? arenaController.WallLayer.value : LayerMask.GetMask("Wall", "Obstacle", "Door");
         var tops = new List<float>();

@@ -1,14 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// O que o jogador sente quando o monstro grita de raiva por tê-lo perdido (<see cref="SeekerRoarEvents"/>): um
-/// tremor SUTIL da câmera e a névoa engrossando por alguns segundos, voltando ao normal depois. Os dois caem com a
-/// distância: até <see cref="fullEffectDistance"/> é o efeito inteiro, em <see cref="maxDistance"/> não sente nada
-/// (o som do grito tem o alcance dele, na AudioLibrary). Distância em linha reta: grito atravessa parede.
-///
-/// A névoa é a do Lighting da cena (RenderSettings): a densidade (exp/exp²) ou o fim (linear) é escalado e volta ao
-/// valor de antes. O FlashlightBeam lê esses valores todo frame, então o feixe se apaga junto. Cena sem névoa: só o
-/// tremor. No PlayerDummy; tirar o componente desliga o efeito (o grito do monstro continua).
+/// Tremor sutil da câmera e névoa engrossando quando o monstro grita (<see cref="SeekerRoarEvents"/>), com queda pela distância em linha reta.
+/// A névoa é a do RenderSettings (o FlashlightBeam a lê todo frame).
 /// </summary>
 public class RoarFeedback : MonoBehaviour
 {
@@ -21,13 +15,13 @@ public class RoarFeedback : MonoBehaviour
     [SerializeField, Min(0.1f)] private float maxDistance = 45f;
 
     [Header("Tremor")]
-    [Tooltip("Sutil de propósito: metade do tremor da abertura (0.06). Em unidades locais da câmera.")]
+    [Tooltip("Sutil de propósito: metade do tremor da abertura (0.06).")]
     [SerializeField, Min(0f)] private float shakeMagnitude = 0.03f;
 
     [SerializeField, Min(0f)] private float shakeDuration = 1.2f;
 
     [Header("Névoa")]
-    [Tooltip("Quanto a névoa engrossa no pico, com o efeito inteiro (2 = o dobro da densidade).")]
+    [Tooltip("Multiplicador da névoa no pico (2 = o dobro da densidade).")]
     [SerializeField, Min(1f)] private float fogMultiplier = 2.2f;
 
     [SerializeField, Min(0.01f)] private float fogRiseSeconds = 0.5f;
