@@ -94,6 +94,9 @@ namespace Assets.Scripts.Free
         /// <summary>Sons ouvidos no episódio (Hunt/NoisesHeard).</summary>
         public int EpisodeNoisesHeard { get; private set; }
 
+        /// <summary>Vezes que a lanterna do jogador virou pista no episódio.</summary>
+        public int EpisodeLightsSeen { get; private set; }
+
         /// <summary>Um som virou pista neste step (o Manager registra o evento "som" na FreeEventLog).</summary>
         public bool HeardThisStep { get; private set; }
 
@@ -121,6 +124,7 @@ namespace Assets.Scripts.Free
             NewTrackThisStep = false;
             EpisodeTracksSeen = 0;
             EpisodeNoisesHeard = 0;
+            EpisodeLightsSeen = 0;
             _heardPending = false;
             _heardEventPending = false;
             HeardThisStep = false;
@@ -180,13 +184,17 @@ namespace Assets.Scripts.Free
                 return;
             }
 
-            if (_trail == null || _tick++ % _scanInterval != 0)
+            if (_tick++ % _scanInterval != 0)
                 return;
 
             var eye = new Vector3(position.x, _floorY + _eyeHeight, position.z);
             var forward = new Vector2(view.x, view.z);
             forward = forward.sqrMagnitude > 1e-6f ? forward.normalized : Vector2.up;
             float cosHalf = Mathf.Cos(_viewAngle * 0.5f * Mathf.Deg2Rad);
+
+            if (TrySeeLight(position, eye, forward, cosHalf) || _trail == null)
+                return;
+
             float now = _trail.Now;
             int raycasts = 0;
 
@@ -220,6 +228,49 @@ namespace Assets.Scripts.Free
                 EpisodeTracksSeen++;
                 return;
             }
+        }
+
+        // Lanterna do jogador (FlashlightExposure, que guarda os ajustes): vira pista como o som, que o cérebro já
+        // conhece. A lente primeiro (entrega o jogador); senão o ponto iluminado. Pista no NavMesh embaixo do que viu.
+        private bool TrySeeLight(Vector3 position, Vector3 eye, Vector2 forward, float cosHalf)
+        {
+            foreach (FlashlightExposure light in FlashlightExposure.Active)
+            {
+                if (!light.IsLit)
+                    continue;
+
+                Vector3 seen = light.Source;
+                bool visible = CanSee(position, eye, forward, cosHalf, seen, light.LensVisibleDistance);
+                if (!visible && light.SpotVisibleDistance > 0f && light.TryGetLitSpot(out seen))
+                    visible = CanSee(position, eye, forward, cosHalf, seen, light.SpotVisibleDistance);
+
+                if (!visible || !NavMesh.SamplePosition(seen, out NavMeshHit ground, _noiseSnap, NavMesh.AllAreas))
+                    continue;
+
+                Position = ground.position;
+                Heading = Vector3.zero;
+                _trackTime = Time.time;
+                _trackStrength = 1f;
+                _trackLifetime = light.CueSeconds;
+                NewTrackThisStep = true;
+                EpisodeLightsSeen++;
+                return true;
+            }
+
+            return false;
+        }
+
+        // Recua 0.2 m na direção do olho: o ponto iluminado fica NA parede, e a linha até ele bateria nela.
+        private bool CanSee(Vector3 position, Vector3 eye, Vector2 forward, float cosHalf, Vector3 point, float range)
+        {
+            var planar = new Vector2(point.x - position.x, point.z - position.z);
+            float distance = planar.magnitude;
+            if (distance > range || (distance > 1e-3f && Vector2.Dot(planar / distance, forward) < cosHalf))
+                return false;
+
+            Vector3 back = eye - point;
+            Vector3 target = back.sqrMagnitude > 0.04f ? point + back.normalized * 0.2f : point;
+            return !Physics.Linecast(eye, target, _wallLayer, QueryTriggerInteraction.Ignore);
         }
 
         // Ouvido = o caminho NavMesh até o som cabe no raio dele. O corte em linha reta vem antes e é o que descarta

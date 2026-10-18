@@ -28,6 +28,7 @@ GameObject:
   - component: {fileID: 6402719384510275933}
   - component: {fileID: 4833423270184417861}
   - component: {fileID: 8987378906732180425}
+  - component: {fileID: 95587178950585925}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -199,6 +200,7 @@ MonoBehaviour:
   targetCamera: {fileID: 6399354207596021297}
   movement: {fileID: 6337691064454773718}
   spotLight: {fileID: 2672304773317918189}
+  companionLights: []
   range: 200
   innerAngle: 68.7
   outerAngle: 103.8
@@ -535,6 +537,24 @@ MonoBehaviour:
   fogRiseSeconds: 0.5
   fogHoldSeconds: 1
   fogFallSeconds: 2.5
+--- !u!114 &95587178950585925
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4cc70e5655dc10c479e1ccd864f073d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  flashlight: {fileID: 0}
+  minBrightness: 0.3
+  lensVisibleDistance: 30
+  spotVisibleDistance: 18
+  cueSeconds: 8
+  beamRange: 25
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0
