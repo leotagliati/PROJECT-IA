@@ -23504,6 +23504,21 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1796040134414277422, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
+      propertyPath: m_text
+      value: "CL\xC1USULA 1\xAA: QUADRO DE FUNCION\xC1RIOS\n\nFicam registrados como
+        respons\xE1veis pelo projeto:\n\n...... Andr\xE9 Renato Almeida Abreu\n......
+        Arthur Jin Woo Lee\n...... Fernando Minharro Alves Gimenez\n...... Leonardo
+        Henrique Dias Moura\n...... Leonardo Tagliati da Silva\n\nObserva\xE7\xE3o:
+        nenhum dos funcion\xE1rios acima recebeu hora extra. \n---\n\nCL\xC1USULA
+        2\xAA: AGRADECIMENTOS\r\n\r\nA empresa registra sua gratid\xE3o:\r\n\r\nI.  
+        \xC0s nossas fam\xEDlias, pela paci\xEAncia com as noites viradas e por perguntarem
+        \"e o joguinho?\" sem desistir.\r\n\r\nII.  Ao professor Carlos Eduardo Dantas
+        de Menezes e ao Instituto Mau\xE1 de Tecnologia, pelo apoio e pelas orienta\xE7\xF5es
+        ao longo do projeto.\r\n\r\nIII. Aos amigos que testaram o jogo, levaram
+        susto e voltaram para jogar de novo.\r\n\r\nIV.  Aos integrantes que participaram
+        do desenvolvimento e acreditaram nele antes de ele funcionar."
+      objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: promptText
       value: 
