@@ -95,6 +95,16 @@ namespace Assets.Scripts.Graph
         private float _chaseHoldLeft;
         private bool _heardThisStep;
 
+        // Perseguiu desde a última Patrulha: só aí voltar à Patrulha é "perdi o alvo", e não "ouvi algo e esqueci".
+        private bool _chasedSinceCalm;
+
+        /// <summary>
+        /// Desistiu: voltou à Patrulha depois de PERSEGUIR, com o Alerta esgotado sem pista nenhuma (nem visão, nem
+        /// rastro, nem som). Só informa; nada no treino escuta (observação e recompensa não mudam). No jogo dispara o
+        /// grito de raiva (SeekerLostRoar, pelo FreeExplorerManager).
+        /// </summary>
+        public event System.Action GaveUp;
+
         // Métricas do episódio (Movement/ChaseFraction, AlertFraction, MeanSpeed).
         private int _steps;
         private int _chaseSteps;
@@ -153,6 +163,7 @@ namespace Assets.Scripts.Graph
             _alertLeft = 0f;
             _chaseHoldLeft = 0f;
             _heardThisStep = false;
+            _chasedSinceCalm = false;
             _steps = 0;
             _chaseSteps = 0;
             _alertSteps = 0;
@@ -177,6 +188,7 @@ namespace Assets.Scripts.Graph
         public void UpdateAwareness(bool seeingTarget)
         {
             float dt = Time.fixedDeltaTime;
+            Awareness previous = State;
             if (seeingTarget)
             {
                 State = Awareness.Chase;
@@ -198,6 +210,18 @@ namespace Assets.Scripts.Graph
                     _alertLeft = Mathf.Max(0f, _alertLeft - dt);
 
                 State = _alertLeft > 0f ? Awareness.Alert : Awareness.Patrol;
+            }
+
+            if (State == Awareness.Chase)
+            {
+                _chasedSinceCalm = true;
+            }
+            else if (State == Awareness.Patrol && previous != Awareness.Patrol)
+            {
+                bool lostTarget = _chasedSinceCalm;
+                _chasedSinceCalm = false;
+                if (lostTarget)
+                    GaveUp?.Invoke();
             }
 
             _heardThisStep = false;

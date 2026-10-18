@@ -27,6 +27,7 @@ GameObject:
   - component: {fileID: 2715508830264019937}
   - component: {fileID: 6402719384510275933}
   - component: {fileID: 4833423270184417861}
+  - component: {fileID: 8987378906732180425}
   m_Layer: 0
   m_Name: PlayerDummy
   m_TagString: Goal
@@ -405,6 +406,7 @@ MonoBehaviour:
   animator: {fileID: 0}
   handSocket: {fileID: 4933804440829809721}
   interaction: {fileID: 0}
+  movement: {fileID: 0}
   layerName: Throw
   holdState: Hold
   aimState: Aim
@@ -417,6 +419,7 @@ MonoBehaviour:
   minArcAngle: 5
   maxArcAngle: 25
   maxLaunchPitch: 70
+  cancelOnSprint: 1
   releaseTimeout: 0.6
   maxRecoverTime: 1.2
 --- !u!114 &5823019473618230411
@@ -511,6 +514,27 @@ MonoBehaviour:
   markerSegments: 24
   markerLift: 0.03
   material: {fileID: 0}
+--- !u!114 &8987378906732180425
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 99654788233523882}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 106e83231e628c04c8b809fe6318a839, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cameraShake: {fileID: 0}
+  fullEffectDistance: 12
+  maxDistance: 45
+  shakeMagnitude: 0.03
+  shakeDuration: 1.2
+  fogMultiplier: 2.2
+  fogRiseSeconds: 0.5
+  fogHoldSeconds: 1
+  fogFallSeconds: 2.5
 --- !u!1 &1637621910740752971
 GameObject:
   m_ObjectHideFlags: 0

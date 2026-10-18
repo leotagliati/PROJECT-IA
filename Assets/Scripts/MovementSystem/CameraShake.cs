@@ -24,6 +24,7 @@ public class CameraShake : MonoBehaviour
     [SerializeField] private UnityEvent finished;
 
     private Coroutine running;
+    private bool notifyRunning;
     private AudioHandle soundHandle;
 
     private Vector3 offset;
@@ -71,10 +72,27 @@ public class CameraShake : MonoBehaviour
         if (running != null)
             StopCoroutine(running);
 
-        running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude));
+        notifyRunning = true;
+        running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude, notify: true));
     }
 
-    private IEnumerator ShakeRoutine(float shakeDuration, float shakeMagnitude)
+    /// <summary>
+    /// Tremor avulso (o grito do monstro, RoarFeedback): NÃO chama o <c>finished</c>, que é o sinal do tutorial do
+    /// início da partida. E não interrompe o tremor da abertura: cortado, ele nunca avisaria o fim e a dica travaria.
+    /// </summary>
+    public void Impulse(float shakeDuration, float shakeMagnitude)
+    {
+        if (running != null && notifyRunning)
+            return;
+
+        if (running != null)
+            StopCoroutine(running);
+
+        notifyRunning = false;
+        running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude, notify: false));
+    }
+
+    private IEnumerator ShakeRoutine(float shakeDuration, float shakeMagnitude, bool notify)
     {
         for (float t = 0f; t < shakeDuration; t += Time.deltaTime)
         {
@@ -86,7 +104,8 @@ public class CameraShake : MonoBehaviour
 
         offset = Vector3.zero;
         running = null;
-        finished.Invoke();
+        if (notify)
+            finished.Invoke();
     }
 
     private void LateUpdate()
