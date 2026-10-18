@@ -6,6 +6,7 @@
 # A v7.4.3 paga ENTRAR em sala, mas a planta (BufferSensor "Rooms") so mostrava se a sala estava CONCLUIDA (60% vista):
 # vista da porta ela parecia feita. Platô de 1M a 7M: RoomsEntered ~0.56-0.62 (12-13 de 21), ala norte
 # (S03 S04 S06 S11) e S13 abaixo de 45%. Agora o campo [5] da planta e "entrou no episodio" (mesmo tamanho: herda).
+# MAPA: a partir de 18/10 a arena sai da "Cena Final - Mapa 1" (o mapa novo do Arthur), refeita pelo menu v7.4.
 # YAML e recompensa iguais aos da v7.4.3.
 # CRITERIO: em ~3M, RoomsEntered acima de 0.65 e subindo, ala norte acima de ~50%; Hunt/Caught acima de ~0.5.
 # ================================================================================================
