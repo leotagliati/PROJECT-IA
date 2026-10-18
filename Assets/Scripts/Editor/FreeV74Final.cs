@@ -83,11 +83,9 @@ public static class FreeV74Final
     }
 
     // Só cria se não existir (o prefab pode ganhar ajustes à mão); a cena de jogo é fechada sem salvar.
+    // Recriado toda vez: a Cena Final é a fonte do mapa, e o prefab não guarda ajuste à mão.
     private static bool EnsurePrefab()
     {
-        if (AssetDatabase.LoadAssetAtPath<GameObject>(ArenaPrefabPath) != null)
-            return true;
-
         if (!AssetDatabase.IsValidFolder(ArenaFolder))
             AssetDatabase.CreateFolder(Path.GetDirectoryName(ArenaFolder).Replace('\\', '/'), Path.GetFileName(ArenaFolder));
 

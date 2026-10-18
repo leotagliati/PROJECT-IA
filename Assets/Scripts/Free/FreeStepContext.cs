@@ -20,6 +20,9 @@ namespace Assets.Scripts.Free
         public int NewPoints;
         // Soma da raridade (0 a 1, FreeArenaController.SeenRarity) dos pontos novos deste step: o bônus contra a ronda fixa.
         public float NewPointsRarity;
+        // Salas concluídas neste step e a soma da raridade já moldada delas (FreeRewardSystem.RarityShape).
+        public int NewRooms;
+        public float NewRoomsRarity;
         public int NewDoors;
         public int StepsSinceProgress;
         public bool CoverageReached;

@@ -488,6 +488,8 @@ namespace Assets.Scripts.Free
 
                 NewPoints = _memory.NewPointsThisStep,
                 NewPointsRarity = NewPointsRarity(),
+                NewRooms = _memory.NewRoomList.Count,
+                NewRoomsRarity = NewRoomsRarity(),
                 NewDoors = _memory.NewDoorsThisStep,
                 StepsSinceProgress = _memory.StepsSinceProgress,
                 CoverageReached = covered,
@@ -580,7 +582,18 @@ namespace Assets.Scripts.Free
 
             float sum = 0f;
             foreach (int point in _memory.NewPointList)
-                sum += _arenaController.SeenRarity(point);
+                sum += _rewardSystem.RarityShape(_arenaController.SeenRarity(point));
+            return sum;
+        }
+
+        private float NewRoomsRarity()
+        {
+            if (IsGameMode)
+                return 0f;
+
+            float sum = 0f;
+            foreach (int room in _memory.NewRoomList)
+                sum += _rewardSystem.RarityShape(_arenaController.RoomSeenRarity(room));
             return sum;
         }
 

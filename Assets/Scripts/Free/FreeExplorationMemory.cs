@@ -63,7 +63,10 @@ namespace Assets.Scripts.Free
         private bool[] _seen;
         private readonly List<int> _unseen = new List<int>();
         private readonly List<int> _newPoints = new List<int>();
+        private readonly List<int> _newRooms = new List<int>();
         private int[] _roomSeenCount;
+        // Sala já paga no episódio: com o esquecer do jogo ela pode cair abaixo do limite e voltar.
+        private bool[] _roomPaid;
         private bool[] _doorCrossed;
         private float[] _seenTime;
         private float[] _doorTime;
@@ -91,6 +94,9 @@ namespace Assets.Scripts.Free
 
         /// <summary>Os pontos vistos pela 1ª vez neste step (o bônus de raridade soma a raridade de cada um).</summary>
         public IReadOnlyList<int> NewPointList => _newPoints;
+
+        /// <summary>Salas que passaram do limite de vistas neste step (uma vez por episódio).</summary>
+        public IReadOnlyList<int> NewRoomList => _newRooms;
         public int NewDoorsThisStep { get; private set; }
 
         /// <summary>Steps de física desde o último ponto ou porta novos (a estagnação lê isto).</summary>
@@ -163,6 +169,7 @@ namespace Assets.Scripts.Free
             _map.EnsureBuilt();
             _seen = new bool[_map.PointCount];
             _roomSeenCount = new int[_map.RoomCount];
+            _roomPaid = new bool[_map.RoomCount];
             _doorCrossed = new bool[_map.DoorCount];
             _seenTime = new float[_map.PointCount];
             _doorTime = new float[_map.DoorCount];
@@ -184,6 +191,7 @@ namespace Assets.Scripts.Free
         {
             System.Array.Clear(_seen, 0, _seen.Length);
             System.Array.Clear(_roomSeenCount, 0, _roomSeenCount.Length);
+            System.Array.Clear(_roomPaid, 0, _roomPaid.Length);
             System.Array.Clear(_doorCrossed, 0, _doorCrossed.Length);
             System.Array.Clear(_roomTime, 0, _roomTime.Length);
             IsRoomCamping = false;
@@ -209,6 +217,7 @@ namespace Assets.Scripts.Free
             NewPointsThisStep = 0;
             NewDoorsThisStep = 0;
             _newPoints.Clear();
+            _newRooms.Clear();
         }
 
         /// <summary>Um step de física, com a posição que a física acabou de dar ao corpo: sala, portas e visão.</summary>
@@ -341,7 +350,14 @@ namespace Assets.Scripts.Free
                 _seen[point] = true;
                 _seenTime[point] = Time.time;
                 SeenCount++;
-                _roomSeenCount[_map.RoomOfPoint(point)]++;
+                int room = _map.RoomOfPoint(point);
+                _roomSeenCount[room]++;
+                if (room >= 0 && !_roomPaid[room] && IsRoomSeen(room))
+                {
+                    _roomPaid[room] = true;
+                    _newRooms.Add(room);
+                }
+
                 NewPointsThisStep++;
                 _newPoints.Add(point);
                 _unseen[k] = _unseen[_unseen.Count - 1];
