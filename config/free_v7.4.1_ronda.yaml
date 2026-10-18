@@ -1,0 +1,67 @@
+# ================================================================================================
+# FreeExplorer - v7.4.1: RONDA QUE NAO SE REPETE, HERDANDO O v7.4_final_01 (1.02M no mapa do jogo). NAO E DO ZERO.
+#
+#   python tools/mlagents_learn_threads.py config/free_v7.4.1_ronda.yaml --run-id=v7.4.1_ronda_01 --initialize-from=v7.4_final_01 --env="Builds/V7.4/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#   Build antes: menu "PROJECT-IA -> v7.4: preparar Cena Final, cena de treino e build" (agora recria o prefab da
+#   Cena Final - Mapa toda vez: mesas da MapCheck e ajustes do jogador entram).
+#
+# Mudou so a recompensa (codigo, FreeRewardSystem); YAML igual ao da v7.4:
+#   - SALA CONCLUIDA no episodio paga 0.4 (21 salas = 8.4, x0.5 = 4.2): a planta mostra quais faltam, e fazer todas
+#     vira o objetivo da ronda. Antes nao havia termo de sala (so pontos e portas).
+#   - Raridade (ponto e sala) agora curva: x (1 + 4 x raridade^2). Era linear x (1 + 1.5 x raridade) e a ronda do
+#     v7.3 nao mudou (CoverageExploreOnly parada em 0.64). Comum quase nao ganha; esquecido paga ~4x.
+#   Teto da exploracao ~15-20 no mapa todo, abaixo da captura (20-45).
+#
+# CRITERIO: em ~3M, Exploration/RoomsSeen e CoverageExploreOnly subindo em relacao ao fim do v7.4_final_01 e menos
+# salas com RoomsFrac/S## < 0.2; Hunt/Caught sem cair abaixo de ~0.4. Final: RoomsSeen > 0.8 nos episodios so de explorar.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 como na v7.3: ajuste fino de politica pronta num mapa novo. O schedule linear recomeca do 1e-4 no
+      # --initialize-from (so o --resume continua de onde parou).
+      learning_rate: 0.0001
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v7.3_ronda_02 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # 0.999 da v7.3.1 (~100 s de horizonte): o mapa novo e maior que o Map - V8.
+        gamma: 0.999
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 15M: a v7.2 (mesmo tipo de troca de mapa) se ajustou em ~8-10M; com o LR linear, sobra margem antes de chegar a 0.
+    max_steps: 15000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final, como na v7.3.
+environment_parameters:
+  # 5 = misto (FreeArenaController): presa que foge ou escondida (a rapida esta em 0% no prefab).
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves (KeySpots do Mapa Final).
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA: exploracao x1 e cobertura 0.9 encerra.
+  explore_chance: 0.25
+  # Presa = jogador da Cena Final (ver cabecalho). 0 voltaria aos do FreeHider (10.2 m/s e 8 s, os da V8.2).
+  hider_speed: 8.5
+  hider_stamina: 10

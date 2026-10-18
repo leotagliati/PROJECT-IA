@@ -73,7 +73,7 @@ namespace Assets.Scripts.Free
     ///
     /// PLANTA (BufferSensor "Rooms", fora do VectorObservationSize), uma entrada por sala, até MaxRooms (32), 8 floats cada:
     ///   [0..1] direção X/Z ao centro, [2] distância reta / diâmetro do mapa, [3] portas até ela / 16 (1 = sem
-    ///   caminho), [4] fração vista, [5] vista (0/1), [6] é a atual, [7] fração das portas dela já atravessadas.
+    ///   caminho), [4] fração vista, [5] entrou no episódio (0/1; até a v7.4.3 era concluída), [6] é a atual, [7] fração das portas dela já atravessadas.
     /// </summary>
     public class FreeObservations
     {
@@ -116,6 +116,9 @@ namespace Assets.Scripts.Free
         private readonly int _stagnationSteps;
 
         private readonly float[] _roomBuffer = new float[RoomFeatures];
+
+        // Planta [5]: entrou (v7.4.4 em diante) ou concluída (cérebros até a v7.4.3).
+        private readonly bool _planShowsEntered;
         private readonly int[] _sectorUnseen = new int[Sectors];
         private readonly float[] _sectorNearest = new float[Sectors];
         private readonly NavMeshPath _path = new NavMeshPath();
@@ -123,8 +126,9 @@ namespace Assets.Scripts.Free
         public FreeObservations(
             FreeMap map, FreeExplorationMemory memory, GraphLocomotion locomotion, GraphBodyTracker body, FreeStuckTracker stuck,
             GraphHiderPerception perception, FreeTrackSense track, BufferSensorComponent roomSensor, int stagnationSteps,
-            FreeKeyField keys = null, BufferSensorComponent keySensor = null)
+            FreeKeyField keys = null, BufferSensorComponent keySensor = null, bool planShowsEntered = true)
         {
+            _planShowsEntered = planShowsEntered;
             _keys = keys;
             _keySensor = keySensor;
             _map = map;
@@ -463,7 +467,8 @@ namespace Assets.Scripts.Free
                 _roomBuffer[2] = Mathf.Clamp01(distance / diameter);
                 _roomBuffer[3] = hops >= 0 ? Mathf.Clamp01(hops / RoomHopsScale) : 1f;
                 _roomBuffer[4] = Explore(_memory.RoomSeenFraction(room));
-                _roomBuffer[5] = Explore(_memory.IsRoomSeen(room) ? 1f : 0f);
+                bool flag = _planShowsEntered ? _memory.IsRoomEntered(room) : _memory.IsRoomSeen(room);
+                _roomBuffer[5] = Explore(flag ? 1f : 0f);
                 _roomBuffer[6] = room == current ? 1f : 0f;
                 _roomBuffer[7] = Explore(doors > 0 ? (float)crossed / doors : 1f);
                 _roomSensor.AppendObservation(_roomBuffer);

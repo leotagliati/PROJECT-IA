@@ -1,0 +1,64 @@
+# ================================================================================================
+# FreeExplorer - v7.4.3: VISITAR TODA SALA, HERDANDO O v7.4.2_salas_01 (~6.5M). NAO E DO ZERO.
+#
+#   python tools/mlagents_learn_threads.py config/free_v7.4.3_visitar.yaml --run-id=v7.4.3_visitar_01 --initialize-from=v7.4.2_salas_01 --env="Builds/V7.4/PROJECT-IA.exe" --no-graphics --num-envs=8 --base-port=5010
+#
+# Pedido do Arthur (18/10): o importante e ENTRAR em toda sala, nao conclui-las. Na v7.4.2 (6.3M) ele concluia ~55%
+# das salas, e 8 ficavam quase sempre de fora (ala norte S02 S03 S04 S06 S11, becos S04 S20, o escritorio S13), que e
+# onde a presa passou a se esconder (Caught 0.71 -> 0.47).
+#   - entrar em sala nova 0.2 -> 0.5; concluir 0.4 -> 0.15; entrar em TODAS no episodio +3 (x discovery_reward_scale);
+#   - a raridade das salas (bonus e onde a presa nasce/se esconde) passa a contar ENTRADA, nao conclusao.
+#   Metricas novas: Exploration/RoomsEntered e RoomsEntered/S##.
+# CRITERIO: em ~3M, RoomsEntered subindo e as 8 salas acima de ~50% dos episodios em RoomsEntered/S##; Hunt/Caught
+# sem cair abaixo de ~0.4 (deve VOLTAR a subir: a presa fica onde ele nao ia). Caca < 0.3 ate ~5M = rodar do zero.
+# ================================================================================================
+
+behaviors:
+  FreeExplorer:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 2048
+      buffer_size: 10240
+      # 1e-4 como na v7.3: ajuste fino de politica pronta num mapa novo. O schedule linear recomeca do 1e-4 no
+      # --initialize-from (so o --resume continua de onde parou).
+      learning_rate: 0.0001
+      beta: 0.003
+      epsilon: 0.15
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Tem que ser IGUAL ao v7.3_ronda_02 (o --initialize-from carrega os pesos).
+      normalize: false
+      hidden_units: 256
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        # 0.999 da v7.3.1 (~100 s de horizonte): o mapa novo e maior que o Map - V8.
+        gamma: 0.999
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 40
+    checkpoint_interval: 500000
+    # 15M: a v7.2 (mesmo tipo de troca de mapa) se ajustou em ~8-10M; com o LR linear, sobra margem antes de chegar a 0.
+    max_steps: 15000000
+    time_horizon: 256
+    summary_freq: 10000
+
+# Sem curriculo: valores fixos da licao Final, como na v7.3.
+environment_parameters:
+  # 5 = misto (FreeArenaController): presa que foge ou escondida (a rapida esta em 0% no prefab).
+  hider_mode: 5
+  # > 1 = sem fim por cobertura (na caca o episodio e da presa).
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  # Metade dos episodios com 3 chaves (KeySpots do Mapa Final).
+  key_chance: 0.5
+  # 1 em 4 episodios SEM PRESA: exploracao x1 e cobertura 0.9 encerra.
+  explore_chance: 0.25
+  # Presa = jogador da Cena Final (ver cabecalho). 0 voltaria aos do FreeHider (10.2 m/s e 8 s, os da V8.2).
+  hider_speed: 8.5
+  hider_stamina: 10

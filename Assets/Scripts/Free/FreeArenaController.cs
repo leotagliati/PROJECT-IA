@@ -402,10 +402,13 @@ namespace Assets.Scripts.Free
         /// Quão POUCO o monstro vê esta sala: 0 = a mais vista da arena, 1 = nunca vista (relativo à mais vista).
         /// 0 com a opção desligada ou antes de haver episódio (todas começam "sempre vistas").
         /// </summary>
-        public float RoomRarity(int room)
+        public float RoomRarity(int room) => _hiderFavorsRareRooms ? RoomSeenRarity(room) : 0f;
+
+        /// <summary>A raridade da sala sem depender da opção da presa: o bônus de sala do monstro lê esta.</summary>
+        public float RoomSeenRarity(int room)
         {
             EnsureRoomStats();
-            if (!_hiderFavorsRareRooms || room < 0 || room >= _roomSeenRate.Length)
+            if (room < 0 || room >= _roomSeenRate.Length)
                 return 0f;
 
             float most = 0f;
@@ -422,7 +425,7 @@ namespace Assets.Scripts.Free
 
         /// <summary>
         /// A mesma raridade do ponto, sem depender da opção da presa: o bônus de exploração do monstro
-        /// (FreeRewardSystem._rarityGain) lê esta.
+        /// (FreeRewardSystem._rareBonus) lê esta.
         /// </summary>
         public float SeenRarity(int point)
         {
@@ -438,7 +441,8 @@ namespace Assets.Scripts.Free
         {
             EnsureRoomStats();
             for (int r = 0; r < _roomSeenRate.Length; r++)
-                _roomSeenRate[r] = Mathf.Lerp(_roomSeenRate[r], memory.IsRoomSeen(r) ? 1f : 0f, _roomRateSmoothing);
+                // Por ENTRADA (v7.4.3): o objetivo é visitar; sala vista da porta não sai da lista das raras.
+                _roomSeenRate[r] = Mathf.Lerp(_roomSeenRate[r], memory.IsRoomEntered(r) ? 1f : 0f, _roomRateSmoothing);
 
             _mostSeenPointRate = 0f;
             for (int p = 0; p < _pointSeenRate.Length; p++)

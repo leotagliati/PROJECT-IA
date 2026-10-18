@@ -88,6 +88,10 @@ namespace Assets.Scripts.Free
         // v8.0 inteiro) não rodam com isto ligado, e os com ele não rodam desligado. Ligado só na cena/build da v8.1.
         [SerializeField] private bool _keySensor = false;
 
+        [Header("-----Planta-----")]
+        [Tooltip("Planta mostra se ENTROU na sala (v7.4.4+). Desligado = concluída, para cérebros até a v7.4.3.")]
+        [SerializeField] private bool _planShowsEntered = true;
+
         [Header("-----Debug-----")]
         // Painel na tela (Game view) com cobertura, sala, portas, reward, parede e presa. Desligado no treino; o menu
         // PROJECT-IA > "v8 (em Play)" liga no agente assistido.
@@ -293,7 +297,7 @@ namespace Assets.Scripts.Free
             _keys = _arenaController.Keys;
             _observations = new FreeObservations(
                 _map, _memory, _locomotion, _body, _stuck, _perception, _trackSense, _roomSensor, _rewardSystem.StagnationSteps,
-                _keys, _keySensorComponent);
+                _keys, _keySensorComponent, _planShowsEntered);
         }
 
         // Erro de wiring em ML-Agents é silencioso (treino que não converge): loga, e false = não dá para rodar.
@@ -416,6 +420,8 @@ namespace Assets.Scripts.Free
             _trackSense.Tick(transform.position, _locomotion.ViewDirection, _perception.IsSeeing);
             if (_settings.HasHider && _trackSense.NewTrackThisStep)
                 _locomotion.NotifyHeard();
+            if (_trackSense.ChaseCueThisStep)
+                _locomotion.NotifyChaseCue();
 
             // Chave levada que o monstro acabou de saber (com atraso) = pista: Alerta, como ouvir o alvo.
             if (_keys != null && _keys.Count > 0)
@@ -488,6 +494,11 @@ namespace Assets.Scripts.Free
 
                 NewPoints = _memory.NewPointsThisStep,
                 NewPointsRarity = NewPointsRarity(),
+                NewRooms = _memory.NewRoomList.Count,
+                NewRoomsRarity = RoomsRarity(_memory.NewRoomList),
+                EnteredRooms = _memory.EnteredRoomList.Count,
+                EnteredRoomsRarity = RoomsRarity(_memory.EnteredRoomList),
+                AllRoomsEntered = _memory.AllRoomsEnteredThisStep,
                 NewDoors = _memory.NewDoorsThisStep,
                 StepsSinceProgress = _memory.StepsSinceProgress,
                 CoverageReached = covered,
@@ -580,7 +591,18 @@ namespace Assets.Scripts.Free
 
             float sum = 0f;
             foreach (int point in _memory.NewPointList)
-                sum += _arenaController.SeenRarity(point);
+                sum += _rewardSystem.RarityShape(_arenaController.SeenRarity(point));
+            return sum;
+        }
+
+        private float RoomsRarity(IReadOnlyList<int> rooms)
+        {
+            if (IsGameMode)
+                return 0f;
+
+            float sum = 0f;
+            foreach (int room in rooms)
+                sum += _rewardSystem.RarityShape(_arenaController.RoomSeenRarity(room));
             return sum;
         }
 
@@ -717,6 +739,7 @@ namespace Assets.Scripts.Free
         /// </summary>
         private string[] _roomStatNames;
         private string[] _roomFracStatNames;
+        private string[] _roomEnteredStatNames;
 
         private void RecordEpisodeStats(bool success)
         {
@@ -739,16 +762,19 @@ namespace Assets.Scripts.Free
             {
                 stats.Add("Exploration/Coverage", _memory.SeenFraction);
                 stats.Add("Exploration/RoomsSeen", _map.RoomCount > 0 ? (float)_memory.RoomsSeenCount / _map.RoomCount : 0f);
+                stats.Add("Exploration/RoomsEntered", _map.RoomCount > 0 ? (float)_memory.RoomsEnteredCount / _map.RoomCount : 0f);
 
                 int rooms = _map.RoomCount;
                 if (_roomStatNames == null || _roomStatNames.Length != rooms)
                 {
                     _roomStatNames = new string[rooms];
                     _roomFracStatNames = new string[rooms];
+                    _roomEnteredStatNames = new string[rooms];
                     for (int r = 0; r < rooms; r++)
                     {
                         _roomStatNames[r] = $"Rooms/S{r:00}";
                         _roomFracStatNames[r] = $"RoomsFrac/S{r:00}";
+                        _roomEnteredStatNames[r] = $"RoomsEntered/S{r:00}";
                     }
                 }
 
@@ -756,6 +782,7 @@ namespace Assets.Scripts.Free
                 {
                     stats.Add(_roomStatNames[r], _memory.IsRoomSeen(r) ? 1f : 0f);
                     stats.Add(_roomFracStatNames[r], _memory.RoomSeenFraction(r));
+                    stats.Add(_roomEnteredStatNames[r], _memory.IsRoomEntered(r) ? 1f : 0f);
                 }
 
                 _arenaController.RecordRoomOutcome(_memory);

@@ -57,6 +57,12 @@ namespace Assets.Scripts.Free
         // Viu coverage_target dos pontos. Encerra o episódio: o mapa inteiro vale mais que parar nos 80% fáceis.
         [SerializeField, Min(0f)] private float _coverageReward = 5f;
 
+        // v7.4.3: o objetivo é ENTRAR em toda sala, não concluir. Entrar 0.5 (20 salas = 10, x0.5 = 5), concluir 0.15
+        // (era 0.4) e todas no episódio +3. Com a raridade, teto ~15-20, abaixo da captura (20-45).
+        [SerializeField, Min(0f)] private float _roomSeenReward = 0.15f;
+        [SerializeField, Min(0f)] private float _roomEnterReward = 0.5f;
+        [SerializeField, Min(0f)] private float _allRoomsEnteredReward = 3f;
+
         // COMEÇO DO EPISÓDIO = EXPLORAR (v8.2, 14/10): ponto e porta novos valem x (1 + isto) no step 0, caindo em linha
         // reta até x1 em _earlyExplorationSteps (steps de física; 3000 = 60 s). Ele saía direto na ronda decorada; com o
         // começo pagando o dobro, varrer salas novas cedo compensa. Teto: ver o mapa inteiro já no 1º minuto daria
@@ -64,16 +70,12 @@ namespace Assets.Scripts.Free
         [SerializeField, Min(0f)] private float _earlyExplorationBoost = 1f;
         [SerializeField, Min(1)] private int _earlyExplorationSteps = 3000;
 
-        // CONTRA A RONDA FIXA (v8.2_mapa_06): ponto novo paga x (1 + isto x raridade), raridade = quão pouco esta arena viu
-        // o ponto nos últimos ~20 episódios, relativa ao mais visto (FreeArenaController.SeenRarity; 0 = o mais visto,
-        // 1 = nunca visto). No v8.2_mapa_05 ele fazia a mesma volta todo episódio e 9 das 23 salas ficavam em < 6%;
-        // a presa já nasce nelas, mas só pegar pagava ir lá. Bônus no raro, e não custo no comum: custar ver o comum
-        // faria olhar menos (ou ficar parado) valer a pena, e as salas comuns são caminho e às vezes têm a presa. Se
-        // equilibra sozinho: ele passa a ir lá, o ponto deixa de ser raro e o valor migra para o próximo esquecido.
-        // Paga evento que ele causa (ver), sem alvo escolhido por código. Teto com 1.5: o mapa inteiro nunca visto
-        // valeria 8 x 2.5 = 20 (x escala 0.5 = 10, mais as portas ~2.2); na prática ~1/3 do mapa é raro (~+3 a +4),
-        // abaixo da captura (20-45).
-        [SerializeField, Min(0f)] private float _rarityGain = 1.5f;
+        // Contra a ronda fixa: ponto e sala novos pagam x (1 + bônus x raridade^potência). Raridade = quão pouco esta
+        // arena viu nos últimos ~20 episódios (0 = o mais visto, 1 = nunca). Bônus no raro, não custo no comum.
+        // v7.4.1: era linear com 1.5 (_rarityGain); a ronda não mudou. Com 4 e potência 2 o comum quase não ganha
+        // (0.3 -> x1.36) e o esquecido paga ~4x (0.9 -> x4.2).
+        [SerializeField, Min(0f)] private float _rareBonus = 4f;
+        [SerializeField, Min(0.5f)] private float _rarePower = 2f;
 
         [Header("-----Caça-----")]
         // 1ª vista do hider no episódio (GraphHiderPerception já só marca a primeira).
@@ -142,6 +144,9 @@ namespace Assets.Scripts.Free
         /// <summary>Steps sem progresso a partir dos quais a estagnação cobra (normaliza a observação).</summary>
         public int StagnationSteps => _stagnationSteps;
 
+        /// <summary>Raridade (0 a 1) moldada pela potência: o manager soma isto por ponto e sala novos.</summary>
+        public float RarityShape(float rarity) => Mathf.Pow(Mathf.Clamp01(rarity), _rarePower);
+
         public float EvaluateStep(in FreeStepContext context)
         {
             float reward = 0f;
@@ -167,7 +172,13 @@ namespace Assets.Scripts.Free
             float early = 1f + _earlyExplorationBoost * Mathf.Clamp01(1f - (float)context.ElapsedSteps / _earlyExplorationSteps);
             float discovery = context.Hunting ? 0f : context.DiscoveryRewardScale * early;
             if (context.NewPoints > 0 && context.PointCount > 0)
-                reward += _allPointsReward * (context.NewPoints + _rarityGain * context.NewPointsRarity) / context.PointCount * discovery;
+                reward += _allPointsReward * (context.NewPoints + _rareBonus * context.NewPointsRarity) / context.PointCount * discovery;
+            if (context.NewRooms > 0)
+                reward += _roomSeenReward * (context.NewRooms + _rareBonus * context.NewRoomsRarity) * discovery;
+            if (context.EnteredRooms > 0)
+                reward += _roomEnterReward * (context.EnteredRooms + _rareBonus * context.EnteredRoomsRarity) * discovery;
+            if (context.AllRoomsEntered)
+                reward += _allRoomsEnteredReward * context.DiscoveryRewardScale;
             reward += _newDoorReward * context.NewDoors * discovery;
 
             // Caça.
