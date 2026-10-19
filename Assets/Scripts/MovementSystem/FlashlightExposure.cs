@@ -16,16 +16,16 @@ public class FlashlightExposure : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float minBrightness = 0.3f;
 
     [Tooltip("Luz apontada PARA o monstro: até onde (m) entrega sua posição. 0 = desliga.")]
-    [SerializeField, Min(0f)] private float aimedDistance = 30f;
+    [SerializeField, Min(0f)] private float aimedDistance = 15f;
 
     [Tooltip("Ângulo (graus) entre o feixe e o monstro para contar como apontada para ele.")]
     [SerializeField, Range(5f, 90f)] private float aimAngle = 40f;
 
     [Tooltip("Luz na cara dele a menos disto (m): ele já parte para a perseguição. 0 = desliga.")]
-    [SerializeField, Min(0f)] private float chaseDistance = 10f;
+    [SerializeField, Min(0f)] private float chaseDistance = 6f;
 
     [Tooltip("Luz apontada para outro lado: até onde (m) ele vê o ponto iluminado. 0 = desliga.")]
-    [SerializeField, Min(0f)] private float spotVisibleDistance = 18f;
+    [SerializeField, Min(0f)] private float spotVisibleDistance = 10f;
 
     [Tooltip("Segundos que a pista dura na memória do monstro (o som dura 8).")]
     [SerializeField, Min(0.1f)] private float cueSeconds = 8f;

@@ -551,8 +551,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   flashlight: {fileID: 0}
   minBrightness: 0.3
-  lensVisibleDistance: 30
-  spotVisibleDistance: 18
+  aimedDistance: 15
+  chaseDistance: 6
+  spotVisibleDistance: 10
   cueSeconds: 8
   beamRange: 25
 --- !u!1 &1637621910740752971
