@@ -118,13 +118,8 @@ public class HintDirector : MonoBehaviour
         new HintStep
         {
             id = "espiar", text = "Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas",
-            after = "porta_trancada_aberta", waitFor = HintWait.Use, actions = "PeekLeft, PeekRight",
+            after = "dialogo_saida", waitFor = HintWait.Use, actions = "PeekLeft, PeekRight",
             amount = 0.5f, delay = 1f, timeout = 12f,
-        },
-        new HintStep
-        {
-            id = "saida", text = "\"Preciso encontrar a saída desse lugar... deve haver uma porta.\"",
-            waitFor = HintWait.Signal, signal = "porta_principal", delay = 2f, voiceId = "voice_find_door",
         },
         new HintStep
         {
