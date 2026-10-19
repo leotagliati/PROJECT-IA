@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
 public enum GameState
@@ -16,9 +17,23 @@ public class GameManager : MonoBehaviour
     // O reload da vitória mora aqui, e não na tela: a partida recomeça mesmo com uma UI mal
     // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
     // A derrota NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
-    [Header("Reinício automático")]
+    //
+    // Tutorial já concluído: o spawn fica fora da sala do tutorial e a partida já abre em Playing.
+    // A memória é estática porque o reload recria o GameManager; só o menu principal a apaga (ForgetTutorial).
+    [Header("Reinício")]
     [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
     [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
+
+    [Tooltip("Onde o jogador nasce se o tutorial já foi concluído nesta sessão.")]
+    [SerializeField] private Transform respawnPoint;
+
+    [Tooltip("GameObject do player (que tem o CharacterController).")]
+    [SerializeField] private Transform player;
+
+    [Tooltip("Dispara no reinício quando a partida já começa no game state Playing")]
+    [SerializeField] private UnityEvent tutorialSkipped;
+
+    private static bool tutorialCompleted;
 
     public static GameManager Current { get; private set; }
 
@@ -30,6 +45,9 @@ public class GameManager : MonoBehaviour
 
     public float ElapsedTime { get; private set; }
 
+    /// <summary>Esta carga abriu direto em Playing (tutorial já concluído): quem só faz sentido na abertura da caça se cala.</summary>
+    public bool SkippedTutorial { get; private set; }
+
     void Awake()
     {
         if (Current != null && Current != this)
@@ -40,10 +58,16 @@ public class GameManager : MonoBehaviour
         }
 
         Current = this;
+
+        if (tutorialCompleted)
+            SkipTutorial();
     }
 
     void Start()
     {
+        if (SkippedTutorial)
+            tutorialSkipped.Invoke();
+
         StateChanged?.Invoke(State);
     }
 
@@ -64,7 +88,11 @@ public class GameManager : MonoBehaviour
             return;
 
         SetState(GameState.Playing);
+        tutorialCompleted = true;
     }
+
+    /// <summary>Esquece que o tutorial foi concluído: o próximo load passa por ele de novo.</summary>
+    public static void ResetTutorial() => tutorialCompleted = false;
 
     public void PlayerCaught() => Finish(GameState.Lost);
 
@@ -83,6 +111,29 @@ public class GameManager : MonoBehaviour
         }
 #endif
         SceneManager.LoadScene(scene.buildIndex);
+    }
+
+    // No Awake: os seekers sincronizam com o State no OnEnable e já precisam ver Playing.
+    private void SkipTutorial()
+    {
+        if (respawnPoint == null || player == null)
+        {
+            Debug.LogWarning($"{name}: sem respawnPoint/player — o tutorial roda de novo.", this);
+            return;
+        }
+
+        var controller = player.GetComponent<CharacterController>();
+        if (controller != null)
+            controller.enabled = false;
+
+        player.SetPositionAndRotation(respawnPoint.position, Quaternion.Euler(0f, respawnPoint.eulerAngles.y, 0f));
+
+        if (controller != null)
+            controller.enabled = true;
+
+        SkippedTutorial = true;
+        State = GameState.Playing;
+        Debug.Log($"GameManager: {State} (tutorial já concluído)", this);
     }
 
     private void Finish(GameState outcome)
@@ -117,5 +168,6 @@ public class GameManager : MonoBehaviour
     {
         Current = null;
         StateChanged = null;
+        tutorialCompleted = false;
     }
 }

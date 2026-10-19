@@ -118,13 +118,8 @@ public class HintDirector : MonoBehaviour
         new HintStep
         {
             id = "espiar", text = "Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas",
-            after = "porta_trancada_aberta", waitFor = HintWait.Use, actions = "PeekLeft, PeekRight",
+            after = "dialogo_saida", waitFor = HintWait.Use, actions = "PeekLeft, PeekRight",
             amount = 0.5f, delay = 1f, timeout = 12f,
-        },
-        new HintStep
-        {
-            id = "saida", text = "\"Preciso encontrar a saída desse lugar... deve haver uma porta.\"",
-            waitFor = HintWait.Signal, signal = "porta_principal", delay = 2f, voiceId = "voice_find_door",
         },
         new HintStep
         {
@@ -200,7 +195,9 @@ public class HintDirector : MonoBehaviour
 
     private void Start()
     {
-        if (playOnStart)
+        // O roteiro inteiro é o tutorial: com a partida já em Playing (reinício), não há o que ensinar.
+        bool skipped = GameManager.Current != null && GameManager.Current.SkippedTutorial;
+        if (playOnStart && !skipped)
             Play();
     }
 
@@ -361,4 +358,7 @@ public class HintDirector : MonoBehaviour
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics() => completedIds.Clear();
+
+    /// <summary>Apaga os passos lembrados: um jogo novo pelo menu repassa o tutorial inteiro.</summary>
+    public static void ForgetProgress() => completedIds.Clear();
 }

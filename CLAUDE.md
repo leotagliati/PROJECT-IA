@@ -214,7 +214,8 @@ determinístico durante o treino.
   `DialogueView` só exibe (textos, caracteres revelados, prompt "Aperte [ícone] para pular") e lê o input, que
   repassa em `AdvancePressed`. As falas vêm de um `DialogueAsset` (ScriptableObject). O avançar é a action
   `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
-  `DialogueTrigger` é a única ponte com a interação; pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
+  `DialogueTrigger` é a única ponte com a interação (`started` dispara quando a conversa realmente abre,
+  `finished` quando termina); pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
   não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
 - **Feixe da lanterna e neblina**: `FlashlightBeam` põe um cone filho da luz do `Flashlight`
   e o shader `PROJECT-IA/FlashlightBeam` marcha o raio dentro dele, parando na profundidade da

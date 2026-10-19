@@ -125,7 +125,14 @@ public class PauseControler : MonoBehaviour
     }
 
     // O OnDestroy e o PauseAudio.OnDisable desfazem pausa, input e áudio quando a cena descarrega.
-    public void BackToMenu() => SceneManager.LoadScene(mainMenuScene);
+    // Voltar ao menu encerra a sessão: um jogo novo passa pelo tutorial de novo.
+    public void BackToMenu()
+    {
+        GameManager.ResetTutorial();
+        HintDirector.ForgetProgress();
+        DialogueTrigger.ForgetDialog();
+        SceneManager.LoadScene(mainMenuScene);
+    }
 
     public void Quit()
     {

@@ -134,6 +134,12 @@ MonoBehaviour:
     Volume: 0.6
     PitchJitter: 0.04
     MaxDistance: 0
+  - Id: rumble
+    Clips:
+    - {fileID: 8300000, guid: bb5e0d948730fd341b185fa5a7fde790, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
   - Id: doorShut
     Clips:
     - {fileID: 8300000, guid: 77aabf7899d320c4fb25a43a699b5c91, type: 3}

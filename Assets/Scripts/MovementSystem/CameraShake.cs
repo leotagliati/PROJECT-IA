@@ -58,7 +58,8 @@ public class CameraShake : MonoBehaviour
 
     private void HandleGameState(GameState state)
     {
-        if (state != GameState.Playing)
+        // A abertura é a passagem do tutorial para a caça; reinício já em Playing não a repete.
+        if (state != GameState.Playing || (GameManager.Current != null && GameManager.Current.SkippedTutorial))
             return;
 
         Shake(duration, magnitude);
