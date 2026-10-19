@@ -154,7 +154,7 @@ determinístico durante o treino.
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
   `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
-  mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `FlashlightBeam` (110) → `AtmosphericParticles` (120), todos no
+  troca a pose pronta pelo ponto do diálogo, em corte seco) → `Flashlight` (100) → `FlashlightBeam` (110) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
