@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 8591587260151699102}
   - component: {fileID: 3265412065304921768}
   - component: {fileID: 6469755994493842573}
+  - component: {fileID: 7341259088451937211}
   m_Layer: 0
   m_Name: Bottle
   m_TagString: Untagged
@@ -132,6 +133,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prompt: Pegar
   handsFullMessage: "M\xE3os ocupadas"
+  pickedUp:
+    m_PersistentCalls:
+      m_Calls:
+      - m_Target: {fileID: 7341259088451937211}
+        m_TargetAssemblyTypeName: TutorialNoteTrigger, Assembly-CSharp
+        m_MethodName: Show
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
   heldLocalPosition: {x: 0, y: 0, z: 0}
   heldLocalEuler: {x: 0, y: 0, z: 0}
   minSoundSpeed: 0.8
@@ -157,6 +173,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 27a61dca15feb3f488113578dbd2fdf2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &7341259088451937211
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3670397335110187917}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e50383258e2d4044804d343aa0300ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  note: {fileID: 11400000, guid: 598af19a675861944b112f0d3302974a, type: 2}
+  once: 1
+  closed:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!65 &6469755994493842573
 BoxCollider:
   m_ObjectHideFlags: 0

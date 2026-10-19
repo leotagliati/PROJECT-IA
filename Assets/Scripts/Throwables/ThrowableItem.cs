@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
 /// Objeto que o jogador pega e arremessa (<see cref="PlayerThrow"/>). Só faz barulho depois de arremessado:
@@ -10,6 +11,9 @@ public class ThrowableItem : MonoBehaviour, IInteractable
     [SerializeField] private string prompt = "Pegar";
 
     [SerializeField] private string handsFullMessage = "Mãos ocupadas";
+
+    [Tooltip("Ao chegar na mão (ex.: TutorialNoteTrigger.Show, HintSignalEmitter).")]
+    [SerializeField] private UnityEvent pickedUp;
 
     [Header("Na mão")]
     [Tooltip("Pose relativa ao socket da mão, em metros (a escala do esqueleto é compensada).")]
@@ -105,6 +109,7 @@ public class ThrowableItem : MonoBehaviour, IInteractable
             return InteractionResult.Fail(handsFullMessage);
 
         AudioProvider.PlayAt(pickupSoundId, transform.position);
+        pickedUp.Invoke();
         return InteractionResult.Success;
     }
 

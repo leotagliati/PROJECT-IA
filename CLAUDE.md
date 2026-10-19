@@ -217,6 +217,14 @@ determinístico durante o treino.
   `DialogueTrigger` é a única ponte com a interação (`started` dispara quando a conversa realmente abre,
   `finished` quando termina); pausa e dicas só leem `DialogueController.IsOpen`. O diálogo
   não conhece Hints (ponte via `UnityEvent` + `HintSignalEmitter`).
+- **Bilhete de tutorial**: mesmo molde do diálogo. `TutorialNoteController` (um por cena, fora do root da view)
+  enfileira, pausa e põe o input no mapa UI; `TutorialNoteView` só exibe (texto com a marcação do
+  `HintController`, vídeo em loop na janela da foto com `UnscaledGameTime`, senão para com timeScale 0). Conteúdo
+  em `TutorialNote` (ScriptableObject: texto + vídeo, `Assets/Resources/TutorialModals`); quem pede é o `TutorialNoteTrigger` plugado num
+  `UnityEvent` (`ThrowableItem.pickedUp`). Uma view para todos os bilhetes, um asset por tutorial. O fechar usa
+  `UI/DialogueAdvance` (prompt num TMP próprio), que divide o botão esquerdo com o Interact: por isso o `minVisibleTime`. Pausa e dicas
+  leem `TutorialNoteController.IsOpen`. Entra e sai com fade + subida (CanvasGroup no root, tempo não escalado);
+  o fundo desfocado é um RawImage com a `PixelatedCameraTexture` e o material `UIBlur` (`PROJECT-IA/UIBlur`).
 - **Feixe da lanterna e neblina**: `FlashlightBeam` põe um cone filho da luz do `Flashlight`
   e o shader `PROJECT-IA/FlashlightBeam` marcha o raio dentro dele, parando na profundidade da
   cena — precisa da **Depth Texture** do URP asset (ligada no `PC_RPAsset`). Liga/desliga,

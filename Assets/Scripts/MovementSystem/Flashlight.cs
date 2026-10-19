@@ -134,6 +134,8 @@ public class Flashlight : MonoBehaviour
         : 0f;
 
     public bool InputLocked { get; set; }
+    
+    public event System.Action<bool> Toggled;
 
     private void Awake()
     {
@@ -327,6 +329,8 @@ public class Flashlight : MonoBehaviour
 
         // Segue o player, não a luz: a Light é solta na cena e persegue a câmera com atraso.
         AudioProvider.PlayFollowing(isOn ? turnOnSoundId : turnOffSoundId, transform);
+
+        Toggled?.Invoke(isOn);
     }
 
     private void LateUpdate()
