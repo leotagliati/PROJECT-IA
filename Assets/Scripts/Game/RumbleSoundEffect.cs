@@ -22,7 +22,9 @@ public class RumbleSoundEffect : MonoBehaviour
 
     private void HandleGameState(GameState state)
     {
-        if (state != GameState.Playing || string.IsNullOrEmpty(soundId))
+        // Abertura da caça: reinício já em Playing (tutorial concluído) não a repete.
+        if (state != GameState.Playing || string.IsNullOrEmpty(soundId)
+            || (GameManager.Current != null && GameManager.Current.SkippedTutorial))
             return;
 
         AudioListener listener = FindFirstObjectByType<AudioListener>();

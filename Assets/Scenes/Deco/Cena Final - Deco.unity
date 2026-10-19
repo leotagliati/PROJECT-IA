@@ -1733,6 +1733,35 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   reloadDelayAfterWon: 5.5
+  respawnPoint: {fileID: 9200000002}
+  player: {fileID: 2047866884}
+  tutorialSkipped:
+    m_PersistentCalls:
+      m_Calls:
+      - m_Target: {fileID: 6974933884918309155}
+        m_TargetAssemblyTypeName: ToggleWalls, Assembly-CSharp
+        m_MethodName: Apply
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 9100000004}
+        m_TargetAssemblyTypeName: DialogueTrigger, Assembly-CSharp
+        m_MethodName: Skip
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!4 &1012911239
 Transform:
   m_ObjectHideFlags: 0
@@ -1745,7 +1774,8 @@ Transform:
   m_LocalPosition: {x: 44.145462, y: 2.5144527, z: -109.50521}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 9200000002}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1012911240
@@ -8220,6 +8250,37 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   soundId: rumble
+--- !u!1 &9200000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9200000002}
+  m_Layer: 0
+  m_Name: Player Respawn
+  m_TagString: Untagged
+  m_Icon: {fileID: -5442936267250999957, guid: 0000000000000000d000000000000000, type: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9200000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9200000001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: -1, z: 0, w: 0}
+  m_LocalPosition: {x: -53.95, y: -1.8444526, z: 159.451}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1012911239}
+  m_LocalEulerAnglesHint: {x: 0, y: -180, z: 0}
 --- !u!4 &47628791833208480 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 2911144801706914435, guid: 3096ac6b162d2e845b58a8a87ab3280a, type: 3}

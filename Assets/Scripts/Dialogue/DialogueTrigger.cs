@@ -59,6 +59,9 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
     /// <summary>Abre a conversa sem passar pela interação: alvo de UnityEvent (um volume de trigger, por exemplo).</summary>
     public void Play() => Open();
 
+    /// <summary>Dá a conversa por vista sem abri-la (reinício com o tutorial já concluído): dispara o finished.</summary>
+    public void Skip() => OnFinished();
+
     private void Open()
     {
         DialogueController controller = DialogueController.Current;
@@ -100,6 +103,9 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics() => remembered.Clear();
+
+    /// <summary>Apaga as conversas lembradas: um jogo novo pelo menu repassa o tutorial inteiro.</summary>
+    public static void ForgetDialog() => remembered.Clear();
 
     // Prévia do enquadramento: o frustum da câmera principal saindo do ponto.
     private void OnDrawGizmosSelected()

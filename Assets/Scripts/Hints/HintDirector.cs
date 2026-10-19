@@ -195,7 +195,9 @@ public class HintDirector : MonoBehaviour
 
     private void Start()
     {
-        if (playOnStart)
+        // O roteiro inteiro é o tutorial: com a partida já em Playing (reinício), não há o que ensinar.
+        bool skipped = GameManager.Current != null && GameManager.Current.SkippedTutorial;
+        if (playOnStart && !skipped)
             Play();
     }
 
@@ -356,4 +358,7 @@ public class HintDirector : MonoBehaviour
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics() => completedIds.Clear();
+
+    /// <summary>Apaga os passos lembrados: um jogo novo pelo menu repassa o tutorial inteiro.</summary>
+    public static void ForgetProgress() => completedIds.Clear();
 }
