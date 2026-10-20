@@ -40,6 +40,8 @@ public class TutorialNoteInteractable : MonoBehaviour, IInteractable
 
         tutorialTrigger.Show();
 
+        Destroy(gameObject);
+
         return InteractionResult.Success;
     }
 }
