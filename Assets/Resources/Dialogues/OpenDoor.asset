@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: OpenDoor
   m_EditorClassIdentifier: 
   lines:
-  - speaker: Jonas
+  - speaker: Sharon
     text: Porta trancada, vale a pena procurar pelas chaves
-  - speaker: Jonas
+  - speaker: Sharon
     text: Vi que tem uns cadeados, preciso da chaves

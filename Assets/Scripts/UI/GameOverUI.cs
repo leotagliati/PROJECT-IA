@@ -113,13 +113,12 @@ public class GameOverUI : MonoBehaviour
                 UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
     }
 
-    // Por enquanto fecha o jogo; voltar ao menu inicial entra depois.
     public void Quit()
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-        Application.Quit();
+        SceneManagement.SceneManager.LoadScene("MainMenu");
 #endif
     }
 

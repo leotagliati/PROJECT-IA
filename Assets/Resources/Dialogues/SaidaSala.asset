@@ -13,5 +13,5 @@ MonoBehaviour:
   m_Name: SaidaSala
   m_EditorClassIdentifier: 
   lines:
-  - speaker: 
-    text: Preciso encontrar a saída desse lugar... deve haver uma porta.
+  - speaker: Sharon
+    text: "Preciso encontrar a sa\xEDda desse lugar... deve haver uma porta."

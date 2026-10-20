@@ -17,6 +17,10 @@ public class PauseControler : MonoBehaviour
     [Tooltip("Cena carregada pelo botão de voltar ao menu (precisa estar no Build Settings).")]
     [SerializeField] private string mainMenuScene = "MainMenu";
 
+    [Header("Sons (ids da AudioLibrary; vazio = sem som)")]
+    [SerializeField] private string pauseSoundId = "pause_open";
+    [SerializeField] private string resumeSoundId = "pause_close";
+
     public static bool IsPaused { get; private set; }
 
     public static event Action OnPaused;
@@ -78,6 +82,8 @@ public class PauseControler : MonoBehaviour
         pauseMenuUI.SetActive(true);
         ShowScreen(pauseScreen, null, false);
 
+        // PlayUI e não o pool 3D: o PauseAudio pausa o AudioListener no OnPaused, e o som do pool morreria junto.
+        AudioProvider.PlayUI(pauseSoundId);
         OnPaused?.Invoke();
     }
 
@@ -86,6 +92,7 @@ public class PauseControler : MonoBehaviour
         if (!IsPaused)
             return;
 
+        AudioProvider.PlayUI(resumeSoundId);
         ApplyResume();
         OnResumed?.Invoke();
     }

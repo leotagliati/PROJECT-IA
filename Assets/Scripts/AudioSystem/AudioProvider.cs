@@ -118,6 +118,17 @@ public static class AudioProvider
         return pool == null ? AudioHandle.None : pool.Play(id, target.position, target, false, volumeScale, pitchScale);
     }
 
+    /// <summary>Som de interface (cliques de menu): 2D e tocando mesmo com o jogo pausado.</summary>
+    public static void PlayUI(string id, float volumeScale = 1f, float pitchScale = 1f)
+    {
+        if (_muted || string.IsNullOrEmpty(id))
+            return;
+
+        AudioPool pool = Pool;
+        if (pool != null)
+            pool.PlayUI(id, volumeScale, pitchScale);
+    }
+
     /// <summary>Loop ocupa o slot até alguém chamar Stop — guarde o handle.</summary>
     public static AudioHandle PlayLoop(string id, Transform target, float volumeScale = 1f)
     {

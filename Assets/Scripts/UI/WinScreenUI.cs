@@ -24,6 +24,11 @@ public class WinScreenUI : MonoBehaviour
         group = GetComponent<CanvasGroup>();
         group.alpha = 0f;
 
+        // A tela não tem nada clicável: com alpha 0 e raycast ligado, ela vira um painel invisível em tela cheia
+        // que come o mouse de quem estiver embaixo (o menu de Pause, conforme a ordem dos irmãos no Canvas).
+        group.blocksRaycasts = false;
+        group.interactable = false;
+
         if (messageLabel == null)
         {
             Debug.LogError($"{name}: messageLabel não atribuído no Inspector.", this);

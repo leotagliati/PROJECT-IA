@@ -5,8 +5,9 @@ using UnityEngine.EventSystems;
 
 public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
 {
-    [Header("Scale")]
-    [SerializeField] private float hoverScale = 1.2f;
+    [Header("Deslocamento")]
+    [Tooltip("Quanto o texto anda ao ser selecionado, em unidades do Canvas: abre espaço para a MenuSelectionArrow.")]
+    [SerializeField] private Vector2 hoverOffset = new(20f, 0f);
     [SerializeField] private float animationSpeed = 0.15f;
 
     [Header("Color")]
@@ -18,29 +19,28 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
 
     private Coroutine currentAnimation;
 
-    // Escala do próprio botão no layout: o hover multiplica em cima dela em vez de assumir 1,
-    // senão um botão esticado no prefab voltaria para 1 ao abrir o menu.
-    private Vector3 originalScale;
+    // Move o texto e não o botão: a área de clique fica parada, senão o botão fugiria do cursor e o hover
+    // piscaria. Também não briga com Layout Group, que reposiciona o botão.
+    private RectTransform movedRect;
+    private Vector2 originalPosition;
 
     private Color originalColor;
     private TMP_Text text;
 
     private AudioSource audioSource;
 
-    // Impede o som de tocar novamente enquanto
-    // o bot�o j� estiver em estado de hover.
+    // Impede o som de tocar de novo enquanto o botão já está destacado.
     private bool isHovered = false;
 
     private void Awake()
     {
-        originalScale = transform.localScale;
-
         text = GetComponentInChildren<TMP_Text>();
 
         if (text != null)
-        {
             originalColor = text.color;
-        }
+
+        movedRect = text != null ? text.rectTransform : (RectTransform)transform;
+        originalPosition = movedRect.anchoredPosition;
 
         audioSource = gameObject.AddComponent<AudioSource>();
 
@@ -52,7 +52,7 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
     }
 
     // Painel desativado com o botão destacado não recebe OnDeselect: sem isto o botão
-    // reaparece ampliado e aceso na próxima vez que a tela abrir.
+    // reaparece deslocado e aceso na próxima vez que a tela abrir.
     private void OnDisable()
     {
         if (currentAnimation != null)
@@ -62,50 +62,25 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
         }
 
         isHovered = false;
-        transform.localScale = originalScale;
+        movedRect.anchoredPosition = originalPosition;
 
         if (text != null)
             text.color = originalColor;
     }
 
-    // =========================================================
-    // MOUSE
-    // =========================================================
+    public void OnHoverEnterEffect(GameObject go) => ActivateHover();
 
-    public void OnHoverEnterEffect(GameObject go)
-    {
-        ActivateHover(go);
-    }
+    public void OnHoverExitEffect(GameObject go) => DeactivateHover();
 
-    public void OnHoverExitEffect(GameObject go)
-    {
-        DeactivateHover(go);
-    }
+    public void OnSelect(BaseEventData eventData) => ActivateHover();
 
-    // =========================================================
-    // EVENT SYSTEM / TECLADO / CONTROLE
-    // =========================================================
+    public void OnDeselect(BaseEventData eventData) => DeactivateHover();
 
-    public void OnSelect(BaseEventData eventData)
-    {
-        ActivateHover(gameObject);
-    }
-
-    public void OnDeselect(BaseEventData eventData)
-    {
-        DeactivateHover(gameObject);
-    }
-
-    // =========================================================
-    // HOVER
-    // =========================================================
-
-    private void ActivateHover(GameObject go)
+    private void ActivateHover()
     {
         if (text == null)
             return;
 
-        // Se j� est� em hover, n�o toca o som novamente.
         if (!isHovered)
         {
             isHovered = true;
@@ -118,78 +93,35 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
         hoverColor.g = Mathf.Clamp01(hoverColor.g);
         hoverColor.b = Mathf.Clamp01(hoverColor.b);
 
-        StartHoverAnimation(
-            go,
-            hoverScale,
-            hoverColor
-        );
+        StartHoverAnimation(originalPosition + hoverOffset, hoverColor);
     }
 
-    private void DeactivateHover(GameObject go)
+    private void DeactivateHover()
     {
         isHovered = false;
-
-        StartHoverAnimation(
-            go,
-            1f,
-            originalColor
-        );
+        StartHoverAnimation(originalPosition, originalColor);
     }
-
-    // =========================================================
-    // SOM
-    // =========================================================
 
     private void PlayHoverSound()
     {
         if (hoverSound == null || audioSource == null)
             return;
 
-        audioSource.PlayOneShot(
-            hoverSound,
-            soundVolume
-        );
+        audioSource.PlayOneShot(hoverSound, soundVolume);
     }
 
-    // =========================================================
-    // ANIMA��O
-    // =========================================================
-
-    private void StartHoverAnimation(
-        GameObject go,
-        float targetScale,
-        Color targetColor
-    )
+    private void StartHoverAnimation(Vector2 targetPosition, Color targetColor)
     {
         if (currentAnimation != null)
-        {
             StopCoroutine(currentAnimation);
-        }
 
-        currentAnimation = StartCoroutine(
-            AnimateHover(
-                go,
-                targetScale,
-                targetColor
-            )
-        );
+        currentAnimation = StartCoroutine(AnimateHover(targetPosition, targetColor));
     }
 
-    private IEnumerator AnimateHover(
-        GameObject go,
-        float targetScale,
-        Color targetColor
-    )
+    private IEnumerator AnimateHover(Vector2 targetPosition, Color targetColor)
     {
-        TMP_Text targetText =
-            go.GetComponentInChildren<TMP_Text>();
-
-        Vector3 startScale =
-            go.transform.localScale;
-
-        Color startColor = targetText != null
-            ? targetText.color
-            : originalColor;
+        Vector2 startPosition = movedRect.anchoredPosition;
+        Color startColor = text != null ? text.color : originalColor;
 
         float elapsed = 0f;
 
@@ -198,37 +130,20 @@ public class HoverEffect : MonoBehaviour, ISelectHandler, IDeselectHandler
             // Continua funcionando mesmo com o jogo pausado
             elapsed += Time.unscaledDeltaTime;
 
-            float t = elapsed / animationSpeed;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / animationSpeed);
 
-            t = Mathf.SmoothStep(0f, 1f, t);
+            movedRect.anchoredPosition = Vector2.Lerp(startPosition, targetPosition, t);
 
-            // Scale
-            go.transform.localScale = Vector3.Lerp(
-                startScale,
-                originalScale * targetScale,
-                t
-            );
-
-            // Cor
-            if (targetText != null)
-            {
-                targetText.color = Color.Lerp(
-                    startColor,
-                    targetColor,
-                    t
-                );
-            }
+            if (text != null)
+                text.color = Color.Lerp(startColor, targetColor, t);
 
             yield return null;
         }
 
-        go.transform.localScale =
-            originalScale * targetScale;
+        movedRect.anchoredPosition = targetPosition;
 
-        if (targetText != null)
-        {
-            targetText.color = targetColor;
-        }
+        if (text != null)
+            text.color = targetColor;
 
         currentAnimation = null;
     }

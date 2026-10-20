@@ -24,7 +24,7 @@ public class TutorialNoteController : MonoBehaviour
     [SerializeField, Min(0f)] private float minVisibleTime = 0.8f;
 
     [Tooltip("Id da AudioLibrary tocado ao abrir. Vazio = sem som.")]
-    [SerializeField] private string openSound;
+    [SerializeField] private string openSound = "note_open";
 
     [Tooltip("O GameManager recarrega a cena a cada morte. Ligado, bilhete visto não volta no retry.")]
     [SerializeField] private bool rememberAcrossReloads = true;
@@ -154,8 +154,8 @@ public class TutorialNoteController : MonoBehaviour
         promptShown = minVisibleTime <= 0f;
         view.SetPromptVisible(promptShown);
 
-        if (!string.IsNullOrEmpty(openSound) && Camera.main != null)
-            AudioProvider.PlayFollowing(openSound, Camera.main.transform);
+        // PlayUI: 2D e fora do pool do mundo. É som de interface, e o bilhete abre com o timeScale zerado.
+        AudioProvider.PlayUI(openSound);
     }
 
     private void Update()

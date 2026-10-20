@@ -13,9 +13,9 @@ MonoBehaviour:
   m_Name: PortaSaida
   m_EditorClassIdentifier: 
   lines:
-  - speaker: 
+  - speaker: Sharon
     text: "Encontrei a porta! Mas ela t\xE1 trancada... tem 3 cadeados."
-  - speaker: 
+  - speaker: Sharon
     text: "Preciso encontrar 3 chaves. E r\xE1pido."
-  - speaker: 
+  - speaker: Sharon
     text: "Sinto que n\xE3o estou s\xF3 nesse lugar..."

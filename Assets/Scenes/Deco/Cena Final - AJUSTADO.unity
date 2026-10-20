@@ -72781,7 +72781,7 @@ MonoBehaviour:
   view: {fileID: 1802769586}
   openDelay: 0.4
   minVisibleTime: 0.8
-  openSound: 
+  openSound: note_open
   rememberAcrossReloads: 1
 --- !u!4 &741911925
 Transform:
