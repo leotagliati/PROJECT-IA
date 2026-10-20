@@ -6,6 +6,9 @@ using UnityEngine;
 /// chave em cada. Os pontos são Transforms na cena (e não coordenadas no código) para que
 /// mover um ponto, ou reaproveitar o spawner em outro mapa, não exija recompilar — e para que
 /// dê para ver onde as chaves podem nascer sem dar Play (ver gizmos).
+///
+/// Só spawna quando o estado do jogo muda para <see cref="GameState.Playing"/> (tutorial
+/// concluído), para evitar que chaves apareçam durante o tutorial.
 /// </summary>
 public class KeySpawner : MonoBehaviour
 {
@@ -23,9 +26,25 @@ public class KeySpawner : MonoBehaviour
 
     public IReadOnlyList<GameObject> SpawnedKeys => spawnedKeys;
 
-    private void Start()
+    private void OnEnable()
     {
-        SpawnKeys();
+        GameManager.StateChanged += OnGameStateChanged;
+
+        // Se o tutorial já foi concluído, o estado já está em Playing quando este script habilita.
+        if (GameManager.Current != null && GameManager.Current.State == GameState.Playing)
+            SpawnKeys();
+    }
+
+    private void OnDisable()
+    {
+        if (GameManager.Current != null)
+            GameManager.StateChanged -= OnGameStateChanged;
+    }
+
+    private void OnGameStateChanged(GameState newState)
+    {
+        if (newState == GameState.Playing)
+            SpawnKeys();
     }
 
     /// <summary>Remove as chaves que ainda estão no mapa e sorteia de novo. Para restart de partida.</summary>
