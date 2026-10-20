@@ -43,8 +43,16 @@ public class PlayerMovement : MonoBehaviour
     [Tooltip("Duração aproximada da transição de pé para agachado, em segundos.")]
     [SerializeField] private float crouchTransitionTime = 0.14f;
 
-    [Tooltip("O que conta como teto ao tentar levantar. A layer do próprio player é descartada.")]
+    [Tooltip("O que conta como teto ao tentar levantar. Os colliders do próprio player são descartados.")]
     [SerializeField] private LayerMask standCheckMask = ~0;
+
+    [Tooltip("Folga acima da cabeça de pé, em metros: teto mais baixo que isso segura o agachado. Só sem Headroom Volume.")]
+    [SerializeField, Min(0f)] private float standCheckMargin = 0.3f;
+
+    [Tooltip("Volume que tem que estar livre para levantar, fora dos ossos. Ligado como trigger usa a forma exata da física; desligado, só Box/Sphere. Vazio: procura pelo nome abaixo; sem ele, cápsula de pé + margem.")]
+    [SerializeField] private Collider headroomVolume;
+
+    [SerializeField] private string headroomVolumeName = "Head";
 
     [Header("Animation")]
     [SerializeField] private Animator animator;
@@ -101,6 +109,8 @@ public class PlayerMovement : MonoBehaviour
 
     private float standingHeight;
     private Vector3 standingCenter;
+    private readonly Collider[] headroomHits = new Collider[16];
+
     private float crouchAmount;
     private float crouchVelocity;
 
@@ -153,6 +163,15 @@ public class PlayerMovement : MonoBehaviour
         // A pose de pé é a que veio do prefab; agachar é sempre relativo a ela.
         standingHeight = controller.height;
         standingCenter = controller.center;
+
+        if (headroomVolume == null && !string.IsNullOrEmpty(headroomVolumeName))
+            headroomVolume = FindHeadroomVolume();
+
+        if (headroomVolume != null)
+            Debug.Log($"{name}: teto do agachar pelo volume '{headroomVolume.name}' ({headroomVolume.GetType().Name}, " +
+                      $"{(headroomVolume.enabled ? "ligado: forma da física" : "desligado: só Box/Sphere")}).", headroomVolume);
+        else
+            Debug.Log($"{name}: sem volume '{headroomVolumeName}'; teto do agachar pela cápsula de pé + {standCheckMargin} m.", this);
 
         if (animator != null && !animator.TryGetComponent<PlayerFootsteps>(out _))
             animator.gameObject.AddComponent<PlayerFootsteps>();
@@ -260,27 +279,83 @@ public class PlayerMovement : MonoBehaviour
     /// <summary>Espaço livre acima para voltar à altura de pé.</summary>
     private bool HasHeadroom()
     {
-        float radius = Mathf.Max(0.01f, controller.radius - controller.skinWidth);
-        float distance = standingHeight - controller.height;
-
-        if (distance <= 0f)
+        if (standingHeight - controller.height <= 0f)
             return true;
 
-        // Topo da cápsula atual, em mundo. Sobe dali até onde o topo ficaria de pé.
-        Vector3 top = transform.position + controller.center +
-                      Vector3.up * Mathf.Max(0f, controller.height * 0.5f - controller.radius);
+        int count = headroomVolume != null ? OverlapHeadroomVolume() : OverlapStandingCapsule();
 
-        // A própria layer do player sai da conta: a sonda nasce dentro do corpo dele.
-        int mask = standCheckMask & ~(1 << gameObject.layer);
+        for (int i = 0; i < count; i++)
+        {
+            // Por hierarquia, não por layer: o player está na Default, junto com a mobília.
+            if (!headroomHits[i].transform.IsChildOf(transform))
+                return false;
+        }
 
-        return !Physics.SphereCast(
-            top,
-            radius,
-            Vector3.up,
-            out _,
-            distance + controller.skinWidth,
-            mask,
-            QueryTriggerInteraction.Ignore);
+        return true;
+    }
+
+    private int OverlapHeadroomVolume()
+    {
+        Transform volume = headroomVolume.transform;
+
+        // Ligado (trigger ou não), a física já tem a forma de verdade, com a escala e rotação do FBX.
+        if (headroomVolume.enabled && headroomVolume.gameObject.activeInHierarchy)
+        {
+            Bounds bounds = headroomVolume.bounds;
+            int found = Physics.OverlapBoxNonAlloc(bounds.center, bounds.extents, headroomHits, Quaternion.identity,
+                standCheckMask, QueryTriggerInteraction.Ignore);
+
+            // A caixa do bounds pega a mais; a penetração confirma com as duas formas.
+            int kept = 0;
+            for (int i = 0; i < found; i++)
+            {
+                Collider other = headroomHits[i];
+
+                if (other != headroomVolume && Physics.ComputePenetration(
+                        headroomVolume, volume.position, volume.rotation,
+                        other, other.transform.position, other.transform.rotation, out _, out _))
+                    headroomHits[kept++] = other;
+            }
+
+            return kept;
+        }
+        Vector3 scale = volume.lossyScale;
+        scale = new Vector3(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+
+        // Pela forma serializada, não por bounds: bounds de collider desligado vem zerado.
+        switch (headroomVolume)
+        {
+            case BoxCollider box:
+                return Physics.OverlapBoxNonAlloc(volume.TransformPoint(box.center), Vector3.Scale(box.size, scale) * 0.5f,
+                    headroomHits, volume.rotation, standCheckMask, QueryTriggerInteraction.Ignore);
+
+            case SphereCollider sphere:
+                return Physics.OverlapSphereNonAlloc(volume.TransformPoint(sphere.center),
+                    sphere.radius * Mathf.Max(scale.x, Mathf.Max(scale.y, scale.z)),
+                    headroomHits, standCheckMask, QueryTriggerInteraction.Ignore);
+
+            default:
+                return 0;
+        }
+    }
+
+    private int OverlapStandingCapsule()
+    {
+        // Em mundo: o prefab tem escala, e o CharacterController escala o raio pelo maior de X/Z.
+        Vector3 scale = transform.lossyScale;
+        float sizeXZ = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
+        float sizeY = Mathf.Abs(scale.y);
+        float radius = controller.radius * sizeXZ;
+        Vector3 up = transform.up;
+
+        // Da esfera do topo agachado até a do topo de pé: só o volume que a cabeça vai ocupar.
+        Vector3 from = transform.TransformPoint(controller.center) + up * Mathf.Max(0f, controller.height * sizeY * 0.5f - radius);
+        Vector3 to = transform.TransformPoint(standingCenter) + up * (Mathf.Max(0f, standingHeight * sizeY * 0.5f - radius) + standCheckMargin);
+
+        // Sem a pele, a parede encostada do lado não conta como teto.
+        float probe = Mathf.Max(0.01f, radius - controller.skinWidth * sizeXZ);
+
+        return Physics.OverlapCapsuleNonAlloc(from, to, probe, headroomHits, standCheckMask, QueryTriggerInteraction.Ignore);
     }
 
     // ------------------------------------------------------------------- estado
@@ -447,6 +522,18 @@ public class PlayerMovement : MonoBehaviour
         point.y = transform.TransformPoint(controller.center + Vector3.down * (controller.height * 0.5f)).y;
 
         stepDust.Puff(point, intensity);
+    }
+
+    // Pelo collider, não só pelo nome: o rig pode ter um osso "Head" sem collider.
+    private Collider FindHeadroomVolume()
+    {
+        foreach (Collider candidate in GetComponentsInChildren<Collider>(true))
+        {
+            if (candidate.name == headroomVolumeName && candidate != controller)
+                return candidate;
+        }
+
+        return null;
     }
 
     private static Transform FindDeep(Transform parent, string boneName)

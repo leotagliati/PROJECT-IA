@@ -25,8 +25,15 @@ public class SpineLook : MonoBehaviour
     // desce o corpo inteiro.
     [SerializeField] private string hipsBoneName = "spine";
 
-    [Tooltip("Quanto a bacia desce com o agachamento completo, em metros. Sem IK de perna os pés afundam no chão nessa mesma medida. Zero com os clipes Crouch-* no PlayerAC: a animação já desce o corpo, e somar dobraria.")]
+    [Tooltip("Quanto a bacia desce além da animação com o agachamento completo, em metros. Com o IK de perna os joelhos dobram mais; sem ele os pés afundam no chão.")]
     [SerializeField, Min(0f)] private float crouchBodyDrop = 0.45f;
+
+    [Tooltip("Mantém os pés onde a animação os deixou quando a bacia desce.")]
+    [SerializeField] private bool legIK = true;
+
+    // Coxa, canela, pé (Rigify).
+    [SerializeField] private string[] leftLegNames = { "thigh.L", "shin.L", "foot.L" };
+    [SerializeField] private string[] rightLegNames = { "thigh.R", "shin.R", "foot.R" };
 
     [Header("Torção de strafe")]
     [Tooltip("Quanto a bacia pode girar para o rumo do movimento, em graus. Andar de lado puro (90°) para aqui; o resto vira pé deslizando, que incomoda menos que o tronco torcido demais.")]
@@ -92,6 +99,17 @@ public class SpineLook : MonoBehaviour
 
     private readonly List<BoneOffset> touchedBones = new List<BoneOffset>(8);
 
+    private struct Leg
+    {
+        public Transform Thigh;
+        public Transform Shin;
+        public Transform Foot;
+        public Vector3 FootPosition;
+        public Quaternion FootRotation;
+    }
+
+    private Leg[] legs = new Leg[0];
+
     /// <summary>Pitch aplicado ao osso neste frame, em graus. Positivo = curvado para frente.</summary>
     public float CurrentBend { get; private set; }
 
@@ -148,6 +166,8 @@ public class SpineLook : MonoBehaviour
         // desce a câmera sozinho, como antes.
         if (hipsBone == null)
             Debug.LogWarning($"{nameof(SpineLook)}: osso '{hipsBoneName}' não encontrado; o corpo não desce ao agachar nem torce no strafe.", this);
+        else
+            legs = FindLegs();
 
         if (spineBone == null || targetCamera == null)
         {
@@ -221,8 +241,13 @@ public class SpineLook : MonoBehaviour
         // suavizado do PlayerMovement (é a transição da própria cápsula).
         CrouchDrop = hipsBone != null && movement != null ? crouchBodyDrop * movement.CrouchAmount : 0f;
 
+        // IK antes da torção: ela gira a bacia em torno do up, o que não muda a altura dos pés.
         if (CrouchDrop > 0f)
+        {
+            CaptureFeet();
             hipsBone.position -= transform.up * CrouchDrop;
+            PinFeet();
+        }
 
         // Torção antes do peek e do pitch: as duas giram em torno de eixos da RAIZ, e com a
         // orientação do pescoço já devolvida pela contra-torção elas saem iguais com ou sem
@@ -362,6 +387,79 @@ public class SpineLook : MonoBehaviour
 
         PeekLateralApplied = Vector3.Dot(followBone.position - before, transform.right);
         PeekRollApplied = -total + (cameraInheritsHeadLevel ? headCorrection : 0f);
+    }
+
+    private void CaptureFeet()
+    {
+        for (int i = 0; i < legs.Length; i++)
+        {
+            legs[i].FootPosition = legs[i].Foot.position;
+            legs[i].FootRotation = legs[i].Foot.rotation;
+        }
+    }
+
+    private void PinFeet()
+    {
+        if (!legIK)
+            return;
+
+        foreach (Leg leg in legs)
+            SolveLeg(leg);
+    }
+
+    /// <summary>IK analítico de duas juntas: o joelho fecha até o pé alcançar o ponto anotado, a coxa aponta para ele.</summary>
+    private void SolveLeg(Leg leg)
+    {
+        Vector3 hip = leg.Thigh.position;
+        Vector3 knee = leg.Shin.position;
+        Vector3 ankle = leg.Foot.position;
+
+        float upper = Vector3.Distance(hip, knee);
+        float lower = Vector3.Distance(knee, ankle);
+
+        if (upper < 1e-4f || lower < 1e-4f)
+            return;
+
+        // Joelho todo dobrado não encolhe mais: além disso o pé afunda.
+        float reach = Mathf.Clamp(Vector3.Distance(hip, leg.FootPosition),
+            Mathf.Abs(upper - lower) + 1e-3f, upper + lower - 1e-3f);
+
+        // Plano da dobra que a animação já tem; perna reta cai no joelho para a frente.
+        Vector3 bendAxis = Vector3.Cross(knee - hip, ankle - knee);
+        bendAxis = bendAxis.sqrMagnitude > 1e-8f ? bendAxis.normalized : transform.right;
+
+        float currentAngle = Vector3.Angle(hip - knee, ankle - knee);
+        float targetAngle = Mathf.Acos(Mathf.Clamp(
+            (upper * upper + lower * lower - reach * reach) / (2f * upper * lower), -1f, 1f)) * Mathf.Rad2Deg;
+
+        RotateBone(leg.Shin, Quaternion.AngleAxis(currentAngle - targetAngle, bendAxis));
+        RotateBone(leg.Thigh, Quaternion.FromToRotation(leg.Foot.position - hip, leg.FootPosition - hip));
+        RotateBone(leg.Foot, leg.FootRotation * Quaternion.Inverse(leg.Foot.rotation));
+    }
+
+    private Leg[] FindLegs()
+    {
+        var found = new List<Leg>(2);
+
+        foreach (string[] names in new[] { leftLegNames, rightLegNames })
+        {
+            if (names == null || names.Length < 3)
+                continue;
+
+            Transform thigh = FindDeep(hipsBone, names[0]);
+            Transform shin = thigh != null ? FindDeep(thigh, names[1]) : null;
+            Transform foot = shin != null ? FindDeep(shin, names[2]) : null;
+
+            if (foot == null)
+            {
+                Debug.LogWarning($"{nameof(SpineLook)}: perna '{string.Join("/", names)}' não encontrada abaixo de '{hipsBone.name}'; esse pé afunda ao agachar.", this);
+                continue;
+            }
+
+            found.Add(new Leg { Thigh = thigh, Shin = shin, Foot = foot });
+        }
+
+        return found.ToArray();
     }
 
     /// <summary>
