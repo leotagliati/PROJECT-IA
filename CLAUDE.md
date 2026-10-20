@@ -236,6 +236,9 @@ determinístico durante o treino.
   (`PROJECT-IA/RetroScreen`): amostra no centro do texel, dithering Bayer 4×4 e quantização
   por canal em espaço gamma. Tudo na resolução da RT. Outras cenas com o mesmo RawImage não
   têm o material — arraste `Assets/Materials/RetroScreen.mat` no campo Material.
+- **Stamina**: `StaminaBarUI` só lê o `PlayerStamina` e pinta o prefab `Prefabs/UI/StaminaBar` (Container
+  9-slice, Fill `Filled`, Icon; sprites cinza em `Images/HUD`, a cor vem do componente). Não monta mais a barra em
+  código: sem o `fill` atribuído ele se desliga com erro. Some com a barra cheia e durante diálogo/bilhete.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
