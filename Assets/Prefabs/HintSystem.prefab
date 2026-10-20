@@ -1,0 +1,174 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4442444070228639009
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 115410170694946380}
+  - component: {fileID: 6613891299114586357}
+  - component: {fileID: 7757924081543893710}
+  - component: {fileID: 4836595581496031392}
+  m_Layer: 0
+  m_Name: HintSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &115410170694946380
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4442444070228639009}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 267.4735, y: 198.81664, z: -207.86896}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6613891299114586357
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4442444070228639009}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba8c442823edd1a44ab3f623713328f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  view: {fileID: 0}
+  highlightColor: {r: 1, g: 0.85, b: 0.55, a: 1}
+  forceScheme: 
+  keyFormat: "<mark=#EDE6D6F0 padding=\"0,0,12,12\"><color=#141414><b>\_{0}\_</b></color></mark>"
+  keySeparator: <space=0.08em>
+  keyLabels:
+  - path: <Mouse>/delta
+    label: Mouse
+  - path: <Pointer>/delta
+    label: Mouse
+  - path: <Mouse>/leftButton
+    label: Clique
+  - path: <Keyboard>/leftShift
+    label: Shift
+  - path: <Keyboard>/leftCtrl
+    label: Ctrl
+  - path: <Keyboard>/space
+    label: "Espa\xE7o"
+--- !u!114 &7757924081543893710
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4442444070228639009}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90ff606656cc69b44a53dd95dfe299d8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  controller: {fileID: 0}
+  playOnStart: 1
+  voiceAnchor: {fileID: 0}
+  rememberAcrossReloads: 1
+  minVisibleTime: 1.5
+  steps:
+  - id: lanterna
+    text: Aperte {Flashlight} para ligar a *lanterna*
+    after: 
+    delay: 1.5
+    waitFor: 1
+    actions: Flashlight
+    signal: 
+    amount: 1
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: mover
+    text: Use {Move} para se mover e {Look} para olhar ao redor
+    after: 
+    delay: 1.5
+    waitFor: 2
+    actions: Move
+    signal: 
+    amount: 1.5
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: agachar
+    text: "{Crouch} para *agachar*. Agachado, seus passos quase n\xE3o fazem barulho"
+    after: 
+    delay: 2
+    waitFor: 1
+    actions: Crouch
+    signal: 
+    amount: 1
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: interagir
+    text: Aperte {Interact} para *interagir* com objetos
+    after: 
+    delay: 2
+    waitFor: 1
+    actions: Interact
+    signal: 
+    amount: 1
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: chave
+    text: Procure pela *chave* para abrir a porta
+    after: 
+    delay: 1
+    waitFor: 3
+    actions: 
+    signal: chave_coletada
+    amount: 1
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: espiar
+    text: Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas
+    after: dialogo_saida
+    delay: 1
+    waitFor: 2
+    actions: PeekLeft, PeekRight
+    signal: 
+    amount: 0.5
+    timeout: 12
+    skipIfAlreadyDone: 1
+    voiceId: 
+  - id: correr
+    text: Segure {Sprint} para *correr*
+    after: tremor_terminou
+    delay: 0.3
+    waitFor: 2
+    actions: Sprint
+    signal: 
+    amount: 1
+    timeout: 0
+    skipIfAlreadyDone: 1
+    voiceId: 
+--- !u!114 &4836595581496031392
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4442444070228639009}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 18c0cee9d7a279344aff5c1ea7f3a455, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  signal: 

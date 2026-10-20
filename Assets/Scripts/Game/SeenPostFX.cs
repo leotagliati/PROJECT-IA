@@ -104,8 +104,9 @@ public class SeenPostFX : MonoBehaviour
         if (_chaseMusic != null)
             _chaseMusic.JumpscareTriggered += Burst;
 
+        // Inativos também: o Seeker da perseguição final começa desligado. O MaxBlend já ignora quem está inativo.
         if (_seekers == null || _seekers.Length == 0)
-            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsSortMode.None);
+            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsInactive.Include, FindObjectsSortMode.None);
     }
 
     // Volumes são objetos à parte: desligar o script não apaga o efeito sozinho.

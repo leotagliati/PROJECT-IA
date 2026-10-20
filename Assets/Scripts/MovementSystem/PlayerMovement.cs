@@ -107,6 +107,12 @@ public class PlayerMovement : MonoBehaviour
     private Transform leftFoot;
     private Transform rightFoot;
 
+    // Input vindo de código (EscapeCutscene) no lugar do teclado. Entra no mesmo ponto em que o input
+    // do jogador entraria, para velocidade, estado, Animator, passos e CameraJuice seguirem iguais.
+    private bool scripted;
+    private Vector2 scriptedMove;
+    private bool scriptedSprint;
+
     /// <summary>Input de movimento cru deste frame (x = lado, y = frente).</summary>
     public Vector2 MoveInput => moveInput;
 
@@ -138,6 +144,24 @@ public class PlayerMovement : MonoBehaviour
     public PlayerState CurrentState { get; private set; } = PlayerState.Idle;
 
     public event Action<PlayerState> StateChanged;
+
+    /// <summary>
+    /// Passa a mover pelo input dado aqui, e não pelo do jogador, até <see cref="ClearScriptedInput"/>.
+    /// Desligar o input do jogador é de quem chama (mapa Player); isto só substitui a fonte.
+    /// </summary>
+    public void SetScriptedInput(Vector2 move, bool sprint)
+    {
+        scripted = true;
+        scriptedMove = move;
+        scriptedSprint = sprint;
+    }
+
+    public void ClearScriptedInput()
+    {
+        scripted = false;
+        scriptedMove = Vector2.zero;
+        scriptedSprint = false;
+    }
 
     private void Awake()
     {
@@ -197,13 +221,17 @@ public class PlayerMovement : MonoBehaviour
             velocity.y = -2f;
         }
 
-        moveInput = PlayerInputProvider.Player.Move.ReadValue<Vector2>();
+        moveInput = scripted ? scriptedMove : PlayerInputProvider.Player.Move.ReadValue<Vector2>();
 
         UpdateCrouch();
 
-        sprintHeld = PlayerInputProvider.Player.Sprint.IsPressed()
-                  && !isCrouching
-                  && (stamina == null || stamina.CanSprint);
+        // No roteiro a stamina não conta: a fuga final não pode virar caminhada por cansaço.
+        // A drenagem continua, então a respiração ofegante acompanha a corrida.
+        sprintHeld = scripted
+            ? scriptedSprint && !isCrouching
+            : PlayerInputProvider.Player.Sprint.IsPressed()
+              && !isCrouching
+              && (stamina == null || stamina.CanSprint);
 
         UpdateState();
 
@@ -221,9 +249,10 @@ public class PlayerMovement : MonoBehaviour
         // No toggle o toque inverte o estado atual; no hold o estado é o próprio botão. Nos dois
         // casos o teto baixo (abaixo) ainda segura o jogador agachado — no toggle o toque é
         // "gasto" e precisa de outro quando houver espaço, que é o esperado.
-        bool wantsCrouch = crouchToggle
+        // No roteiro o player levanta: quem entrou agachado na cutscene sairia correndo agachado.
+        bool wantsCrouch = !scripted && (crouchToggle
             ? isCrouching != PlayerInputProvider.Player.Crouch.WasPressedThisFrame()
-            : PlayerInputProvider.Player.Crouch.IsPressed();
+            : PlayerInputProvider.Player.Crouch.IsPressed());
 
         if (crouchToggle && isCrouching && PlayerInputProvider.Player.Sprint.WasPressedThisFrame())
             wantsCrouch = false;

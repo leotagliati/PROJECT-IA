@@ -2,91 +2,60 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 
-/// <summary>
-/// Tremor de câmera do início da partida: ao entrar em <see cref="GameState.Playing"/> treme
-/// a câmera e toca o grito. Fica no Main Camera do jogador, porque escreve a transform dela e
-/// o som a acompanha.
-///
-/// Ordem 60 de propósito: o CameraJuice (0) REATRIBUI a localPosition inteira todo LateUpdate
-/// e o ShoulderPeek (50) soma o lean, então qualquer escrita feita antes (como a da coroutine,
-/// que roda no Update) é apagada. Aqui o tremor é só um offset somado por cima, depois deles.
-/// </summary>
 [DefaultExecutionOrder(60)]
 public class CameraShake : MonoBehaviour
 {
     [SerializeField, Min(0f)] private float duration = 1.2f;
     [SerializeField, Min(0f)] private float magnitude = 0.06f;
 
-    [Tooltip("Entrada da AudioLibrary tocada junto com o tremor. Vazio = sem som.")]
-    [SerializeField] private string soundId = "intro_scream";
-
-    [Tooltip("Quando um tremor termina sozinho (não quando é interrompido por outro ou pelo disable).")]
+    [Tooltip("Quando um Play termina sozinho (não quando é interrompido nem pelo disable). Tremor avulso não dispara.")]
     [SerializeField] private UnityEvent finished;
 
     private Coroutine running;
-    private bool notifyRunning;
-    private AudioHandle soundHandle;
-
+    private bool playRunning;
     private Vector3 offset;
-
-    // Guarda o que escrevemos no último frame: se ninguém reescreveu a base (CameraJuice
-    // desligado), a posição ainda é a nossa e o offset antigo precisa sair antes de somar o
-    // novo — senão o tremor acumula e a câmera deriva.
     private Vector3 lastWritten;
     private Vector3 lastOffset;
     private bool hasWritten;
 
-    private void OnEnable() => GameManager.StateChanged += HandleGameState;
-
     private void OnDisable()
     {
-        GameManager.StateChanged -= HandleGameState;
-
         if (running != null)
         {
             StopCoroutine(running);
             running = null;
         }
 
+        playRunning = false;
         offset = Vector3.zero;
         hasWritten = false;
     }
 
-    // O AudioPool sobrevive ao reload da cena (DontDestroyOnLoad): sem isto o fim do grito
-    // vazaria para a partida nova. Handle de slot já roubado é no-op no Stop.
-    private void OnDestroy() => AudioProvider.Stop(soundHandle);
-
-    private void HandleGameState(GameState state)
+    /// <summary>
+    /// O tremor configurado no Inspector; ao terminar, dispara o <c>finished</c> (na cena, o sinal
+    /// <c>tremor_terminou</c> do tutorial). Sem parâmetros para caber num UnityEvent.
+    /// </summary>
+    public void Play()
     {
-        // A abertura é a passagem do tutorial para a caça; reinício já em Playing não a repete.
-        if (state != GameState.Playing || (GameManager.Current != null && GameManager.Current.SkippedTutorial))
-            return;
+        if (running != null)
+            StopCoroutine(running);
 
-        Shake(duration, magnitude);
-
-        if (!string.IsNullOrEmpty(soundId))
-            soundHandle = AudioProvider.PlayFollowing(soundId, transform);
+        playRunning = true;
+        running = StartCoroutine(ShakeRoutine(duration, magnitude, notify: true));
     }
 
+    /// <summary>
+    /// Tremor avulso: não dispara o <c>finished</c> nem corta um <see cref="Play"/> em andamento —
+    /// um rugido no meio da abertura não pode apagar o tremor que o tutorial está esperando acabar.
+    /// </summary>
     public void Shake(float shakeDuration, float shakeMagnitude)
     {
-        if (running != null)
-            StopCoroutine(running);
-
-        notifyRunning = true;
-        running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude, notify: true));
-    }
-
-    /// <summary>Tremor avulso: não chama o <c>finished</c> (sinal do tutorial) nem corta o da abertura.</summary>
-    public void Impulse(float shakeDuration, float shakeMagnitude)
-    {
-        if (running != null && notifyRunning)
+        if (running != null && playRunning)
             return;
 
         if (running != null)
             StopCoroutine(running);
 
-        notifyRunning = false;
         running = StartCoroutine(ShakeRoutine(shakeDuration, shakeMagnitude, notify: false));
     }
 
@@ -102,6 +71,7 @@ public class CameraShake : MonoBehaviour
 
         offset = Vector3.zero;
         running = null;
+        playRunning = false;
         if (notify)
             finished.Invoke();
     }

@@ -200,7 +200,9 @@ public class PlayerBreathing : MonoBehaviour
 
     private void HandleGameState(GameState state)
     {
-        if (state == GameState.Won || state == GameState.Lost)
+        // Só a derrota. Na vitória o fôlego segue com ele correndo para o clarão, que apaga o som do jogo inteiro; o
+        // fim de verdade vem quando a PlayerEscapedSequence desliga o PlayerMovement (checado no Update).
+        if (state == GameState.Lost)
             BeginFadeOut();
     }
 
@@ -224,7 +226,7 @@ public class PlayerBreathing : MonoBehaviour
         // Além do evento, consulta por frame: PlayerMovement desligado é o que a captura (e
         // qualquer cutscene) faz com o jogador, venha o fim de onde vier.
         if (!movement.isActiveAndEnabled
-            || (GameManager.Current != null && GameManager.Current.IsOver))
+            || (GameManager.Current != null && GameManager.Current.State == GameState.Lost))
         {
             BeginFadeOut();
         }

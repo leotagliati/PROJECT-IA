@@ -59,7 +59,7 @@ public class RoarFeedback : MonoBehaviour
             return;
 
         if (cameraShake != null && shakeMagnitude > 0f)
-            cameraShake.Impulse(shakeDuration, shakeMagnitude * strength);
+            cameraShake.Shake(shakeDuration, shakeMagnitude * strength);
 
         if (RenderSettings.fog && fogMultiplier > 1f)
         {

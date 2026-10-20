@@ -79,8 +79,9 @@ public class ThemeMusic : MonoBehaviour
 
     private void Start()
     {
+        // Inativos também: o Seeker da perseguição final começa desligado. O loop já ignora quem está inativo.
         if (_seekers == null || _seekers.Length == 0)
-            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsSortMode.None);
+            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsInactive.Include, FindObjectsSortMode.None);
     }
 
     private void OnEnable() => GameManager.StateChanged += HandleGameState;
@@ -89,7 +90,9 @@ public class ThemeMusic : MonoBehaviour
 
     private void HandleGameState(GameState state)
     {
-        if (state == GameState.Won || state == GameState.Lost)
+        // Só a derrota corta aqui. Na vitória o som do jogo inteiro desce junto com o clarão (AudioProvider.Fade, na
+        // WinScreenUI), sem um corte seco antes dele.
+        if (state == GameState.Lost)
             _gameOver = true;
     }
 

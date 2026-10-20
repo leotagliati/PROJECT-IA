@@ -106,8 +106,9 @@ public class ChaseMusic : MonoBehaviour
 
     private void Start()
     {
+        // Inativos também: o Seeker da perseguição final começa desligado. O AnyChasing já ignora quem está inativo.
         if (_seekers == null || _seekers.Length == 0)
-            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsSortMode.None);
+            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsInactive.Include, FindObjectsSortMode.None);
     }
 
     private void OnEnable() => GameManager.StateChanged += HandleGameState;
@@ -121,13 +122,15 @@ public class ChaseMusic : MonoBehaviour
 
     private void HandleGameState(GameState state)
     {
-        if (state == GameState.Won || state == GameState.Lost)
+        // Só a derrota corta aqui. Na vitória o som do jogo inteiro desce junto com o clarão (AudioProvider.Fade, na
+        // WinScreenUI): cortar o tema antes seria um silêncio seco com o monstro ainda vindo atrás.
+        if (state == GameState.Lost)
             _gameOver = true;
     }
 
     private void Update()
     {
-        if (GameManager.Current != null && GameManager.Current.IsOver)
+        if (GameManager.Current != null && GameManager.Current.State == GameState.Lost)
             _gameOver = true;
 
         bool chasing = !_gameOver && AnyChasing();
@@ -174,6 +177,23 @@ public class ChaseMusic : MonoBehaviour
             _themeSource.Play();
         else if (!chasing && _gain <= 0f && _themeSource.isPlaying)
             _themeSource.Stop();
+    }
+
+    /// <summary>
+    /// Corta a perseguição na hora, sem o fade-out de vários segundos: para quem reposiciona tudo no escuro (a
+    /// perseguição final, ao pegar o jogador) e não pode deixar o tema vazar para depois. Continua ligado: a próxima
+    /// perseguição toca normalmente.
+    /// </summary>
+    public void Cut()
+    {
+        _gain = 0f;
+        _wasChasing = false;
+
+        foreach (AudioSource source in new[] { _jumpscareSource, _themeSource })
+        {
+            if (source != null)
+                source.Stop();
+        }
     }
 
     private void Silence()

@@ -153,13 +153,29 @@ determinístico durante o treino.
   registro de restore por osso, e **escreve posição e rotação da câmera** a partir do
   `spine.004`) →
   `CameraJuice` (0, soma bob/dip/crouch sobre `SpineLook.AnchorLocalPosition`) →
-  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo do início da partida) → `DialogueCamera` (90,
+  `ShoulderPeek` (50) → `CameraShake` (60, offset aditivo; o tremor da abertura e o `RumbleSoundEffect` são
+  disparados pelo `huntStarted` do `GameManager`, ligado no Inspector — nenhum dos dois escuta o estado do jogo) → `DialogueCamera` (90,
   mistura a pose pronta com o ponto do diálogo) → `Flashlight` (100) → `FlashlightBeam` (110) → `AtmosphericParticles` (120), todos no
   `LateUpdate`. A rotação que `PlayerCamera` escreve no `Update` é só fallback. Se um
   efeito de câmera "some", quase sempre é ordem de execução.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
   `StateChanged`) é a fonte de verdade para "está andando/correndo/pulando". Quem precisa
   reagir (áudio, IA, UI) lê isso em vez de recalcular por conta própria.
+- **Cutscene final**: `EscapeCutscene` (trigger da saída) põe o `GameManager` em `GameState.Escaping`, desliga o mapa
+  `Player` e dirige o `PlayerMovement` por `SetScriptedInput` (yaw no root, pitch pelo `PlayerCamera.Pitch`), para
+  animação, juice e passos seguirem como se alguém jogasse. A IA de verdade só age em `Playing`; o pause
+  (`GameManager.AllowsPause`) é recusado em `Won`/`Lost` e enquanto a cutscene segura `GameManager.PauseLocked` (do
+  trigger até ser pego ou vencer). O Seeker que aparece na porta é um prefab sem IA com `SeekerCutscenePuppet`,
+  posto na cena desativado: a cutscene o faz andar até o `Respawn`, virar e perseguir, e aí devolve o controle
+  ("Fuja!"). A perseguição é o `SeekerChaseState` dele recebendo `Tick(true)` — por isso `ChaseMusic`, `SeenPostFX`
+  e `ThemeMusic` buscam Seekers **inativos** também. Pego, não há game over: tela preta, Seeker desativado
+  na pose da cena, player no `Respawn` (antes do trigger), sem recarregar a cena; o trigger rearma e a cutscene
+  inteira se repete na próxima passada. A vitória é um `EscapeTrigger` no fim do corredor e
+  termina no menu principal (`GameManager.LoadMainMenu`, o mesmo do "Voltar ao menu" do pause), não em reload.
+- **Vitória**: a `WinScreenUI` (prefab `WinScreen`) é dona da sequência: em `Won` faz o clarão (o branco é a Image
+  dela), leva o som do jogo a zero pelo `AudioProvider.Fade` na mesma curva, dispara o estático
+  `WinScreenUI.CutToWhite` e mostra o texto. O player (`PlayerEscapedSequence`) só ouve o `CutToWhite` e desliga o que
+  é dele; a cutscene final congela o Seeker no mesmo evento. Ninguém referencia a tela.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
   (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
   Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela

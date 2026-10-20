@@ -2,11 +2,15 @@ using System;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
 
 public enum GameState
 {
     Preparing,
     Playing,
+    // Cutscene final (EscapeCutscene): a caça acabou mas a vitória ainda não. A IA e o pause só
+    // funcionam em Preparing/Playing, então ninguém captura nem pausa o jogador no meio dela.
+    Escaping,
     Won,
     Lost,
 }
@@ -14,15 +18,19 @@ public enum GameState
 [DefaultExecutionOrder(-100)]
 public class GameManager : MonoBehaviour
 {
-    // O reload da vitória mora aqui, e não na tela: a partida recomeça mesmo com uma UI mal
-    // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
+    // A ida ao menu depois da vitória mora aqui, e não na tela: acontece mesmo com uma UI mal
+    // configurada ou ausente (a WinScreenUI faz o clarão e o texto, mas não decide quando a partida acaba).
     // A derrota NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
     //
     // Tutorial já concluído: o spawn fica fora da sala do tutorial e a partida já abre em Playing.
     // A memória é estática porque o reload recria o GameManager; só o menu principal a apaga (ForgetTutorial).
-    [Header("Reinício")]
-    [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
-    [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
+    [Header("Fim de jogo")]
+    [Tooltip("Segundos depois de escapar até carregar o menu principal (clarão 2s + mensagem).")]
+    [FormerlySerializedAs("reloadDelayAfterWon")]
+    [SerializeField, Min(0f)] private float menuDelayAfterWon = 5.5f;
+
+    [Tooltip("Cena carregada depois da vitória (precisa estar no Build Settings).")]
+    [SerializeField] private string mainMenuScene = "MainMenu";
 
     [Tooltip("Onde o jogador nasce se o tutorial já foi concluído nesta sessão.")]
     [SerializeField] private Transform respawnPoint;
@@ -33,6 +41,11 @@ public class GameManager : MonoBehaviour
     [Tooltip("Dispara no reinício quando a partida já começa no game state Playing")]
     [SerializeField] private UnityEvent tutorialSkipped;
 
+    // Aqui, e não no finished do DialogueTrigger da porta: o tutorialSkipped chama o Skip() dele a cada reinício,
+    // e a abertura tocaria toda vez que o jogador renasce. Só o StartMainLoop é "o tutorial acabou agora".
+    [Tooltip("Dispara uma vez, na passagem do tutorial para a caça (Preparing → Playing). Não dispara no reinício.")]
+    [SerializeField] private UnityEvent gameStarted;
+
     private static bool tutorialCompleted;
 
     public static GameManager Current { get; private set; }
@@ -42,6 +55,19 @@ public class GameManager : MonoBehaviour
     public GameState State { get; private set; } = GameState.Preparing;
     public bool IsPlaying => State == GameState.Playing;
     public bool IsOver => State == GameState.Won || State == GameState.Lost;
+
+    /// <summary>
+    /// Trava do pause para uma sequência que não pode ser interrompida: a cutscene final segura do trigger até o jogador
+    /// ser pego ou vencer, onde um Esc sem querer viraria "Reiniciar". Quem liga é quem desliga.
+    /// </summary>
+    public bool PauseLocked { get; set; }
+
+    /// <summary>
+    /// Pausar em qualquer momento da partida, menos no fim e com a trava ligada. Escaping sozinho não bloqueia: depois de
+    /// ser pego na fuga final o jogador renasce em Escaping (a IA de verdade segue parada) e pode pausar até passar pelo
+    /// trigger de novo.
+    /// </summary>
+    public bool AllowsPause => !IsOver && !PauseLocked;
 
     public float ElapsedTime { get; private set; }
 
@@ -89,6 +115,7 @@ public class GameManager : MonoBehaviour
 
         SetState(GameState.Playing);
         tutorialCompleted = true;
+        gameStarted.Invoke();
     }
 
     /// <summary>Esquece que o tutorial foi concluído: o próximo load passa por ele de novo.</summary>
@@ -97,6 +124,33 @@ public class GameManager : MonoBehaviour
     public void PlayerCaught() => Finish(GameState.Lost);
 
     public void PlayerEscaped() => Finish(GameState.Won);
+
+    /// <summary>Início da cutscene final: a caça para (a IA só age em Playing), mas o jogo ainda não terminou.</summary>
+    public void BeginEscape()
+    {
+        if (State == GameState.Playing)
+            SetState(GameState.Escaping);
+    }
+
+    /// <summary>
+    /// Voltar ao menu encerra a sessão: um jogo novo passa pelo tutorial, pelas dicas e pelo diálogo de novo.
+    /// Fonte única para o pause e para o fim da vitória.
+    /// </summary>
+    public static void LoadMainMenu(string scene)
+    {
+        ResetTutorial();
+        HintDirector.ForgetProgress();
+        DialogueTrigger.ForgetDialog();
+
+        // O PlayerCamera trava e esconde o cursor, e nada no menu destrava: pelo pause funcionava porque o Pause() já
+        // tinha soltado o cursor, mas a vitória chega aqui com ele travado e os botões não respondem ao mouse.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        SceneManager.LoadScene(scene);
+    }
+
+    private void ReturnToMainMenu() => LoadMainMenu(mainMenuScene);
 
     public void Restart()
     {
@@ -144,7 +198,7 @@ public class GameManager : MonoBehaviour
         SetState(outcome);
 
         if (outcome == GameState.Won)
-            Invoke(nameof(Restart), reloadDelayAfterWon);
+            Invoke(nameof(ReturnToMainMenu), menuDelayAfterWon);
     }
 
     private void SetState(GameState next)

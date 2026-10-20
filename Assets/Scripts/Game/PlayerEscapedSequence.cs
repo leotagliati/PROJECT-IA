@@ -1,27 +1,16 @@
-using System;
-using System.Collections;
 using UnityEngine;
 
+/// <summary>
+/// Reação do player à vitória: quando a tela de vitória fica toda branca (<see cref="WinScreenUI.CutToWhite"/>),
+/// desliga o que é dele — movimento, câmera, input. Só nessa hora: o jogador corre o clarão inteiro no controle dele
+/// (ou no da cutscene final). O clarão, o som e o texto são da <see cref="WinScreenUI"/>.
+/// </summary>
 public class PlayerEscapedSequence : MonoBehaviour
 {
-    [Header("Clarão")]
-    [Tooltip("CanvasGroup de uma imagem branca em tela cheia. Começa em 0.")]
-    [SerializeField] private CanvasGroup whiteFade;
-
-    [Tooltip("Segundos até a tela ficar toda branca. Devagar de propósito: o clarão é alívio, não susto.")]
-    [SerializeField, Min(0.01f)] private float fadeDuration = 2f;
-
-    [Header("Depois do clarão")]
-    [Tooltip("Desligados só quando a tela já está branca. Vazio: movimento, câmera, SpineLook, CameraJuice, ShoulderPeek e InteractionController deste objeto.")]
+    [Tooltip("Desligados quando a tela fica branca. Vazio: movimento, câmera, SpineLook, CameraJuice, ShoulderPeek e InteractionController deste objeto.")]
     [SerializeField] private Behaviour[] disableAfterFade;
 
     [SerializeField] private Flashlight flashlight;
-
-    [Header("Áudio")]
-    [Tooltip("Vazio = sem som.")]
-    [SerializeField] private string stingerSoundId = "";
-
-    public event Action CutToWhite;
 
     private void Awake()
     {
@@ -42,42 +31,14 @@ public class PlayerEscapedSequence : MonoBehaviour
                 GetComponentInChildren<InteractionController>(),
             };
         }
-
-        if (whiteFade != null)
-            whiteFade.alpha = 0f;
-        else
-            Debug.LogError($"{name}: whiteFade não atribuído — a vitória acontece sem clarão.", this);
     }
 
-    private void OnEnable() => GameManager.StateChanged += HandleState;
+    private void OnEnable() => WinScreenUI.CutToWhite += HandleCutToWhite;
 
-    private void OnDisable() => GameManager.StateChanged -= HandleState;
+    private void OnDisable() => WinScreenUI.CutToWhite -= HandleCutToWhite;
 
-    private void HandleState(GameState state)
+    private void HandleCutToWhite()
     {
-        if (state == GameState.Won)
-            StartCoroutine(Run());
-    }
-
-    private IEnumerator Run()
-    {
-        if (!string.IsNullOrEmpty(stingerSoundId))
-            AudioProvider.PlayAt(stingerSoundId, transform.position);
-
-        for (float t = 0f; t < fadeDuration; t += Time.deltaTime)
-        {
-            if (whiteFade != null)
-                whiteFade.alpha = Mathf.SmoothStep(0f, 1f, t / fadeDuration);
-
-            yield return null;
-        }
-
-        // O loop sai com t < fadeDuration, então o alpha pararia um pouco antes de 1 e a tela
-        // ficaria quase branca para sempre. O texto da vitória entra por cima disto.
-        if (whiteFade != null)
-            whiteFade.alpha = 1f;
-
-        // Só agora: o jogador correu o clarão inteiro no controle dele.
         foreach (Behaviour behaviour in disableAfterFade)
         {
             if (behaviour != null)
@@ -86,7 +47,5 @@ public class PlayerEscapedSequence : MonoBehaviour
 
         if (flashlight != null)
             flashlight.InputLocked = true;
-
-        CutToWhite?.Invoke();
     }
 }

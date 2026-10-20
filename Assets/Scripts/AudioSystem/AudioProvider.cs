@@ -19,6 +19,7 @@ public static class AudioProvider
     private static bool _muted;
     private static bool _libraryMissing;
     private static float _masterVolume = 1f;
+    private static float _fade = 1f;
 
     private static AudioPool Pool
     {
@@ -80,9 +81,26 @@ public static class AudioProvider
         set
         {
             _masterVolume = Mathf.Clamp01(value);
-            AudioListener.volume = _masterVolume * _masterVolume;
+            ApplyListenerVolume();
         }
     }
+
+    /// <summary>
+    /// Atenuação temporária do jogo inteiro (0-1), por cima do <see cref="MasterVolume"/>: o fade to white da vitória
+    /// leva a 0 sem tocar na configuração do jogador. Como o AudioListener é global e sobrevive à troca de cena, quem
+    /// baixa é quem devolve o 1 (no OnDestroy, que roda quando a cena descarrega) — senão a cena seguinte abre muda.
+    /// </summary>
+    public static float Fade
+    {
+        get => _fade;
+        set
+        {
+            _fade = Mathf.Clamp01(value);
+            ApplyListenerVolume();
+        }
+    }
+
+    private static void ApplyListenerVolume() => AudioListener.volume = _masterVolume * _masterVolume * _fade;
 
     // ------------------------------------------------------------------ API
 
@@ -166,6 +184,7 @@ public static class AudioProvider
         _pool = null;
         _muted = false;
         _libraryMissing = false;
+        _fade = 1f;
         MasterVolume = 1f;
     }
 }
