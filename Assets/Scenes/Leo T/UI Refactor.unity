@@ -27724,10 +27724,10 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: New Text
+  m_text: "Voc\xEA escapou..."
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
+  m_sharedMaterial: {fileID: -3243252852277269249, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -162804,7 +162804,6 @@ RectTransform:
   - {fileID: 943480973}
   - {fileID: 2090129782}
   - {fileID: 523163109}
-  - {fileID: 106318365}
   - {fileID: 1614145753}
   - {fileID: 1885611741}
   - {fileID: 1804285329}
@@ -162812,6 +162811,7 @@ RectTransform:
   - {fileID: 1802769585}
   - {fileID: 52553663}
   - {fileID: 242276477}
+  - {fileID: 106318365}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
