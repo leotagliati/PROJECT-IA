@@ -42392,10 +42392,6 @@ PrefabInstance:
       propertyPath: m_Name
       value: HowToModal
       objectReference: {fileID: 0}
-    - target: {fileID: 8020532844619127908, guid: b91a341b0baf01f488c11a777f7a057e, type: 3}
-      propertyPath: m_IsActive
-      value: 1
-      objectReference: {fileID: 0}
     - target: {fileID: 8279010582978362086, guid: b91a341b0baf01f488c11a777f7a057e, type: 3}
       propertyPath: markup
       value: 
