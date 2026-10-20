@@ -37,6 +37,11 @@ namespace Assets.Scripts.Graph
         /// <summary>Esvaziou e ainda não recuperou o mínimo para correr.</summary>
         public bool Exhausted => _exhausted;
 
+        public float DefaultSeconds => _seconds;
+
+        /// <summary>Diretor de jogo: maior que 1 = o tanque dura mais e enche mais rápido. 1 = sem diretor.</summary>
+        public float RateScale { get; set; } = 1f;
+
         /// <summary>Enche o tanque. <paramref name="seconds"/> &lt;= 0 usa o do Inspector.</summary>
         public void Reset(float seconds = 0f)
         {
@@ -46,6 +51,14 @@ namespace Assets.Scripts.Graph
             _exhausted = false;
         }
 
+        /// <summary>Devolve uma fração do tanque de uma vez (ajuda do diretor de jogo).</summary>
+        public void Refill(float fraction)
+        {
+            _left = Mathf.Min(_capacity, _left + Mathf.Clamp01(fraction) * _capacity);
+            if (_exhausted && _left >= _minFractionToRun * _capacity)
+                _exhausted = false;
+        }
+
         /// <summary>Um step: devolve se CORRE neste step (quer correr e pode) e gasta ou recupera.</summary>
         public bool Step(bool wantsToRun, float deltaTime)
         {
@@ -53,7 +66,7 @@ namespace Assets.Scripts.Graph
             if (running)
             {
                 _sinceRun = 0f;
-                _left = Mathf.Max(0f, _left - deltaTime);
+                _left = Mathf.Max(0f, _left - deltaTime / Mathf.Max(0.1f, RateScale));
                 if (_left <= 0f)
                     _exhausted = true;
                 return true;
@@ -61,7 +74,7 @@ namespace Assets.Scripts.Graph
 
             _sinceRun += deltaTime;
             if (_sinceRun >= _regenDelay)
-                _left = Mathf.Min(_capacity, _left + _capacity / _refillSeconds * deltaTime);
+                _left = Mathf.Min(_capacity, _left + _capacity / _refillSeconds * deltaTime * RateScale);
 
             if (_exhausted && _left >= _minFractionToRun * _capacity)
                 _exhausted = false;

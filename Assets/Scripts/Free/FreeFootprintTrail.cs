@@ -86,6 +86,9 @@ namespace Assets.Scripts.Free
             _player = GetComponentInChildren<PlayerMovement>();
         }
 
+        /// <summary>Diretor de jogo: multiplica o raio em que o monstro ouve o passo. 1 = sem diretor.</summary>
+        public float NoiseScale { get; set; } = 1f;
+
         /// <summary>Apaga o rastro (novo episódio, respawn).</summary>
         public void Clear()
         {
@@ -132,7 +135,7 @@ namespace Assets.Scripts.Free
             AddPrint(position, moved.normalized, gait);
             _lastPrint = position;
 
-            float noise = gait == Gait.Run ? _runNoiseRadius : gait == Gait.Walk ? _walkNoiseRadius : 0f;
+            float noise = NoiseScale * (gait == Gait.Run ? _runNoiseRadius : gait == Gait.Walk ? _walkNoiseRadius : 0f);
             if (noise > 0f && Now - _lastNoise >= _noiseInterval)
             {
                 _lastNoise = Now;

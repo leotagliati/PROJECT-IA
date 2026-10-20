@@ -142,6 +142,16 @@ namespace Assets.Scripts.Graph
         /// <summary>Alcance do cone (m). A GraphRoomMemory filtra por ele antes de gastar raycast.</summary>
         public float ViewDistance => _viewDistance;
 
+        /// <summary>
+        /// Multiplica ângulo e alcance do cone de ACHAR o alvo (diretor de jogo); o cone de já vendo e os nós não mudam.
+        /// 1 = sem diretor.
+        /// </summary>
+        public float ViewScale { get; set; } = 1f;
+
+        private float ScaledViewDistance => _viewDistance * ViewScale;
+
+        private float ScaledViewAngle => Mathf.Clamp(_viewAngle * ViewScale, 10f, 360f);
+
         /// <summary>Já viu o hider neste episódio.</summary>
         public bool HasSeen { get; private set; }
 
@@ -540,13 +550,13 @@ namespace Assets.Scripts.Graph
 
             Vector3 planar = new Vector3(delta.x, 0f, delta.z);
             float distance = planar.magnitude;
-            float range = IsSeeing ? Mathf.Max(_viewDistance, _lockedViewDistance) : _viewDistance;
+            float range = IsSeeing ? Mathf.Max(ScaledViewDistance, _lockedViewDistance) : ScaledViewDistance;
             if (distance > range || distance < 1e-3f)
                 return false;
 
             if (distance > _closeSenseDistance)
             {
-                float angle = IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle;
+                float angle = IsSeeing ? Mathf.Max(ScaledViewAngle, _lockedViewAngle) : ScaledViewAngle;
                 if (Vector3.Angle(ViewForward(seeker), planar) > angle * 0.5f)
                     return false;
             }
@@ -566,7 +576,7 @@ namespace Assets.Scripts.Graph
 
             // Corpo inteiro em 3D: basta _minVisibleSamples pontos dentro do quadro e com linha livre.
             bool framed = distance > _closeSenseDistance;
-            float halfAngle = (IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle) * 0.5f;
+            float halfAngle = (IsSeeing ? Mathf.Max(ScaledViewAngle, _lockedViewAngle) : ScaledViewAngle) * 0.5f;
             return CountVisibleSamples(eye, ViewForward(seeker), framed, halfAngle, _targetCollider.bounds, walls,
                                        _minVisibleSamples, false) >= _minVisibleSamples;
         }

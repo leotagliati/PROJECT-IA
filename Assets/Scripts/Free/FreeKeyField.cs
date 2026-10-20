@@ -318,13 +318,24 @@ namespace Assets.Scripts.Free
         }
 
         /// <summary>A chave ainda no mapa mais perto pelo caminho do NavMesh (a presa vai nela); false se não há.</summary>
-        public bool TryNearestRemaining(Vector3 from, NavMeshPath path, out Vector3 position)
+        public bool TryNearestRemaining(Vector3 from, NavMeshPath path, out Vector3 position) =>
+            TrySafestRemaining(from, from, 0f, path, out position);
+
+        public bool IsTaken(int key) => _keys[key].Taken;
+
+        /// <summary>
+        /// A chave de menor caminho - <paramref name="threatWeight"/> x distância dela até <paramref name="threat"/> (o
+        /// monstro): o jogador experiente pega primeiro a que está longe dele. Peso 0 = a mais perto.
+        /// </summary>
+        public bool TrySafestRemaining(Vector3 from, Vector3 threat, float threatWeight, NavMeshPath path, out Vector3 position,
+                                       bool[] allowed = null)
         {
             position = from;
             float best = float.MaxValue;
-            foreach (Key key in _keys)
+            for (int k = 0; k < _keys.Count; k++)
             {
-                if (key.Taken || !NavMesh.CalculatePath(from, key.Position, NavMesh.AllAreas, path)
+                Key key = _keys[k];
+                if (key.Taken || (allowed != null && (k >= allowed.Length || !allowed[k])) || !NavMesh.CalculatePath(from, key.Position, NavMesh.AllAreas, path)
                     || path.status != NavMeshPathStatus.PathComplete)
                     continue;
 
@@ -333,9 +344,10 @@ namespace Assets.Scripts.Free
                 for (int i = 1; i < corners.Length; i++)
                     length += Vector3.Distance(corners[i - 1], corners[i]);
 
-                if (length < best)
+                float score = length - threatWeight * Vector3.Distance(key.Position, threat);
+                if (score < best)
                 {
-                    best = length;
+                    best = score;
                     position = key.Position;
                 }
             }

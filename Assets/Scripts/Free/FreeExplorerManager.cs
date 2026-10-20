@@ -9,6 +9,8 @@ using UnityEngine;
 
 namespace Assets.Scripts.Free
 {
+    public enum FreeEpisodeOutcome { Caught, Escaped, TimedOut, Covered, OutOfMap }
+
     /// <summary>
     /// Agente da v8 (explorador LIVRE): o ÚNICO que conhece os callbacks do ML-Agents. Não lê o mundo nem calcula
     /// recompensa; orquestra o step e delega. O CORPO é o do monstro da v5, sem mudança (pedido do Arthur): física,
@@ -113,6 +115,10 @@ namespace Assets.Scripts.Free
         private bool _ready;
         private float _lastStepReward;
         private string _lastEvent = "";
+        private int _outOfMapSteps;
+        private bool _outOfMapPending;
+        private bool _warnedOutOfMap;
+        private const float _outOfMapSeconds = 10f;
 
         // Modo de jogo: o alvo é o jogador (achado pela tag), roda o .onnx sem trainer, sem fim por tempo, e pegar é
         // derrota (GameManager). Só se mexe com o GameManager em Playing; sem GameManager (cena de teste), sempre.
@@ -121,6 +127,20 @@ namespace Assets.Scripts.Free
 
         /// <summary>Liga o painel de debug (menu "v8 (em Play)").</summary>
         public void SetDebugHud(bool on) => _debugHud = on;
+
+        // Para o diretor de jogo, que segue o mesmo episódio e só lê o monstro.
+        public event System.Action EpisodeBegan;
+        public event System.Action<FreeEpisodeOutcome> EpisodeFinished;
+
+        public bool IsReady => _ready;
+        public FreeArenaController Arena => _arenaController;
+        public GraphLocomotion Locomotion => _locomotion;
+        public GraphHiderPerception Perception => _perception;
+        public FreeTrackSense TrackSense => _trackSense;
+        public FreeKeyField Keys => _keys;
+        public FreeEpisodeSettings Settings => _settings;
+        public float ElapsedSeconds => _elapsedSteps * Time.fixedDeltaTime;
+        public float MaxEpisodeSeconds => _maxEpisodeSteps * Time.fixedDeltaTime;
 
         // ================================================================================
         // Montagem
@@ -368,6 +388,8 @@ namespace Assets.Scripts.Free
 
             _elapsedSteps = 0;
             _episodeEnding = false;
+            _outOfMapSteps = 0;
+            _outOfMapPending = false;
 
             _arenaController.ResetEpisode();
             _settings = _arenaController.Settings;
@@ -405,6 +427,7 @@ namespace Assets.Scripts.Free
             _memory.ClearStepFlags();
             _lastStepReward = 0f;
             _lastEvent = "";
+            EpisodeBegan?.Invoke();
         }
 
         // Sentir: a cada step de FÍSICA (com Decision Period 5 ele cruza uma porta entre duas decisões). Visão do
@@ -443,6 +466,14 @@ namespace Assets.Scripts.Free
             // à vista ou com pista fresca (pegada, barulho), que é quando ficar ali tem motivo.
             bool hasLead = _settings.HasHider && (_perception.IsSeeing || _trackSense.HasTrack);
             _memory.TickRoomTime(counting: !hasLead);
+
+            // Saiu do mapa (vão sem parede para fora): longe de todo ponto por _outOfMapSeconds encerra sem contar.
+            if (!IsGameMode)
+            {
+                _outOfMapSteps = _map.NearestPoint(_memory.Ground) < 0 ? _outOfMapSteps + 1 : 0;
+                if (_outOfMapSteps * Time.fixedDeltaTime >= _outOfMapSeconds)
+                    _outOfMapPending = true;
+            }
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -567,20 +598,32 @@ namespace Assets.Scripts.Free
 
             if (caught || covered)
             {
-                FinishEpisode(success: true);
+                FinishEpisode(caught ? FreeEpisodeOutcome.Caught : FreeEpisodeOutcome.Covered);
                 return;
             }
 
             if (escaped)
             {
-                FinishEpisode(success: false);
+                FinishEpisode(FreeEpisodeOutcome.Escaped);
+                return;
+            }
+
+            if (_outOfMapPending)
+            {
+                if (!_warnedOutOfMap)
+                    Debug.LogWarning($"{name}: saiu do mapa em {transform.position} (vão sem parede?). Episódio interrompido.", this);
+                _warnedOutOfMap = true;
+                _episodeEnding = true;
+                Academy.Instance.StatsRecorder.Add("Movement/OutOfMap", 1f);
+                EpisodeFinished?.Invoke(FreeEpisodeOutcome.OutOfMap);
+                EpisodeInterrupted();
                 return;
             }
 
             // O jogo não tem fim por tempo (o contador segue só para o painel).
             _elapsedSteps++;
             if (_elapsedSteps >= _maxEpisodeSteps && !IsGameMode)
-                FinishEpisode(success: false);
+                FinishEpisode(FreeEpisodeOutcome.TimedOut);
         }
 
         // Raridade somada dos pontos vistos pela 1ª vez neste step (0 sem ponto novo; o jogo não usa recompensa).
@@ -619,7 +662,7 @@ namespace Assets.Scripts.Free
                 return;
             }
 
-            FinishEpisode(success: true);
+            FinishEpisode(FreeEpisodeOutcome.Caught);
         }
 
         // Último evento que mexeu na reward, para o painel (só com _debugHud).
@@ -711,11 +754,15 @@ namespace Assets.Scripts.Free
             return isDoor;
         }
 
-        private void FinishEpisode(bool success)
+        private void FinishEpisode(FreeEpisodeOutcome outcome)
         {
+            bool success = outcome == FreeEpisodeOutcome.Caught || outcome == FreeEpisodeOutcome.Covered;
             _episodeEnding = true;
             _arenaController.ShowOutcome(success);
             RecordEpisodeStats(success);
+            Academy.Instance.StatsRecorder.Add("Movement/OutOfMap", 0f);
+            // Antes do EndEpisode, que já roda o OnEpisodeBegin do próximo.
+            EpisodeFinished?.Invoke(outcome);
             EndEpisode();
         }
 

@@ -36,7 +36,19 @@ namespace Assets.Scripts.Free
         // Episódio SÓ DE EXPLORAR sorteado no meio da caça (explore_chance): sem presa, exploração x1, cobertura encerra.
         public bool ExploreOnly;
 
+        // NÍVEL do "jogador" do treino do diretor (player_level_jitter): multiplica velocidade e fôlego da presa.
+        // 0 (o padrão do struct) vale 1: o treino do monstro não muda.
+        public float LevelSpeedScale;
+        public float LevelStaminaScale;
+
+        // Jogador imitado pela presa (player_profiles): habilidade e estilo. Inativo = a presa de sempre.
+        public FreeHiderProfile Profile;
+
         public bool HasHider => HiderMode != GraphHider.Mode.None;
+
+        public float SpeedScale => LevelSpeedScale > 0f ? LevelSpeedScale : 1f;
+
+        public float StaminaScale => LevelStaminaScale > 0f ? LevelStaminaScale : 1f;
     }
 
     /// <summary>
@@ -505,6 +517,16 @@ namespace Assets.Scripts.Free
             // Treino sem key_chance no .yaml (os da v8.0) = sem chaves; o padrão do Inspector vale só sem trainer.
             float keyFallback = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn ? 0f : _defaultKeyChance;
 
+            // Jogador mais lento e de pouco fôlego até mais rápido e folgado, sorteado por episódio (só o diretor usa).
+            float jitter = _gameMode ? 0f : Mathf.Clamp01(Get("player_level_jitter", 0f));
+            float speedScale = 1f + jitter * Random.Range(-0.15f, 0.1f);
+            float staminaScale = 1f + jitter * Random.Range(-0.4f, 0.4f);
+
+            // Com perfil, a presa "escondida" da lição Misto sai do estilo: só a tímida, e nem sempre.
+            FreeHiderProfile profile = !_gameMode && Get("player_profiles", 0f) > 0.5f ? FreeHiderProfile.Sample() : default;
+            if (profile.Active && mode != GraphHider.Mode.None)
+                hides = profile.Style == FreeHiderStyle.Timid && Random.value < 0.6f;
+
             return new FreeEpisodeSettings
             {
                 CoverageTarget = _gameMode ? Mathf.Max(coverage, 1.1f) : coverage,
@@ -516,6 +538,9 @@ namespace Assets.Scripts.Free
                 HiderSpeed = !_gameMode && fast ? _fastHiderSpeed : speed,
                 HiderStamina = Mathf.Max(0f, Get("hider_stamina", _defaultHiderStamina)),
                 ExploreOnly = exploreOnly,
+                LevelSpeedScale = speedScale,
+                LevelStaminaScale = staminaScale,
+                Profile = profile,
             };
         }
     }

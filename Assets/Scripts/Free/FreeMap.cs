@@ -91,6 +91,18 @@ namespace Assets.Scripts.Free
         private Vector3[] _points;          // no chão (NavMesh)
         private int[] _pointRoom;
         private Door[] _doors;
+
+        // Vãos de porta que não ligam duas salas (um lado sem chão): dão para fora do mapa. O menu de treino os tampa.
+        private readonly List<Door> _looseDoors = new List<Door>();
+
+        public IReadOnlyList<Door> LooseDoors
+        {
+            get
+            {
+                EnsureBuilt();
+                return _looseDoors;
+            }
+        }
         private int[][] _roomPoints;
         private int[][] _roomDoors;         // por ângulo em volta do centro da sala (slot estável)
         private Vector3[] _roomCentroid;
@@ -357,6 +369,7 @@ namespace Assets.Scripts.Free
 
             // Portas que separam duas salas do mapa; o resto sai (com aviso: vão sem chão, ou VAZAMENTO).
             var keptDoors = new List<Door>();
+            _looseDoors.Clear();
             int leaks = 0, loose = 0;
             for (int d = 0; d < doors.Count; d++)
             {
@@ -366,6 +379,7 @@ namespace Assets.Scripts.Free
                 if (ra < 0 || rb < 0)
                 {
                     loose++;
+                    _looseDoors.Add(doors[d]);
                     continue;
                 }
 

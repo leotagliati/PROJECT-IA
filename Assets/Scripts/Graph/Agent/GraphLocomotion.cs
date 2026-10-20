@@ -117,13 +117,19 @@ namespace Assets.Scripts.Graph
         /// <summary>Velocidade de deslocamento atual (m/s), com inércia e perdas na parede.</summary>
         public float Speed { get; private set; }
 
+        /// <summary>
+        /// Multiplica as três velocidades juntas (diretor de jogo). MaxSpeed escala igual: a proporção que a rede vê
+        /// não muda. 1 = sem diretor.
+        /// </summary>
+        public float SpeedScale { get; set; } = 1f;
+
         /// <summary>Velocidade do estado atual (m/s): o teto que o corpo busca andando.</summary>
-        public float StateSpeed => State == Awareness.Chase ? _chaseSpeed : State == Awareness.Alert ? _alertSpeed : _patrolSpeed;
+        public float StateSpeed => SpeedScale * (State == Awareness.Chase ? _chaseSpeed : State == Awareness.Alert ? _alertSpeed : _patrolSpeed);
 
         /// <summary>A maior velocidade (perseguição): normaliza as velocidades na observação.</summary>
-        public float MaxSpeed => Mathf.Max(_chaseSpeed, 0.1f);
+        public float MaxSpeed => Mathf.Max(_chaseSpeed * SpeedScale, 0.1f);
 
-        public float PatrolSpeed => _patrolSpeed;
+        public float PatrolSpeed => _patrolSpeed * SpeedScale;
 
         /// <summary>Fração do Alerta que ainda resta (1 = pista agora, 0 = sem alerta).</summary>
         public float AlertRemaining => _alertSeconds > 0f ? Mathf.Clamp01(_alertLeft / _alertSeconds) : 0f;

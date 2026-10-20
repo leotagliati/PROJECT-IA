@@ -196,6 +196,20 @@ namespace Assets.Scripts.Free
         // Escondida agora: a de sempre (lição Escondida), a que se escondeu depois de fugir ou a instalada.
         private bool Concealed => _hides || _hiddenAfterFlee || _settled;
 
+        // Números da partida: os do Inspector, ou os do jogador imitado (FreeHiderProfile, treino do diretor).
+        private float _fleeRadiusNow, _fleeSightNow, _hiddenFleeRadiusNow, _hiddenFleeSightNow, _hiddenExitBonusNow;
+        private float _fleeReplanNow, _hideChanceNow, _keySeekNow, _hideAfterFleeNow;
+        private int _fleeCandidatesNow, _hideCandidatesNow;
+        private float _pauseScale = 1f, _hideTimeScale = 1f, _sneakRadius, _keyThreatWeight;
+
+        // Chaves que ela conhece: perto (KeyKnowRadius), vistas de perto, ou destacadas pelo diretor. Sem perfil, todas.
+        private float _keyKnowRadius = float.MaxValue;
+        private bool[] _knownKeys = new bool[0];
+        private const float KeySightMeters = 15f;
+        private bool _savesStamina;
+
+        public FreeHiderProfile Profile { get; private set; }
+
         // Métricas do episódio (Hider/* no TensorBoard): conferir que ela foge e se esconde de verdade.
         private int _episodeSteps;
         private int _hiddenSteps;
@@ -232,6 +246,11 @@ namespace Assets.Scripts.Free
 
         /// <summary>Agachada (escondida e sem fugir): cápsula baixa, passo lento, pegada fraca (FreeFootprintTrail).</summary>
         public bool IsCrouching { get; private set; }
+
+        public float StaminaFraction => _stamina.Fraction;
+
+        /// <summary>Fôlego extra de uma vez (ajuda do diretor de jogo ao "jogador" do treino).</summary>
+        public void BoostStamina(float fraction) => _stamina.Refill(fraction);
 
         // Sem grafo não há nó nem ping (o GraphPingSystem da v5 é que lia isto; a v8 não usa).
         public int CurrentNode => -1;
@@ -330,8 +349,11 @@ namespace Assets.Scripts.Free
             _seeker = seeker;
             _mode = settings.HiderMode;
             _hides = settings.HiderHides;
-            _stamina.Reset(settings.HiderStamina);
-            _currentSpeed = settings.HiderSpeed > 0f ? settings.HiderSpeed : _speed;
+            float staminaSeconds = settings.HiderStamina > 0f ? settings.HiderStamina : _stamina.DefaultSeconds;
+            float skillStamina = settings.Profile.Active ? settings.Profile.StaminaScale : 1f;
+            _stamina.Reset(staminaSeconds * settings.StaminaScale * skillStamina);
+            _currentSpeed = (settings.HiderSpeed > 0f ? settings.HiderSpeed : _speed) * settings.SpeedScale;
+            ApplyProfile(settings.Profile);
             IsRunning = false;
             _corners.Clear();
             _goalIsHiding = false;
@@ -369,6 +391,126 @@ namespace Assets.Scripts.Free
             }
         }
 
+        private void ApplyProfile(in FreeHiderProfile profile)
+        {
+            Profile = profile;
+            bool on = profile.Active;
+            _fleeRadiusNow = _fleeRadius * (on ? profile.AwarenessScale : 1f);
+            _fleeSightNow = _fleeSightDistance * (on ? profile.AwarenessScale : 1f);
+            _hiddenFleeRadiusNow = _hiddenFleeRadius * (on ? profile.HiddenNerveScale : 1f);
+            _hiddenFleeSightNow = _hiddenFleeSightDistance * (on ? profile.HiddenNerveScale : 1f);
+            _hiddenExitBonusNow = _hiddenExitBonus * (on ? profile.EvasionScale : 1f);
+            // Pontos e replanejamento limitados a 1.5x: com 40 arenas a 20x, caminho de NavMesh vira o gargalo da CPU.
+            float search = on ? Mathf.Min(1.5f, profile.EvasionScale) : 1f;
+            _fleeCandidatesNow = Mathf.Max(1, Mathf.RoundToInt(_fleeCandidates * search));
+            _fleeReplanNow = _fleeReplanSeconds / Mathf.Max(0.5f, search);
+            _hideCandidatesNow = Mathf.Max(1, Mathf.RoundToInt(_hideCandidates * (on ? profile.HideSearchScale : 1f)));
+            _hideChanceNow = on ? profile.HideChance : _hideChance;
+            _keySeekNow = on ? profile.KeySeekChance : _keySeekChance;
+            _hideAfterFleeNow = on ? Mathf.Clamp01(profile.HideAfterFleeChance) : _hideAfterFleeChance;
+            _pauseScale = on ? profile.PauseScale : 1f;
+            _hideTimeScale = on ? profile.HideTimeScale : 1f;
+            _sneakRadius = on ? profile.SneakRadius : 0f;
+            _savesStamina = on && profile.SavesStamina;
+            _keyThreatWeight = on ? profile.KeyThreatWeight : 0f;
+            _keyKnowRadius = on ? profile.KeyKnowRadius : float.MaxValue;
+            _stamina.RateScale = 1f;
+            int keyCount = _keys != null ? _keys.Count : 0;
+            if (_knownKeys.Length != keyCount)
+                _knownKeys = new bool[keyCount];
+            for (int k = 0; k < keyCount; k++)
+                _knownKeys[k] = !on;
+        }
+
+        // Quem guarda fôlego (o jogador bom) só corre exposta ao monstro ou com ele perto, e não gasta a reserva longe.
+        private bool WantsToRun(bool exposed)
+        {
+            if (!_savesStamina || _seeker == null)
+                return true;
+
+            Vector3 toSeeker = _seeker.position - transform.position;
+            float distance = new Vector2(toSeeker.x, toSeeker.z).magnitude;
+            if (distance < 6f)
+                return true;
+            if (_stamina.Fraction < 0.25f && distance > 10f)
+                return false;
+            return exposed;
+        }
+
+        // O monstro tem linha livre até ela, ao alcance da visão dele (sem cone: a cabeça vira rápido).
+        private bool Exposed()
+        {
+            Vector3 toSeeker = _seeker.position - transform.position;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= _seekerViewDistance && LineIsClear(transform.position, _seeker.position);
+        }
+
+        /// <summary>Diretor de jogo: taxa do fôlego (gasta e enche). 1 = sem diretor.</summary>
+        public void SetStaminaRate(float scale) => _stamina.RateScale = scale;
+
+        /// <summary>Ela já conhece todas as chaves que faltam (destacar não adianta).</summary>
+        public bool KnowsAllRemainingKeys
+        {
+            get
+            {
+                if (_keys == null)
+                    return true;
+                for (int k = 0; k < _knownKeys.Length; k++)
+                    if (!_knownKeys[k] && !_keys.IsTaken(k))
+                        return false;
+                return true;
+            }
+        }
+
+        /// <summary>Destaque do diretor (no jogo, brilho e som na chave): passa a conhecer a chave mais perto que não conhecia.</summary>
+        public bool RevealNearestKey()
+        {
+            if (_keys == null)
+                return false;
+
+            int best = -1;
+            float bestDistance = float.MaxValue;
+            for (int k = 0; k < _knownKeys.Length; k++)
+            {
+                if (_knownKeys[k] || _keys.IsTaken(k))
+                    continue;
+                float distance = Vector3.Distance(_keys.Get(k).Position, transform.position);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = k;
+                }
+            }
+
+            if (best < 0)
+                return false;
+            _knownKeys[best] = true;
+            return true;
+        }
+
+        private void UpdateKnownKeys()
+        {
+            if (_keys == null)
+                return;
+
+            Vector3 eye = transform.position + Vector3.up * _hiderChestHeight;
+            for (int k = 0; k < _knownKeys.Length; k++)
+            {
+                if (_knownKeys[k] || _keys.IsTaken(k))
+                    continue;
+                Vector3 key = _keys.Get(k).Position;
+                float distance = Vector3.Distance(key, transform.position);
+                _knownKeys[k] = distance <= _keyKnowRadius
+                                || (distance <= KeySightMeters
+                                    && !Physics.Linecast(eye, key + Vector3.up * 0.5f, _walls, QueryTriggerInteraction.Ignore));
+            }
+        }
+
+        private bool SeekerWithin(float meters)
+        {
+            Vector3 toSeeker = _seeker.position - transform.position;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= meters;
+        }
+
         /// <summary>Tira o hider de cena (modo de jogo: quem foge é o jogador).</summary>
         public void Deactivate()
         {
@@ -394,8 +536,13 @@ namespace Assets.Scripts.Free
             bool wasFleeing = _fleeing;
             UpdateFleeing();
 
+            // Jogador bom: fora da vista do monstro se afasta sem correr (andando, ou agachado com ele ao alcance do
+            // barulho do passo); só corre exposto ou com ele colado.
+            bool exposed = _seeker != null && _fleeing && Exposed();
+
             // Antes da pausa: parado também recupera estamina.
-            IsRunning = _stamina.Step(_fleeing, Time.fixedDeltaTime);
+            bool wantsRun = _fleeing && WantsToRun(exposed);
+            IsRunning = _stamina.Step(wantsRun, Time.fixedDeltaTime);
 
             // Despistou: vai se esconder fora da vista dele (ou, sem sorte no sorteio, volta a passear).
             if (_fleeing)
@@ -406,16 +553,22 @@ namespace Assets.Scripts.Free
                 _hiddenAfterFlee = false;
                 _settled = false;
             }
-            else if (wasFleeing && !_hides && Random.value < _hideAfterFleeChance)
+            else if (wasFleeing && !_goingToHide && !_hides && Random.value < _hideAfterFleeNow)
             {
                 StartHidingAfterFlee();
             }
 
-            // Escondida fica agachada até ser achada; fugindo, levanta.
-            SetCrouching(Concealed && !_fleeing);
+            // Escondida fica agachada até ser achada; fugindo, levanta. Com o monstro perto, quem é cuidadosa anda
+            // agachada (sem barulho, pegada fraca): passeando, indo se esconder, e fugindo fora da vista sem correr.
+            bool sneaking = _sneakRadius > 0f && _seeker != null && SeekerWithin(_sneakRadius)
+                            && (!_fleeing || (_savesStamina && !wantsRun));
+            SetCrouching((Concealed && !_fleeing) || sneaking);
             _episodeSteps++;
             if (Concealed && !_fleeing && !_goingToHide)
                 _hiddenSteps++;
+
+            if (_episodeSteps % 25 == 0)
+                UpdateKnownKeys();
 
             // Passou pela chave, pegou (fugindo também: no caminho, leva).
             if (_keys != null && _keys.Remaining > 0)
@@ -429,7 +582,7 @@ namespace Assets.Scripts.Free
                 {
                     _pauseLeft = 0;
                     PlanFlee();
-                    _replanLeft = _fleeReplanSeconds;
+                    _replanLeft = _fleeReplanNow;
                 }
             }
 
@@ -474,12 +627,12 @@ namespace Assets.Scripts.Free
             {
                 _goingToHide = false;
                 _hiddenAfterFlee = true;
-                float seconds = Random.Range(_hideAfterFleeMinSeconds, Mathf.Max(_hideAfterFleeMinSeconds, _hideAfterFleeMaxSeconds));
+                float seconds = _hideTimeScale * Random.Range(_hideAfterFleeMinSeconds, Mathf.Max(_hideAfterFleeMinSeconds, _hideAfterFleeMaxSeconds));
                 _pauseLeft = Mathf.RoundToInt(seconds / Time.fixedDeltaTime);
                 return;
             }
 
-            _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Random.Range(0, _maxPauseSteps + 1) : 0;
+            _pauseLeft = _maxPauseSteps > 0 && !_fleeing ? Mathf.RoundToInt(Random.Range(0, _maxPauseSteps + 1) * _pauseScale) : 0;
             if (_goalIsHiding)
                 _pauseLeft = _hides && !_fleeing ? HiddenPauseSteps() : Mathf.RoundToInt(_pauseLeft * _hidePauseMultiplier);
 
@@ -494,7 +647,7 @@ namespace Assets.Scripts.Free
         }
 
         private int HiddenPauseSteps() =>
-            Mathf.RoundToInt(Random.Range(_hiddenPauseMinSeconds, Mathf.Max(_hiddenPauseMinSeconds, _hiddenPauseMaxSeconds)) / Time.fixedDeltaTime);
+            Mathf.RoundToInt(_hideTimeScale * Random.Range(_hiddenPauseMinSeconds, Mathf.Max(_hiddenPauseMinSeconds, _hiddenPauseMaxSeconds)) / Time.fixedDeltaTime);
 
         // ================================================================================
         // Destinos
@@ -504,8 +657,9 @@ namespace Assets.Scripts.Free
         private void ChooseWanderGoal()
         {
             // Com chaves no mapa, a maior parte dos destinos é a chave mais perto.
-            if (_keys != null && _keys.Remaining > 0 && Random.value < _keySeekChance
-                && _keys.TryNearestRemaining(Ground, _probe ??= new NavMeshPath(), out Vector3 key))
+            if (_keys != null && _keys.Remaining > 0 && Random.value < _keySeekNow
+                && _keys.TrySafestRemaining(Ground, _seeker != null ? _seeker.position : Ground, _keyThreatWeight,
+                                            _probe ??= new NavMeshPath(), out Vector3 key, _knownKeys))
             {
                 _goalIsHiding = false;
                 if (SetPathTo(key))
@@ -519,7 +673,7 @@ namespace Assets.Scripts.Free
             // A sala (esta ou uma vizinha, sem voltar à de onde veio) sai pelo peso da arena: as que o monstro menos vê
             // primeiro, passeando ou indo se esconder. Entre _wanderCandidates destinos, o de caminho menos exposto
             // (fora da ronda dele).
-            _goalIsHiding = _hides || Random.value < _hideChance;
+            _goalIsHiding = _hides || Random.value < _hideChanceNow;
             int target = room;
             Vector3 goal = Vector3.zero;
             float bestExposure = float.MaxValue;
@@ -609,7 +763,7 @@ namespace Assets.Scripts.Free
             float bestScore = float.MinValue;
             Vector3 best = here;
             bool found = false;
-            for (int k = 0; k < _fleeCandidates; k++)
+            for (int k = 0; k < _fleeCandidatesNow; k++)
             {
                 float angle = Random.Range(0f, Mathf.PI * 2f);
                 float radius = Random.Range(_fleeMinDistance, Mathf.Max(_fleeMinDistance, _fleeMaxDistance));
@@ -622,13 +776,13 @@ namespace Assets.Scripts.Free
                     continue;
 
                 // Primeira perna na direção do monstro, com ele perto: correria para os braços dele.
-                if (seekerDistance < _fleeRadius * 1.5f && Vector3.Dot(firstLeg, seekerDirection) > 0.5f)
+                if (seekerDistance < _fleeRadiusNow * 1.5f && Vector3.Dot(firstLeg, seekerDirection) > 0.5f)
                     continue;
 
                 if (!TryPath(seekerGround, candidate, _probe, out float fromSeeker, out _))
                     fromSeeker = 0f;
 
-                float score = fromSeeker + (SeekerCanSee(candidate) ? 0f : _hiddenExitBonus);
+                float score = fromSeeker + (SeekerCanSee(candidate) ? 0f : _hiddenExitBonusNow);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -690,7 +844,7 @@ namespace Assets.Scripts.Free
             IReadOnlyList<int> doors = _map.DoorsOfRoom(room);
             Vector3 best = Vector3.zero;
             float bestScore = float.MaxValue;
-            for (int k = 0; k < _hideCandidates; k++)
+            for (int k = 0; k < _hideCandidatesNow; k++)
             {
                 Vector3 spot = RareSpot(room, out float rarity);
                 int seen = 0;
@@ -768,12 +922,13 @@ namespace Assets.Scripts.Free
         private bool SeekerIsNear()
         {
             Vector3 toSeeker = _seeker.position - transform.position;
-            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= (Concealed ? _hiddenFleeRadius : _fleeRadius);
+            bool hidden = Concealed;
+            return new Vector2(toSeeker.x, toSeeker.z).magnitude <= (hidden ? _hiddenFleeRadiusNow : _fleeRadiusNow);
         }
 
         private bool SeesSeeker()
         {
-            float sight = Concealed ? _hiddenFleeSightDistance : _fleeSightDistance;
+            float sight = Concealed ? _hiddenFleeSightNow : _fleeSightNow;
             if (sight <= 0f)
                 return false;
 
