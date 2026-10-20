@@ -237,3 +237,15 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0
     MaxDistance: 0
+  - Id: pause_open
+    Clips:
+    - {fileID: 8300000, guid: bd903289f6d649018d42596a0f5b4df7, type: 3}
+    Volume: 0.6
+    PitchJitter: 0
+    MaxDistance: 0
+  - Id: pause_close
+    Clips:
+    - {fileID: 8300000, guid: 976761ca70ac4a8fb05e055d12c0b688, type: 3}
+    Volume: 0.6
+    PitchJitter: 0
+    MaxDistance: 0

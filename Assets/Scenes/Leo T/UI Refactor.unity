@@ -79406,8 +79406,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: New Text
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
+  m_sharedMaterial: {fileID: -3243252852277269249, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -95196,6 +95196,8 @@ MonoBehaviour:
   settingsButton: {fileID: 279588714}
   selectionWaker: {fileID: 7311905142860417002}
   mainMenuScene: MainMenu
+  pauseSoundId: pause_open
+  resumeSoundId: pause_close
 --- !u!1 &1013126836
 GameObject:
   m_ObjectHideFlags: 0
