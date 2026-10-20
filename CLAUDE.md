@@ -236,6 +236,13 @@ determinístico durante o treino.
   (`PROJECT-IA/RetroScreen`): amostra no centro do texel, dithering Bayer 4×4 e quantização
   por canal em espaço gamma. Tudo na resolução da RT. Outras cenas com o mesmo RawImage não
   têm o material — arraste `Assets/Materials/RetroScreen.mat` no campo Material.
+- **Vidro com reflexo**: `PlanarReflection` (na malha do vidro, order 130 — depois da cadeia de câmera) cria uma
+  câmera espelhada no plano do vidro, com projeção oblíqua, renderizando numa RT que segue a `PixelatedCameraTexture` (metade da resolução por padrão); o material
+  `GlassReflection` (`PROJECT-IA/GlassReflection`) soma o reflexo por cima da cor do vidro, com Fresnel e neblina.
+  A câmera do reflexo desliga longe ou fora da tela e pede Depth Texture (senão o `FlashlightBeam` some do reflexo).
+  O plano é a face do vidro voltada para a câmera (eixo mais fino da malha, no mundo), e o vidro é escondido só
+  para a câmera do reflexo. `ShowInReflections` (raiz do `PlayerDummy`) liga a cabeça `ShadowsOnly` só nas câmeras
+  de reflexo, por begin/end de câmera — a câmera do player continua sem cabeça.
 - **Stamina**: `StaminaBarUI` só lê o `PlayerStamina` e pinta o prefab `Prefabs/UI/StaminaBar` (Container
   9-slice, Fill `Filled`, Icon; sprites cinza em `Images/HUD`, a cor vem do componente). Não monta mais a barra em
   código: sem o `fill` atribuído ele se desliga com erro. Some com a barra cheia e durante diálogo/bilhete.
