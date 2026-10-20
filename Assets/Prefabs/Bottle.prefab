@@ -153,7 +153,8 @@ MonoBehaviour:
   minSoundSpeed: 0.8
   minImpactSpeed: 2.5
   loudImpactSpeed: 9
-  hearingMeters: 25
+  hearingMeters: 55
+  impactHearingMeters: 20
   impactCooldown: 0.35
   smashSpeed: 11
   smashFallHeight: 3

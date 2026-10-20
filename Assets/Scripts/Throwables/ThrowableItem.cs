@@ -31,8 +31,11 @@ public class ThrowableItem : MonoBehaviour, IInteractable
     [Tooltip("Velocidade em que a batida sai com volume e alcance cheios.")]
     [SerializeField] private float loudImpactSpeed = 9f;
 
-    [Tooltip("Alcance da IA, em metros pelo grafo, na batida mais forte. A mais fraca ouve a metade.")]
-    [SerializeField] private float hearingMeters = 25f;
+    [Tooltip("Alcance da IA, em metros pelo caminho, quando o item quebra (smash).")]
+    [SerializeField] private float hearingMeters = 55f;
+
+    [Tooltip("Alcance da IA, em metros pelo caminho, na batida que não quebra.")]
+    [SerializeField] private float impactHearingMeters = 20f;
 
     [Tooltip("Quiques seguidos dentro disto contam como uma batida só.")]
     [SerializeField] private float impactCooldown = 0.35f;
@@ -202,7 +205,7 @@ public class ThrowableItem : MonoBehaviour, IInteractable
         AudioProvider.PlayAt(impactSoundId, point, Mathf.Lerp(0.25f, 1f, loudness));
 
         if (speed >= minImpactSpeed)
-            NoiseEvents.Emit(point, hearingMeters * Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(minImpactSpeed, loudImpactSpeed, speed)));
+            NoiseEvents.Emit(point, impactHearingMeters);
     }
 
     // Destroy só vale no fim do frame: sem desligar já, outro contato do mesmo step quebraria de novo.
