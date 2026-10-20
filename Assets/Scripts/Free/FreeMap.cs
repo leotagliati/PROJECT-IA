@@ -813,7 +813,8 @@ namespace Assets.Scripts.Free
 
         private void OnDrawGizmosSelected()
         {
-            if (!_built || _points == null)
+            // O reload de scripts preserva _built e _points mas zera o int[][]: o mapa fica pela metade.
+            if (!_built || _points == null || _roomPoints == null || _roomCentroid == null || _doors == null)
                 return;
 
             // Pontos: cinza-escuro, um disco por ponto (a FreeExplorationMemory pinta os vistos em Play).
