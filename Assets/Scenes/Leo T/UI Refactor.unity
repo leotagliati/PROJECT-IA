@@ -195793,10 +195793,6 @@ PrefabInstance:
       propertyPath: m_Name
       value: GameOverUI
       objectReference: {fileID: 0}
-    - target: {fileID: 430594464080280357, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
-      propertyPath: m_IsActive
-      value: 1
-      objectReference: {fileID: 0}
     - target: {fileID: 5216632388080947163, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
       propertyPath: m_Pivot.x
       value: 0.5
