@@ -13,6 +13,9 @@ public class MenuSelectionArrow : MonoBehaviour
     [Tooltip("Só segue botões dentro deste objeto. Vazio = o pai da seta.")]
     [SerializeField] private Transform menuRoot;
 
+    [Tooltip("Some com um Slider selecionado: o SegmentedSliderView já acende os blocos.")]
+    [SerializeField] private bool ignoreSliders = true;
+
     [Tooltip("Distância entre a ponta da seta e o começo do texto, em unidades do Canvas.")]
     [SerializeField] private float gap = 24f;
 
@@ -41,12 +44,13 @@ public class MenuSelectionArrow : MonoBehaviour
         Show(false);
     }
 
-    // LateUpdate: o HoverEffect anima a escala do botão no Update, e a seta mede o texto já escalado.
+    // LateUpdate: o HoverEffect desliza o texto no Update, e a seta acompanha a posição já deste frame.
     private void LateUpdate()
     {
         GameObject selected = EventSystem.current != null ? EventSystem.current.currentSelectedGameObject : null;
 
-        if (selected == null || !selected.transform.IsChildOf(menuRoot))
+        if (selected == null || !selected.transform.IsChildOf(menuRoot)
+            || (ignoreSliders && selected.TryGetComponent(out Slider _)))
         {
             target = null;
             Show(false);

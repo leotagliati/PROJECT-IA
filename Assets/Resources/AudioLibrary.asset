@@ -225,3 +225,15 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0
     MaxDistance: 8
+  - Id: ui_press
+    Clips:
+    - {fileID: 8300000, guid: d318b84e59504d498e9e7401b1cdf02a, type: 3}
+    Volume: 0.6
+    PitchJitter: 0.04
+    MaxDistance: 0
+  - Id: ui_slider
+    Clips:
+    - {fileID: 8300000, guid: a9bad2aa581844169a585d5d63a5ec99, type: 3}
+    Volume: 0.5
+    PitchJitter: 0
+    MaxDistance: 0

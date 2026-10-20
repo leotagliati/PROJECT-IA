@@ -14,6 +14,7 @@ public class AudioPool : MonoBehaviour
     private float[] _startTimes;          // pra roubar sempre a voz mais antiga
     private int[] _generations;           // incrementa a cada Play no slot; ver AudioHandle
     private int _cursor;
+    private AudioSource _uiSource;
 
     [SerializeField] private bool _drawGizmos = true;
 
@@ -48,6 +49,35 @@ public class AudioPool : MonoBehaviour
 
             _sources[i] = source;
         }
+
+        var ui = new GameObject("Voice_UI");
+        ui.transform.SetParent(transform, false);
+
+        _uiSource = ui.AddComponent<AudioSource>();
+        _uiSource.playOnAwake = false;
+        _uiSource.spatialBlend = 0f;
+        // Os menus vivem no Pause, que pausa o AudioListener (PauseAudio): sem isto o clique não tocaria lá.
+        _uiSource.ignoreListenerPause = true;
+        _uiSource.outputAudioMixerGroup = library.MixerGroup;
+    }
+
+    /// <summary>
+    /// Som de interface: 2D, fora do pool (não rouba voz do mundo) e audível com o jogo pausado. OneShot para
+    /// cliques rápidos se sobreporem; o pitch é do source, então vale para os que ainda soam.
+    /// </summary>
+    public void PlayUI(string id, float volumeScale, float pitchScale)
+    {
+        if (Muted)
+            return;
+
+        if (!_library.TryGet(id, out AudioLibrary.SoundEntry entry))
+        {
+            Debug.LogWarning("[AudioPool] id desconhecido: " + id, this);
+            return;
+        }
+
+        _uiSource.pitch = (1f + Random.Range(-entry.PitchJitter, entry.PitchJitter)) * pitchScale;
+        _uiSource.PlayOneShot(entry.Clips[Random.Range(0, entry.Clips.Length)], entry.Volume * volumeScale);
     }
 
     /// <summary>
