@@ -26,7 +26,7 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1454402523359173297}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 0.06656, y: 0.06656, z: 0.06656}
   m_ConstrainProportionsScale: 1
@@ -100,6 +100,8 @@ GameObject:
   - component: {fileID: 4292925775259055459}
   - component: {fileID: 7136925412909801032}
   - component: {fileID: 4580132337607182503}
+  - component: {fileID: 6539267358674046368}
+  - component: {fileID: 6888507092616353369}
   m_Layer: 5
   m_Name: InteractionPrompt
   m_TagString: Untagged
@@ -146,7 +148,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1712412059957509075}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d5aaf420ff25caf48808494e56760800, type: 3}
   m_Name: 
@@ -162,6 +164,67 @@ MonoBehaviour:
   failureDuration: 1.5
   shakeDuration: 0.4
   shakeAmplitude: 5
+--- !u!114 &6539267358674046368
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1712412059957509075}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b5bea1024aec16429d5ad35ad3da78f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  controller: {fileID: 0}
+  font: {fileID: 11400000, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
+  keyCapSprite: {fileID: 21300000, guid: 63315318b2f34c079f79e5b46dccdc49, type: 3}
+  textColor: {r: 0.93, g: 0.92, b: 0.88, a: 1}
+  keyColor: {r: 0.85, g: 0.76, b: 0.48, a: 1}
+  progressColor: {r: 0.85, g: 0.12, b: 0.12, a: 1}
+  failureColor: {r: 1, g: 0.19287209, b: 0.11792451, a: 1}
+  failureDuration: 1.5
+  shakeDuration: 0.4
+  shakeAmplitude: 5
+  fontSize: 13
+  padding: {x: 6, y: 3}
+  offset: 28
+  slide: 24
+  underlineHeight: 2
+  panelColor: {r: 0, g: 0, b: 0, a: 0.67}
+  trackColor: {r: 0.24, g: 0.23, b: 0.21, a: 1}
+  appearTime: 0.12
+--- !u!114 &6888507092616353369
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1712412059957509075}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9a39a311a86f5964ca91ea79725f7dc4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  controller: {fileID: 0}
+  font: {fileID: 11400000, guid: 2cbb01fab5c69c645a6fdc7aa92b214b, type: 2}
+  keyCapSprite: {fileID: 21300000, guid: 63315318b2f34c079f79e5b46dccdc49, type: 3}
+  textColor: {r: 0.93, g: 0.92, b: 0.88, a: 1}
+  keyColor: {r: 0.85, g: 0.76, b: 0.48, a: 1}
+  progressColor: {r: 0.85, g: 0.12, b: 0.12, a: 1}
+  failureColor: {r: 1, g: 0.45, b: 0.4, a: 1}
+  failureDuration: 1.5
+  shakeDuration: 0.4
+  shakeAmplitude: 5
+  ticks: 12
+  tickSize: 8
+  radius: {x: 16, y: 40}
+  idleTickColor: {r: 0.55, g: 0.54, b: 0.5, a: 1}
+  farAlpha: 0.35
+  fontSize: 28
+  keySize: 52
+  labelGap: 32
+  appearTime: 0.12
 --- !u!1 &1726606188121702278
 GameObject:
   m_ObjectHideFlags: 0
