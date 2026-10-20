@@ -1,0 +1,65 @@
+# ================================================================================================
+# DIRETOR v4 (20/10/2026): o diretor tem que acertar o NIVEL de cada jogador, nao a media. Do zero (27 observacoes,
+# o v3 tinha 23). Build Builds/Diretor_v4 (menu "Diretor: preparar Cena Final - AJUSTADO..."), mesmos jogadores do v3.
+#
+# POR QUE: o v3 (diretor_v3_01, 3M) virou PROTETOR: Survived 0.33 -> 0.48, EarlyCatch 0.59 -> 0.28, partida 182 ->
+# 275 s, vazio 62% -> 29%; mas ajudou todos igual (Ruim 0.26->0.41, Medio 0.38->0.52, Bom 0.37->0.52: a distancia
+# entre eles nao mudou) e nao criou susto (close calls ~0.58, InBand 0.03), quase so com som de distracao (4.4).
+#
+# MUDANCAS:
+#   observa como o jogador vai NA PARTIDA (sem saber o nivel): vezes visto, escapes por vez visto, fracao do tempo com
+#     o monstro em alerta/perseguicao, distancia media pelo caminho.
+#   recompensa pelo NIVEL VERDADEIRO (so o treino sabe; s = habilidade 0..1): pego cedo -2 x (1.5 - s) (ruim -3, bom
+#     -1); pego no resto -0.5 x (1.5 - s); escapou sem susto 0.5 x calls/3 - 1 x s (o bom ganhar facil custa ate -1);
+#     vazio x(0.5 + s). Escapou com >= 3 close calls +2 e derrota dramatica +0.5 valem para todos.
+#   close call novo: monstro em alerta a < 10 m pelo caminho sem ver, e o jogador sai de fininho (ele passa de 20 m
+#     ou desiste) - acontece bem mais que perseguicao.
+#   distrair custa 0.12 (era 0.05 como os outros).
+# META: Player/Survived Ruim, Medio e Bom se aproximando (~0.5 os tres), Director/CloseCalls subindo.
+# LINHA DE BASE: diretor_v3_cal4 (sem diretor) e diretor_v3_01 (diretor v3).
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 200000
+    max_steps: 3000000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0
+  player_profiles: 1
+  director_off: 0

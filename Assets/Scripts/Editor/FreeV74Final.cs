@@ -17,19 +17,61 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class FreeV74Final
 {
+    // Dois treinos saem do mesmo caminho: o do monstro (v7.4) e o do diretor de jogo (monstro congelado).
+    private sealed class Profile
+    {
+        public string SourceScene;
+        public string ArenaFolder;
+        public string ArenaName;
+        public string TrainingScene;
+        public string BuildPath;
+        public string LogPrefix;
+        public bool Director;
+    }
+
     // Mapa 2 = o Mapa 1 (fonte da v7.4.4) com os ajustes de 19/10; o Mapa 1 fica como registro.
-    private const string SourceScene = "Assets/Scenes/Arthur/Cena Final - Mapa 2.unity";
+    private static readonly Profile Monster = new Profile
+    {
+        SourceScene = "Assets/Scenes/Arthur/Cena Final - Mapa 2.unity",
+        ArenaFolder = "Assets/Prefabs/Arenas/V7.4",
+        ArenaName = "Arena - Cena Final",
+        TrainingScene = "Assets/Scenes/Arthur/v8.3/Cena Final - Treino.unity",
+        BuildPath = "Builds/V7.4/PROJECT-IA.exe",
+        LogPrefix = "Logs/v7.4",
+    };
+
+    private static readonly Profile Director = new Profile
+    {
+        SourceScene = "Assets/Scenes/Deco/Cena Final - AJUSTADO.unity",
+        ArenaFolder = "Assets/Prefabs/Arenas/Diretor",
+        ArenaName = "Arena - Diretor",
+        TrainingScene = "Assets/Scenes/Arthur/Diretor/Diretor - Treino.unity",
+        BuildPath = "Builds/Diretor_v6/PROJECT-IA.exe",
+        LogPrefix = "Logs/diretor",
+        Director = true,
+    };
+
+    private static Profile _profile = Monster;
+
+    private static string SourceScene => _profile.SourceScene;
+    private static string ArenaFolder => _profile.ArenaFolder;
+    private static string ArenaPrefabPath => $"{ArenaFolder}/{_profile.ArenaName}.prefab";
+    private static string NavMeshAssetPath => $"{ArenaFolder}/{_profile.ArenaName} NavMesh.asset";
+    private static string TrainingScene => _profile.TrainingScene;
+    private static string BuildPath => _profile.BuildPath;
+    private static string RoomReport => _profile.LogPrefix + "_rooms.txt";
+    private static string EdgeDump => _profile.LogPrefix + "_navmesh.txt";
+
     private const string SourceRoot = "Mapa Final";
     private const string HiderSourcePrefab = "Assets/Prefabs/Arenas/V8.2/Map - V8.prefab";
     private const string HiderName = "Hider";
-    private const string ArenaFolder = "Assets/Prefabs/Arenas/V7.4";
-    private const string ArenaPrefabPath = ArenaFolder + "/Arena - Cena Final.prefab";
-    private const string NavMeshAssetPath = ArenaFolder + "/Arena - Cena Final NavMesh.asset";
-    private const string TrainingScene = "Assets/Scenes/Arthur/v8.3/Cena Final - Treino.unity";
-    private const string BuildPath = "Builds/V7.4/PROJECT-IA.exe";
-    private const string RoomReport = "Logs/v7.4_rooms.txt";
     private const string BlockerGroup = "Bloqueios de borda (treino)";
-    private const string EdgeDump = "Logs/v7.4_navmesh.txt";
+    private const string DirectorName = "Diretor";
+    private const string DoorBlockerGroup = "Portas para fora (treino)";
+
+    // Barulho dos passos da presa no treino (m pelo caminho); agachada não faz barulho (FreeFootprintTrail).
+    private const float TrainingRunNoise = 20f;
+    private const float TrainingWalkNoise = 8f;
 
     // Fração mínima da área da maior peça do NavMesh para contar como chão (tampo de móvel fica abaixo).
     private const float MainFloorFraction = 0.05f;
@@ -42,13 +84,20 @@ public static class FreeV74Final
     private const float ArenaGap = 60f;
 
     [MenuItem("PROJECT-IA/v7.4: preparar Cena Final, cena de treino e build")]
-    public static void PrepareAll() => Prepare(build: true);
+    public static void PrepareAll() => Prepare(Monster, build: true);
 
     [MenuItem("PROJECT-IA/v7.4: preparar Cena Final e cena de treino (sem build)")]
-    public static void PrepareWithoutBuild() => Prepare(build: false);
+    public static void PrepareWithoutBuild() => Prepare(Monster, build: false);
 
-    private static void Prepare(bool build)
+    [MenuItem("PROJECT-IA/Diretor: preparar Cena Final - AJUSTADO, cena de treino e build")]
+    public static void PrepareDirectorAll() => Prepare(Director, build: true);
+
+    [MenuItem("PROJECT-IA/Diretor: preparar Cena Final - AJUSTADO e cena de treino (sem build)")]
+    public static void PrepareDirectorWithoutBuild() => Prepare(Director, build: false);
+
+    private static void Prepare(Profile profile, bool build)
     {
+        _profile = profile;
         if (!CanRun())
             return;
 
@@ -196,10 +245,29 @@ public static class FreeV74Final
         agentSettings.FindProperty("_planShowsEntered").boolValue = true;
         agentSettings.ApplyModifiedPropertiesWithoutUndo();
         var behavior = new SerializedObject(agent.GetComponent<Unity.MLAgents.Policies.BehaviorParameters>());
-        behavior.FindProperty("m_Model").objectReferenceValue = null;
-        behavior.FindProperty("m_BehaviorType").intValue = 0;
+        if (_profile.Director)
+        {
+            // Monstro CONGELADO: o .onnx da cena de jogo, em inferência; só o diretor fala com o trainer.
+            if (behavior.FindProperty("m_Model").objectReferenceValue == null)
+            {
+                Debug.LogError($"[FreeV74Final] o monstro da {SourceScene} está sem Model: o diretor precisa do .onnx congelado.");
+                return false;
+            }
+
+            behavior.FindProperty("m_BehaviorType").intValue = (int)Unity.MLAgents.Policies.BehaviorType.InferenceOnly;
+            behavior.FindProperty("m_DeterministicInference").boolValue = false;
+            Debug.Log($"[FreeV74Final] monstro congelado com {behavior.FindProperty("m_Model").objectReferenceValue.name}.");
+        }
+        else
+        {
+            behavior.FindProperty("m_Model").objectReferenceValue = null;
+            behavior.FindProperty("m_BehaviorType").intValue = 0;
+        }
         behavior.FindProperty("m_BrainParameters.VectorObservationSize").intValue = FreeObservations.Size;
         behavior.ApplyModifiedPropertiesWithoutUndo();
+
+        if (_profile.Director)
+            AddDirector(arenaRoot);
 
         // A presa usa o olho do monstro para escolher esconderijo.
         GraphHiderPerception perception = agent.GetComponentInChildren<GraphHiderPerception>(true);
@@ -216,7 +284,39 @@ public static class FreeV74Final
         if (player != null)
             player.gameObject.SetActive(false);
         CopyPlayerTrail(player, hider);
+        SetTrainingNoise(hider);
         return true;
+    }
+
+    private static void SetTrainingNoise(FreeHider hider)
+    {
+        FreeFootprintTrail trail = hider.GetComponent<FreeFootprintTrail>();
+        if (trail == null)
+            trail = hider.gameObject.AddComponent<FreeFootprintTrail>();
+
+        var settings = new SerializedObject(trail);
+        settings.FindProperty("_runNoiseRadius").floatValue = TrainingRunNoise;
+        settings.FindProperty("_walkNoiseRadius").floatValue = TrainingWalkNoise;
+        settings.ApplyModifiedPropertiesWithoutUndo();
+        Debug.Log($"[FreeV74Final] barulho da presa: correndo {TrainingRunNoise} m, andando {TrainingWalkNoise} m, agachada 0.");
+    }
+
+    // Um diretor por arena, filho da raiz; segue o episódio do monstro dela.
+    private static void AddDirector(GameObject arenaRoot)
+    {
+        Transform old = arenaRoot.transform.Find(DirectorName);
+        if (old != null)
+            Object.DestroyImmediate(old.gameObject);
+
+        var director = new GameObject(DirectorName);
+        director.transform.SetParent(arenaRoot.transform, false);
+        var parameters = director.AddComponent<Unity.MLAgents.Policies.BehaviorParameters>();
+        parameters.BehaviorName = Assets.Scripts.Director.DirectorAgent.BehaviorNameDirector;
+        parameters.BrainParameters.VectorObservationSize = Assets.Scripts.Director.DirectorAgent.ObservationSize;
+        parameters.BrainParameters.ActionSpec = Unity.MLAgents.Actuators.ActionSpec.MakeDiscrete(Assets.Scripts.Director.DirectorAgent.Branches);
+        director.AddComponent<Assets.Scripts.Director.DirectorRewardSystem>();
+        director.AddComponent<Assets.Scripts.Director.DirectorAgent>();
+        Debug.Log("[FreeV74Final] diretor posto na arena (behavior Director).");
     }
 
     private static void CopyPlayerTrail(Transform player, FreeHider hider)
@@ -372,7 +472,10 @@ public static class FreeV74Final
         surface.enabled = true;
         FreeMap map = instance.GetComponentInChildren<FreeMap>(true);
         if (map != null)
+        {
             map.GenerateAndReport();
+            SealLooseDoors(instance.transform, map);
+        }
         ReportSeeThroughCover(instance);
 
         Bounds bounds = data.sourceBounds;
@@ -552,6 +655,71 @@ public static class FreeV74Final
             box.transform.localRotation = Quaternion.Inverse(instanceRoot.rotation) * Quaternion.LookRotation(b.Outward, Vector3.up);
             var collider = box.AddComponent<BoxCollider>();
             collider.size = new Vector3(b.Width, 6f, 0.5f);
+        }
+    }
+
+    // Vão de porta que não liga duas salas dá para fora do mapa (na Cena Final é onde encaixam a entrada e o tutorial):
+    // caixa na layer Wall tapando o vão, só no prefab de treino.
+    private static void SealLooseDoors(Transform instanceRoot, FreeMap map)
+    {
+        // Tampa quando um lado não é sala do mapa (sem chão, ou chão descartado como "fora do mapa"). Os dois lados em
+        // salas diferentes = porta boa que a amostragem errou: não pode partir o mapa ao meio.
+        var loose = new List<FreeMap.Door>();
+        foreach (FreeMap.Door door in map.LooseDoors)
+        {
+            int Side(float sign)
+            {
+                Vector3 probe = new Vector3(door.Center.x, map.FloorY, door.Center.z) + door.Normal * sign * (door.HalfDepth + 1.5f);
+                if (!NavMesh.SamplePosition(probe, out NavMeshHit hit, 1f, NavMesh.AllAreas))
+                    return -1;
+                int point = map.NearestPoint(hit.position);
+                return point >= 0 && Vector3.Distance(map.PointGround(point), hit.position) < 2.5f ? map.RoomOfPoint(point) : -1;
+            }
+
+            int a = Side(1f), b = Side(-1f);
+            if (a < 0 || b < 0)
+                loose.Add(door);
+            else
+                Debug.LogWarning($"[FreeV74Final] porta '{door.Source}' entre as salas S{a:00} e S{b:00}: NÃO tampada.");
+        }
+
+        GameObject contents = PrefabUtility.LoadPrefabContents(ArenaPrefabPath);
+        try
+        {
+            Transform old = contents.transform.Find(DoorBlockerGroup);
+            if (old != null)
+                Object.DestroyImmediate(old.gameObject);
+            if (loose.Count == 0)
+            {
+                PrefabUtility.SaveAsPrefabAsset(contents, ArenaPrefabPath);
+                Debug.Log("[FreeV74Final] portas: todo vão de porta liga duas salas, nenhum tampado.");
+                return;
+            }
+
+            var group = new GameObject(DoorBlockerGroup);
+            group.transform.SetParent(contents.transform, false);
+            int wall = LayerMask.NameToLayer("Wall");
+            var report = new List<string>();
+            for (int i = 0; i < loose.Count; i++)
+            {
+                FreeMap.Door door = loose[i];
+                var box = new GameObject($"Porta tampada {i} ({door.Source})") { layer = wall };
+                box.transform.SetParent(group.transform, false);
+                Vector3 world = new Vector3(door.Center.x, map.FloorY + 3f, door.Center.z);
+                box.transform.localPosition = instanceRoot.InverseTransformPoint(world);
+                box.transform.localRotation = Quaternion.Inverse(instanceRoot.rotation) * Quaternion.LookRotation(door.Normal, Vector3.up);
+                var collider = box.AddComponent<BoxCollider>();
+                collider.size = new Vector3(door.HalfWidth * 2f + 0.4f, 6f, Mathf.Max(0.4f, door.HalfDepth * 2f));
+                report.Add($"{door.Source} em ({world.x:0.0}, {world.z:0.0}), {door.HalfWidth * 2f:0.0} m");
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(contents, ArenaPrefabPath);
+            Debug.LogWarning($"[FreeV74Final] {loose.Count} vão(s) de porta para fora do mapa tampado(s) no grupo " +
+                             $"'{DoorBlockerGroup}':\n  {string.Join("\n  ", report)}");
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(contents);
         }
     }
 

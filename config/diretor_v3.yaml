@@ -1,0 +1,79 @@
+# ================================================================================================
+# DIRETOR v3 (20/10/2026): o v2 (diretor_v2.yaml) com os JOGADORES CALIBRADOS. Build Builds/Diretor_v3 (menu
+# "Diretor: preparar Cena Final - AJUSTADO..."; o menu tambem tampa os 8 vaos de porta para fora do mapa).
+#
+# CALIBRACAO (linha de base, director_off, runs diretor_v3_cal1..4): no v2 os tres niveis sobreviviam IGUAL (~0.28):
+# contra o monstro v7.4.4 esconder e fatal (CaughtHidden 0.8-0.96) e o "bom" do v2 se escondia e andava agachado
+# (lento). Agora o bom MANTEM DISTANCIA EM MOVIMENTO: percebe o monstro de longe (fuga x2.4), se afasta andando e so
+# agacha a menos de 9 m (alcance do passo), corre so exposto, se esconde pouco (0.25), folego x1.3. O ruim percebe
+# tarde (x0.4), se esconde em 90% das fugas em esconderijo pior, folego x0.7.
+# LINHA DE BASE cal4 (sem diretor): Survived Ruim 0.24 / Medio 0.31 / Bom 0.41; duracao 114 / 171 / 222 s.
+# META do diretor: aproximar os tres (ajudar o ruim, apertar o bom), close calls na faixa 3-6 para todos.
+#
+# MUDANCAS:
+#   player_profiles: 1 -> a presa imita um JOGADOR por partida (FreeHiderProfile): habilidade 0-1 (Ruim/Medio/Bom:
+#     percebe o monstro de mais longe, guarda folego, anda agachada perto dele, foge para fora da vista, esconde
+#     melhor e aguenta escondida com ele perto) e ESTILO (equilibrado, arriscado, timido, medroso).
+#   close call novo: perdeu de vista e nao reencontrou em 12 s (alem do GaveUp e de passar colado).
+#   director_off: 1 -> linha de base (diretor travado em "nada"), mesmas metricas.
+# METRICAS NOVAS: Player/Survived|CloseCalls|Seconds por Ruim/Medio/Bom e por estilo. Meta: o diretor aproxima a
+# sobrevivencia dos tres niveis (ajuda o ruim, aperta o bom) e poe close calls na faixa para todos.
+#
+# RECOMPENSA (DirectorRewardSystem), contas por partida:
+#   close call (desistiu da perseguicao ou passou a < 5 m sem ver): +1 com >= 90 s do anterior, +0.25 colado,
+#     -0.5 acima de 6. Faixa boa 3-6: teto ~+6.
+#   fim: escapou com >= 3 close calls +2; escapou sem susto +0.5 x close calls / 3; pego antes de 180 s -2;
+#     pego depois de 300 s e com >= 3 close calls +0.5; pego no resto -0.5.
+#   vazio: -0.003/s com a tensao abaixo de 0.2 por mais de 60 s (teto ~-1.9 em 700 s vazios).
+#   custo: -0.05 por som ou folego (orcamento todo: -0.8); -0.002/s por 0.1 de escala fora do normal (as duas no
+#     maximo a partida inteira: ~-2.8). A intervencao tem que se pagar em close call ou partida mais longa.
+#
+# LINHA DE BASE: o monstro sozinho (v7.4.4) pega ~66% das presas, quase sempre cedo. Compare Director/* e o
+# Hunt/Caught do monstro (gravado junto) com um run curto de diretor travado em "nada".
+# CRITERIO: em ~2M, Director/EarlyCatch caindo, Director/InBand subindo e Director/Survived entre 0.4 e 0.6.
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 200000
+    max_steps: 3000000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0
+  player_profiles: 1
+  director_off: 0

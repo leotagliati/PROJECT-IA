@@ -1,0 +1,63 @@
+# ================================================================================================
+# DIRETOR v5 (20/10/2026): o v4 (diretor_v4.yaml) com alavancas novas, do zero (29 observacoes, 5 ramos de acao).
+# Build Builds/Diretor_v5. 1.5M decisoes: cabe ate as 16h30 (~330k/h com 8 jogos).
+#
+# MUDANCAS:
+#   folego CONTINUO (x0.85 / normal / x1.15, gasta e enche) no lugar da recarga de +50% de uma vez.
+#   DESTACAR CHAVE (evento; no jogo brilho + som na chave): a presa so conhece chave perto (Ruim 8 m .. Bom 25 m,
+#     Expert todas) ou vista a < 15 m; destacar revela a mais perto que ela nao conhece. 3 por partida, 45 s entre.
+#   BARULHO DO PASSO (x0.8 / normal / x1.2): o raio em que o monstro ouve correr e andar.
+#   Ajudam a IA (bloqueados no alivio, na perseguicao, depois de 6 close calls ou 600 s): atrair, velocidade e visao
+#     do monstro para mais, folego para menos, passo mais alto.
+#   Expert (20% das partidas): chaves pela rota longe do monstro, percebe de muito longe, nao se esconde. Sem diretor
+#     sobrevive ~0.6 (Ruim ~0.2): e com ele que o diretor aprende a ajudar a IA.
+# Lanterna falhando e creaking baixo NAO entram no aprendizado (a presa scriptada nao sente medo): viram regra na cena
+# de jogo, com a tensao baixa por muito tempo.
+# META: Player/Survived Ruim, Medio, Bom e Expert se aproximando; Director/CloseCalls subindo.
+# LINHA DE BASE: diretor_v4_base (sem diretor; mesmos jogadores, sem o conhecimento parcial de chaves).
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 100000
+    max_steps: 1500000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0
+  player_profiles: 1
+  director_off: 0

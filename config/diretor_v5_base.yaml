@@ -1,0 +1,75 @@
+# ================================================================================================
+# DIRETOR v2 - LINHA DE BASE (20/10/2026): igual ao diretor_v2.yaml, com director_off 1 (diretor travado em "nada")
+# e 60k decisoes: so mede o monstro contra cada tipo de jogador, sem diretor. Run diretor_v2_base.
+#
+# POR QUE: no v1 a presa era um jogador so, e ruim: o monstro a ouvia ~10x por partida (andava sem parar), via em 73%
+# e pegava em 67%; perdia de vista 1.6x, mas o barulho o mantinha em alerta e o GaveUp (o close call do v1) quase
+# nunca saia: close calls parados em ~0.6 por partida. O diretor so aprendia a proteger (distrair, folego).
+#
+# MUDANCAS:
+#   player_profiles: 1 -> a presa imita um JOGADOR por partida (FreeHiderProfile): habilidade 0-1 (Ruim/Medio/Bom:
+#     percebe o monstro de mais longe, guarda folego, anda agachada perto dele, foge para fora da vista, esconde
+#     melhor e aguenta escondida com ele perto) e ESTILO (equilibrado, arriscado, timido, medroso).
+#   close call novo: perdeu de vista e nao reencontrou em 12 s (alem do GaveUp e de passar colado).
+#   director_off: 1 -> linha de base (diretor travado em "nada"), mesmas metricas.
+# METRICAS NOVAS: Player/Survived|CloseCalls|Seconds por Ruim/Medio/Bom e por estilo. Meta: o diretor aproxima a
+# sobrevivencia dos tres niveis (ajuda o ruim, aperta o bom) e poe close calls na faixa para todos.
+#
+# RECOMPENSA (DirectorRewardSystem), contas por partida:
+#   close call (desistiu da perseguicao ou passou a < 5 m sem ver): +1 com >= 90 s do anterior, +0.25 colado,
+#     -0.5 acima de 6. Faixa boa 3-6: teto ~+6.
+#   fim: escapou com >= 3 close calls +2; escapou sem susto +0.5 x close calls / 3; pego antes de 180 s -2;
+#     pego depois de 300 s e com >= 3 close calls +0.5; pego no resto -0.5.
+#   vazio: -0.003/s com a tensao abaixo de 0.2 por mais de 60 s (teto ~-1.9 em 700 s vazios).
+#   custo: -0.05 por som ou folego (orcamento todo: -0.8); -0.002/s por 0.1 de escala fora do normal (as duas no
+#     maximo a partida inteira: ~-2.8). A intervencao tem que se pagar em close call ou partida mais longa.
+#
+# LINHA DE BASE: o monstro sozinho (v7.4.4) pega ~66% das presas, quase sempre cedo. Compare Director/* e o
+# Hunt/Caught do monstro (gravado junto) com um run curto de diretor travado em "nada".
+# CRITERIO: em ~2M, Director/EarlyCatch caindo, Director/InBand subindo e Director/Survived entre 0.4 e 0.6.
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 200000
+    max_steps: 40000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0
+  player_profiles: 1
+  director_off: 1

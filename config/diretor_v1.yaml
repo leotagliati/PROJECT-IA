@@ -1,0 +1,72 @@
+# ================================================================================================
+# DIRETOR v1 (20/10/2026): diretor de jogo por reforco. So o behavior Director aprende; o monstro fica CONGELADO
+# (FreeExplorer_v7.4.4_15M em inferencia, o .onnx da Cena Final - AJUSTADO). Ambiente: menu
+# "PROJECT-IA -> Diretor: preparar Cena Final - AJUSTADO, cena de treino e build" -> Builds/Diretor.
+#
+# OBJETIVO: deixar cada jogador no nivel certo de dificuldade. O "jogador" do treino e a presa (FreeHider) da licao
+# Final do monstro (foge ou se esconde, chaves em metade dos episodios), com NIVEL sorteado por episodio
+# (player_level_jitter: velocidade x0.85-1.1, folego x0.6-1.4).
+#
+# EPISODIO = a partida: acaba quando o monstro pega, quando a presa foge com as chaves ou em 700 s (~12 min).
+# DECISAO a cada 3 s (DirectorAgent._decisionSeconds): ~233 decisoes numa partida inteira, ~35 numa captura de 110 s.
+# ACOES (3 ramos discretos): evento (nada / atrair: som perto do jogador / distrair: som longe / folego extra),
+# velocidade do monstro (normal / x0.9 / x1.1) e visao de achar (normal / x0.85 / x1.15), mudando 0.03 por segundo.
+# LIMITES = mascara: no alivio (60 s depois de um close call), na perseguicao, depois de 6 close calls ou de 600 s,
+# nada que ajude a IA. Orcamento por partida: 6 atrair, 6 distrair, 4 folegos; 20 s entre sons.
+#
+# RECOMPENSA (DirectorRewardSystem), contas por partida:
+#   close call (desistiu da perseguicao ou passou a < 5 m sem ver): +1 com >= 90 s do anterior, +0.25 colado,
+#     -0.5 acima de 6. Faixa boa 3-6: teto ~+6.
+#   fim: escapou com >= 3 close calls +2; escapou sem susto +0.5 x close calls / 3; pego antes de 180 s -2;
+#     pego depois de 300 s e com >= 3 close calls +0.5; pego no resto -0.5.
+#   vazio: -0.003/s com a tensao abaixo de 0.2 por mais de 60 s (teto ~-1.9 em 700 s vazios).
+#   custo: -0.05 por som ou folego (orcamento todo: -0.8); -0.002/s por 0.1 de escala fora do normal (as duas no
+#     maximo a partida inteira: ~-2.8). A intervencao tem que se pagar em close call ou partida mais longa.
+#
+# LINHA DE BASE: o monstro sozinho (v7.4.4) pega ~66% das presas, quase sempre cedo. Compare Director/* e o
+# Hunt/Caught do monstro (gravado junto) com um run curto de diretor travado em "nada".
+# CRITERIO: em ~2M, Director/EarlyCatch caindo, Director/InBand subindo e Director/Survived entre 0.4 e 0.6.
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 200000
+    max_steps: 3000000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0

@@ -1,0 +1,60 @@
+# ================================================================================================
+# DIRETOR v5.1 (20/10/2026): o v5 (diretor_v5.yaml) com a RECOMPENSA corrigida. Build Builds/Diretor_v5_1.
+#
+# POR QUE: no v5 acabar a partida cedo rendia mais. Jogador bom (s=1): pego aos 2 min = -2 x (1.5 - 1) = -1, mais
+# ~-0.3 de tedio; escapar 11 min sem susto = 0 - 1 (facil demais) - 2.9 de tedio = -3.9. O diretor aprendeu a atrair o
+# monstro (Attracts 2.9 -> 3.2, Decoys 2.7 -> 1.9, EarlyCatch 0.58 -> 0.64 em 230k).
+#
+# RECOMPENSA v5.1, a mesma ordem para todo jogador:
+#   escapou com >= 3 close calls +2  >  pego depois de 300 s com >= 3 close calls +0.5  >
+#   escapou sem susto 0.5 + 0.5 x calls/3 - 0.5 x s (o Expert facil: ~0)  >  pego no resto -0.75  >  pego antes de 180 s -2.
+#   por segundo: +0.001 com a tensao entre 0.3 e 0.85 (teto ~+0.7); tedio -0.001 x (0.5 + s) depois de 60 s (teto ~-1).
+#   close call +1 espacado (+0.25 colado, -0.5 acima de 6); custos de intervencao e alavancas iguais ao v5.
+# CONTA (bom, s=1): pego aos 2 min ~ -2.1; escapar sem susto ~ 0 - 1 = -1; escapar com sustos ~ +2 + tensao.
+# 1.2M decisoes: cabe ate as 16h30.
+# ================================================================================================
+
+behaviors:
+  Director:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 512
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropia mais alta que a do monstro: acoes discretas e raras (orcamento), facil travar em "nada".
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      # Observacoes ja vem em 0..1.
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        # 0.995 com decisao a cada 3 s = ~10 min de horizonte: o fim da partida pesa nas decisoes do comeco.
+        gamma: 0.995
+        strength: 1.0
+    threaded: true
+    keep_checkpoints: 20
+    checkpoint_interval: 100000
+    max_steps: 1200000
+    time_horizon: 128
+    summary_freq: 10000
+
+# Valores fixos da licao Final do monstro (free_v7.4.4_planta.yaml), sem episodio so de explorar.
+environment_parameters:
+  hider_mode: 5
+  coverage_target: 1.1
+  discovery_reward_scale: 0.5
+  key_chance: 0.5
+  explore_chance: 0.0
+  hider_speed: 8.5
+  hider_stamina: 10
+  player_level_jitter: 1.0
+  player_profiles: 1
+  director_off: 0
