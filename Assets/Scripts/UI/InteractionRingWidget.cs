@@ -41,7 +41,6 @@ public class InteractionRingWidget : InteractionPromptBase
     private Sprite keySprite;
     private float visibility;
     private float nearBlend;
-    private float shown;
 
     protected override void Build()
     {
@@ -102,16 +101,11 @@ public class InteractionRingWidget : InteractionPromptBase
         InteractionPrompt prompt = controller.CurrentPrompt;
         bool blocked = !prompt.Available || Denying;
 
-        if (controller.IsHolding)
-            shown = controller.HoldProgress;
-        else if (Time.unscaledTime - completedAt > 0.3f)
-            shown = Mathf.MoveTowards(shown, 0f, dt * 4f);
-        else
-            shown = 1f;
+        UpdateProgress(dt);
 
         float eased = 1f - (1f - nearBlend) * (1f - nearBlend);
         float r = Mathf.Lerp(radius.x, radius.y, eased);
-        int lit = Mathf.FloorToInt(shown * ticks + 1e-4f);
+        int lit = Mathf.FloorToInt(progress * ticks + 1e-4f);
         Color litColor = CompletionFlash ? textColor : progressColor;
 
         for (int i = 0; i < ticks; i++)
@@ -129,7 +123,7 @@ public class InteractionRingWidget : InteractionPromptBase
 
         LayoutCaption(prompt.Label, blocked, r);
 
-        reason.text = reasonText;
+        reason.text = reasonText ?? string.Empty;
         reason.alpha = Denying ? Mathf.Clamp01((reasonUntil - Time.unscaledTime) / 0.25f) : 0f;
     }
 

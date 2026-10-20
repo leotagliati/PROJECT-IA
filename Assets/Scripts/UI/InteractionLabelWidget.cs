@@ -39,7 +39,6 @@ public class InteractionLabelWidget : InteractionPromptBase
     private Sprite keySprite;
     private float visibility;
     private float nearBlend;
-    private float shown;
 
     protected override void Build()
     {
@@ -112,17 +111,12 @@ public class InteractionLabelWidget : InteractionPromptBase
         float eased = 1f - (1f - nearBlend) * (1f - nearBlend);
         panel.anchoredPosition = new Vector2(offset - slide * (1f - eased) + Shake, 0f);
 
-        if (controller.IsHolding)
-            shown = controller.HoldProgress;
-        else if (Time.unscaledTime - completedAt > 0.3f)
-            shown = Mathf.MoveTowards(shown, 0f, dt * 4f);
-        else
-            shown = 1f;
+        UpdateProgress(dt);
 
-        fill.sizeDelta = new Vector2(track.rect.width * shown, underlineHeight);
+        fill.sizeDelta = new Vector2(track.rect.width * progress, underlineHeight);
         fillImage.color = CompletionFlash ? textColor : progressColor;
 
-        reason.text = reasonText;
+        reason.text = reasonText ?? string.Empty;
         reason.alpha = Denying ? Mathf.Clamp01((reasonUntil - Time.unscaledTime) / 0.25f) : 0f;
     }
 

@@ -37,10 +37,17 @@ public abstract class InteractionPromptBase : MonoBehaviour
     protected RectTransform root;
     protected CanvasGroup rootGroup;
 
+    // Feedback de curta duração. Pertence ao alvo que o causou: ResetFeedback zera tudo quando a mira troca de
+    // objeto, senão o prompt novo herdava a tremida, o motivo e o pisca do anterior ainda terminando.
     protected float shakeStart = -10f;
     protected float reasonUntil;
     protected string reasonText;
     protected float completedAt = -10f;
+
+    /// <summary>Preenchimento mostrado do Hold (0-1): segue o controller e esvazia devagar ao soltar.</summary>
+    protected float progress;
+
+    private IInteractable target;
 
     protected bool Denying => Time.unscaledTime < reasonUntil;
 
@@ -114,8 +121,10 @@ public abstract class InteractionPromptBase : MonoBehaviour
 
         controller.InteractionDenied += HandleDenied;
         controller.InteractionCompleted += HandleCompleted;
+        controller.TargetChanged += HandleTargetChanged;
         InputIcons.SchemeChanged += RefreshKey;
         RefreshKey();
+        HandleTargetChanged(controller.CurrentInteractable);
     }
 
     protected virtual void OnDisable()
@@ -125,6 +134,7 @@ public abstract class InteractionPromptBase : MonoBehaviour
 
         controller.InteractionDenied -= HandleDenied;
         controller.InteractionCompleted -= HandleCompleted;
+        controller.TargetChanged -= HandleTargetChanged;
         InputIcons.SchemeChanged -= RefreshKey;
 
         if (rootGroup != null)
@@ -136,14 +146,52 @@ public abstract class InteractionPromptBase : MonoBehaviour
     /// <summary>Chamado quando o esquema (teclado/controle) muda: atualiza a tecla mostrada.</summary>
     protected abstract void RefreshKey();
 
-    private void HandleDenied(IInteractable target, string message)
+    private void HandleTargetChanged(IInteractable newTarget)
     {
+        target = newTarget;
+        ResetFeedback();
+    }
+
+    /// <summary>Encerra todo efeito em andamento. Filhos com estado próprio de feedback sobrescrevem e chamam a base.</summary>
+    protected virtual void ResetFeedback()
+    {
+        shakeStart = -10f;
+        reasonUntil = 0f;
+        reasonText = null;
+        completedAt = -10f;
+        progress = 0f;
+    }
+
+    // ReferenceEquals: o == do UnityEngine.Object não entra por interface. Evento de outro alvo é de uma interação
+    // que já acabou (a mira saiu antes do resultado chegar) e não pode acender o prompt atual.
+    private bool IsCurrent(IInteractable source) => ReferenceEquals(source, target);
+
+    private void HandleDenied(IInteractable source, string message)
+    {
+        if (!IsCurrent(source))
+            return;
+
         shakeStart = Time.unscaledTime;
         reasonUntil = Time.unscaledTime + failureDuration;
         reasonText = message;
     }
 
-    private void HandleCompleted(IInteractable target) => completedAt = Time.unscaledTime;
+    private void HandleCompleted(IInteractable source)
+    {
+        if (IsCurrent(source))
+            completedAt = Time.unscaledTime;
+    }
+
+    /// <summary>Avança <see cref="progress"/>: segue o Hold, segura cheio no pisca de completar e esvazia depois.</summary>
+    protected void UpdateProgress(float dt)
+    {
+        if (controller.IsHolding)
+            progress = controller.HoldProgress;
+        else if (Time.unscaledTime - completedAt < 0.3f)
+            progress = 1f;
+        else
+            progress = Mathf.MoveTowards(progress, 0f, dt * 4f);
+    }
 
     /// <summary>Texto da tecla de Interact no esquema ativo ("E", "LMB"...).</summary>
     protected static string KeyLabel() =>
