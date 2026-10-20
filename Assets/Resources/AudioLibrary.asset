@@ -249,3 +249,9 @@ MonoBehaviour:
     Volume: 0.6
     PitchJitter: 0
     MaxDistance: 0
+  - Id: note_open
+    Clips:
+    - {fileID: 8300000, guid: a9be45d92fef6824badf8f92efeb9deb, type: 3}
+    Volume: 0.7
+    PitchJitter: 0.05
+    MaxDistance: 0
