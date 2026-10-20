@@ -195873,6 +195873,38 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000002, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: m_SizeDelta.x
+      value: 32
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000002, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: m_SizeDelta.y
+      value: 32
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000004, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: m_Color.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000004, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: m_Color.g
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000004, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: m_Color.r
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000005, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: gap
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000005, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: spinAxis.x
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7700000000000000005, guid: 022702dac0aea1c4dbdad21cc30c26c4, type: 3}
+      propertyPath: spinAxis.y
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
