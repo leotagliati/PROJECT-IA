@@ -516,6 +516,32 @@ A branch `feature/v9-updated-seeker` sai da main com o clone (`FreeCloneAbility`
 da v8.0. Falta ligá-los no `FreeExplorerManager` e nas observações da v7.2; como isso muda o cérebro, é treino do
 zero ou uma lição nova. A branch `feature/v9-seeker` fica como referência dessa ligação até a v8.1 funcionar.
 
+## Diretor de jogo (20/10 em diante)
+
+Um segundo agente, o **diretor** (behavior `Director`, `Assets/Scripts/Director/`), ajusta o ritmo da partida para
+cada jogador ficar no nível certo de dificuldade. O monstro fica **congelado** (`FreeExplorer_v7.4.4_15M` em
+inferência); só o diretor aprende. Ambiente: menu "PROJECT-IA → Diretor: preparar Cena Final - AJUSTADO, cena de
+treino e build" (5 arenas da Cena Final - AJUSTADO, vãos de porta para fora do mapa tampados). O "jogador" do treino
+é a presa (`FreeHider`) imitando um jogador sorteado por partida (`FreeHiderProfile`): habilidade Ruim/Médio/Bom,
+estilo (equilibrado, arriscado, tímido, medroso) e, em 20% das partidas, um Expert. A cada decisão ele vê o estado do
+monstro, a distância pelo caminho, a tensão, os close calls e como o jogador está indo; age com som plantado (atrair
+ou distrair), destaque de chave e escalas de velocidade e visão do monstro, fôlego e barulho do passo do jogador.
+Limites são máscara de ação: nada que ajude a IA no alívio depois de um close call, na perseguição, depois de 6
+close calls ou de 600 s; nunca pega, nunca mexe em chave.
+
+| Versão | Run | O que mudou | Resultado |
+|---|---|---|---|
+| d1 | `diretor_v1_01` | primeira versão, presa de um tipo só | parado em 360k: protegia, mas close calls parados (a presa barulhenta mantinha o monstro em alerta) |
+| d2 | `diretor_v2_01` | jogadores diferentes, close call "perdeu de vista" | sem diretor os níveis sobreviviam igual (~0.28): o "bom" não era bom |
+| d3 | `diretor_v3_01` (3M) | jogadores calibrados (o bom mantém distância em movimento; esconder é fatal contra este monstro) | **protetor**: sobrevivência 0.33 → 0.48, pego antes de 3 min 0.59 → 0.28, mas ajudou todos igual |
+| d4 | `diretor_v4_01` | vê o desempenho do jogador, recompensa pelo nível real, Expert | trocado cedo pela d5 |
+| d5 | `diretor_v5_01` | fôlego contínuo, destaque de chave, barulho do passo | recompensa errada: acabar cedo rendia mais (castigo por segundo), e ele passou a ajudar o monstro |
+| d5.1 | `diretor_v5.1_01` (1.2M) | ordem dos fins corrigida | sobrevivência 0.28 → 0.41 (sem diretor → com); protegeu até ~600k e depois aprendeu a quase não agir (custo maior que o efeito); não personalizou |
+| d6 | `diretor_v6_01` · preparada | agir barato, alavancas mais fortes, Expert ganhando fácil custa, 3 ramos, decisão a cada 5 s | — |
+
+Cérebros: `Assets/Brains/Director/Director_v3_3M.onnx` e `Director_v5.1_1.2M.onnx`. Configs `config/diretor_v*.yaml`
+(o cabeçalho de cada um tem as contas da recompensa); `tools/treinar_diretor_v6.bat` roda a d6 no Anaconda Prompt.
+
 ---
 
 ## O que não deu certo
