@@ -15,7 +15,7 @@ MonoBehaviour:
   _poolSize: 128
   _defaultHeight: 1
   _minDistance: 1
-  _maxDistance: 25
+  _maxDistance: 60
   _rolloff: 1
   _mixerGroup: {fileID: 0}
   _sounds:
@@ -36,7 +36,7 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 8004f1432175e2447aa635f47c3a21e1, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: flashlight_on
     Clips:
     - {fileID: 8300000, guid: f157c7da08b8e82468a97707f22fcfbc, type: 3}
@@ -78,20 +78,20 @@ MonoBehaviour:
     - {fileID: 8300000, guid: e476d8fa4f2648843ad0cb9429cd537a, type: 3}
     Volume: 0.08
     PitchJitter: 0
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: caught
     Clips:
     - {fileID: 8300000, guid: fea796f36f247954b93fa7957dbe89e0, type: 3}
     - {fileID: 8300000, guid: 8f3ac7caea2007647aebccac4e16ac94, type: 3}
     Volume: 0.8
     PitchJitter: 0.05
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: theme
     Clips:
     - {fileID: 8300000, guid: 158c0ea372e29eb46bd3fae6ea1a89c7, type: 3}
     Volume: 0.16
     PitchJitter: 0
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: key_pickup
     Clips:
     - {fileID: 8300000, guid: 2484d7c79047e9745be6a33bde5809fc, type: 3}
@@ -103,37 +103,37 @@ MonoBehaviour:
     - {fileID: 8300000, guid: a1085843894b5cf42b1ebe7f317e38d9, type: 3}
     Volume: 0.08
     PitchJitter: 0.06
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: breath_heavy
     Clips:
     - {fileID: 8300000, guid: 3f9bc7098fc188d4d945526c8f3f657f, type: 3}
     Volume: 0.14
     PitchJitter: 0.06
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: jumpscare
     Clips:
     - {fileID: 8300000, guid: fba03a2216955754ca913a0a22be724b, type: 3}
     Volume: 0.242
     PitchJitter: 0.03
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: chase_theme
     Clips:
     - {fileID: 8300000, guid: ba2fd9ffb0d8955478e75c59eb9f6224, type: 3}
     Volume: 0.237
     PitchJitter: 0
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: player_scream
     Clips:
     - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: intro_scream
     Clips:
     - {fileID: 8300000, guid: ed78173cd501d4b4a9c8e0ecd1f9be42, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: rumble
     Clips:
     - {fileID: 8300000, guid: bb5e0d948730fd341b185fa5a7fde790, type: 3}
@@ -145,37 +145,37 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 77aabf7899d320c4fb25a43a699b5c91, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: doorSlam
     Clips:
     - {fileID: 8300000, guid: 4ed7aa068776ff8438e432d9077936d1, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: voice_find_door
     Clips:
     - {fileID: 8300000, guid: 9168c7ebf5ea1d5488d91657f2f383eb, type: 3}
     Volume: 0.5
     PitchJitter: 0
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: suspenseStart
     Clips:
     - {fileID: 8300000, guid: ccfac6ce2ee13aa4f92ef030d580fcc5, type: 3}
     Volume: 0.6
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: fridgeClose
     Clips:
     - {fileID: 8300000, guid: a44ffbf24cbeab743b4f50a3414965e1, type: 3}
     Volume: 1
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: fridgeOpen
     Clips:
     - {fileID: 8300000, guid: cc5f4ed4af5c81a4785b570e9132ea1d, type: 3}
     Volume: 1
     PitchJitter: 0.04
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: throwable_pickup
     Clips:
     - {fileID: 8300000, guid: 401d026114c279f439eac0917db8a0a2, type: 3}
@@ -200,25 +200,25 @@ MonoBehaviour:
     - {fileID: 8300000, guid: 1fa31eea7aab8334987e14cf243291bc, type: 3}
     Volume: 0.791
     PitchJitter: 0.186
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: typewriter_return
     Clips:
     - {fileID: 8300000, guid: 2e547f619a08d2c4396925b992234543, type: 3}
     Volume: 0.733
     PitchJitter: 0.23
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: typewriter_page
     Clips:
     - {fileID: 8300000, guid: a9be45d92fef6824badf8f92efeb9deb, type: 3}
     Volume: 0.733
     PitchJitter: 0.23
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: dialogue_type
     Clips:
     - {fileID: 8300000, guid: bffe3bfe41668a748be91cd0daa0c063, type: 3}
     Volume: 0.5
     PitchJitter: 0.05
-    MaxDistance: 0
+    MaxDistance: 25
   - Id: fridgeHum
     Clips:
     - {fileID: 8300000, guid: 9c711163f3926e4418faec045bdd365c, type: 3}
