@@ -7319,7 +7319,7 @@ GameObject:
   - component: {fileID: 77358886}
   - component: {fileID: 77358885}
   - component: {fileID: 77358884}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.024
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -17552,7 +17552,7 @@ GameObject:
   - component: {fileID: 166334801}
   - component: {fileID: 166334800}
   - component: {fileID: 166334799}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.014 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -38998,7 +38998,7 @@ GameObject:
   - component: {fileID: 404028343}
   - component: {fileID: 404028342}
   - component: {fileID: 404028341}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.024 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -49530,7 +49530,7 @@ GameObject:
   - component: {fileID: 514914188}
   - component: {fileID: 514914187}
   - component: {fileID: 514914186}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Estanteria.006 (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -49724,7 +49724,7 @@ GameObject:
   - component: {fileID: 515789441}
   - component: {fileID: 515789440}
   - component: {fileID: 515789439}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.019 (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -63806,7 +63806,7 @@ GameObject:
   - component: {fileID: 654434596}
   - component: {fileID: 654434595}
   - component: {fileID: 654434594}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Sillon.005
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -84798,7 +84798,7 @@ GameObject:
   - component: {fileID: 889769295}
   - component: {fileID: 889769294}
   - component: {fileID: 889769293}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Estanteria.004 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -98064,7 +98064,7 @@ GameObject:
   - component: {fileID: 1047859409}
   - component: {fileID: 1047859408}
   - component: {fileID: 1047859407}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.024 (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -101693,7 +101693,7 @@ GameObject:
   - component: {fileID: 1093524416}
   - component: {fileID: 1093524415}
   - component: {fileID: 1093524414}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Sillon.002
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -107509,7 +107509,7 @@ GameObject:
   - component: {fileID: 1146157587}
   - component: {fileID: 1146157586}
   - component: {fileID: 1146157585}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.019
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -117856,7 +117856,7 @@ GameObject:
   - component: {fileID: 1244203657}
   - component: {fileID: 1244203656}
   - component: {fileID: 1244203655}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.027 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -131656,7 +131656,7 @@ GameObject:
   - component: {fileID: 1394974580}
   - component: {fileID: 1394974579}
   - component: {fileID: 1394974578}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Caja.019 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -134920,7 +134920,7 @@ GameObject:
   - component: {fileID: 1435703873}
   - component: {fileID: 1435703872}
   - component: {fileID: 1435703871}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Mesa.004
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -135028,7 +135028,7 @@ GameObject:
   - component: {fileID: 1436238291}
   - component: {fileID: 1436238290}
   - component: {fileID: 1436238289}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Estanteria.002
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -136500,7 +136500,7 @@ GameObject:
   - component: {fileID: 1464304013}
   - component: {fileID: 1464304012}
   - component: {fileID: 1464304011}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Sillon.003
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -183900,7 +183900,7 @@ GameObject:
   - component: {fileID: 2012698337}
   - component: {fileID: 2012698336}
   - component: {fileID: 2012698335}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Estanteria.006
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -184627,6 +184627,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 277742964}
     m_Modifications:
+    - target: {fileID: 1007342080692752910, guid: 8907fcd978d2fad4d94ae67351abefd2, type: 3}
+      propertyPath: m_Intensity
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4456908976598643466, guid: 8907fcd978d2fad4d94ae67351abefd2, type: 3}
       propertyPath: m_LocalPosition.x
       value: 20
@@ -186896,7 +186900,7 @@ GameObject:
   - component: {fileID: 2060245772}
   - component: {fileID: 2060245771}
   - component: {fileID: 2060245770}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Estanteria.006 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
