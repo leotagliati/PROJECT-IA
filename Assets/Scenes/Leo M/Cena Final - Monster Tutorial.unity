@@ -28850,7 +28850,7 @@ Transform:
   m_GameObject: {fileID: 298408786}
   serializedVersion: 2
   m_LocalRotation: {x: 0.24156243, y: 0.23122625, z: 0.6516768, w: 0.6808079}
-  m_LocalPosition: {x: -35.069, y: -1.686, z: 35.757}
+  m_LocalPosition: {x: -35.069, y: -1.695, z: 35.757}
   m_LocalScale: {x: 0.01, y: 1, z: 0.7}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -38813,6 +38813,7 @@ GameObject:
   m_Component:
   - component: {fileID: 402675911}
   - component: {fileID: 402675912}
+  - component: {fileID: 402675913}
   m_Layer: 5
   m_Name: StaminaBar
   m_TagString: Untagged
@@ -38853,15 +38854,28 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   stamina: {fileID: 0}
   fill: {fileID: 0}
-  size: {x: 220, y: 8}
-  bottomMargin: 70
-  backgroundColor: {r: 0, g: 0, b: 0, a: 0.45}
-  sortingOrder: 1
+  icon: {fileID: 0}
   normalColor: {r: 0.9, g: 0.9, b: 0.9, a: 0.85}
   exhaustedColor: {r: 0.8, g: 0.15, b: 0.15, a: 0.85}
+  exhaustTransition: 0.6
+  pulses: 2
+  pulseScale: 0.3
   hideWhenFull: 1
   hideDelay: 1
+  showDuration: 0.15
   fadeDuration: 0.4
+--- !u!225 &402675913
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 402675910}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 1
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &403279183
 GameObject:
   m_ObjectHideFlags: 0
@@ -94766,7 +94780,11 @@ MonoBehaviour:
   settingsScreen: {fileID: 1545490591}
   settingsButton: {fileID: 279588714}
   selectionWaker: {fileID: 7311905142860417002}
-  mainMenuScene: MainMenu
+  mainMenuScene:
+    sceneAsset: {fileID: 0}
+    scenePath: 
+  pauseSoundId: pause_open
+  resumeSoundId: pause_close
 --- !u!1 &1013126836
 GameObject:
   m_ObjectHideFlags: 0
