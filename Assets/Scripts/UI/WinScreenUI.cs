@@ -41,7 +41,6 @@ public class WinScreenUI : MonoBehaviour
     [SerializeField] private TMP_Text continueLabel;
     [SerializeField, Min(0f)] private float continueDelay = 1f;
     [SerializeField, Min(0.01f)] private float continueFadeDuration = 0.6f;
-    [SerializeField, Min(0.01f)] private float exitFadeDuration = 0.6f;
 
     [Tooltip("Segundos do branco ao preto antes de carregar os créditos. Longo de propósito: o jogo termina devagar.")]
     [SerializeField, Min(0.01f)] private float blackFadeDuration = 6f;
@@ -207,25 +206,24 @@ public class WinScreenUI : MonoBehaviour
 
     private IEnumerator Leave()
     {
-        // O branco é a Image deste objeto: escurece a cor dela até o preto, com os textos sumindo mais rápido por cima.
-        Graphic background = GetComponent<Graphic>();
-        Color from = background != null ? background.color : Color.white;
+        // O "aperte qualquer botão" some na hora; o resto do texto fica na tela e escurece junto com o fundo.
+        if (continueLabel != null)
+            continueLabel.alpha = 0f;
 
-        Coroutine textsOut = StartCoroutine(Fade(a =>
-        {
-            float k = 1f - a;
-            if (messageLabel != null) messageLabel.alpha = k;
-            if (timeLabel != null) timeLabel.alpha = k;
-            if (continueLabel != null) continueLabel.alpha = k;
-        }, exitFadeDuration));
+        // Um véu preto por cima de tudo, em vez de mexer na cor do fundo: assim o texto também vai ao preto, e o
+        // branco nunca passa por um cinza antes.
+        Image veil = new GameObject("BlackVeil", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        veil.transform.SetParent(transform, false);
+        veil.raycastTarget = false;
+        veil.color = new Color(0f, 0f, 0f, 0f);
 
-        yield return Fade(a =>
-        {
-            if (background != null)
-                background.color = Color.Lerp(from, Color.black, a);
-        }, blackFadeDuration);
+        var rect = (RectTransform)veil.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
 
-        yield return textsOut;
+        yield return Fade(a => veil.color = new Color(0f, 0f, 0f, a), blackFadeDuration);
 
         GameManager.EndSession(creditsScene);
     }

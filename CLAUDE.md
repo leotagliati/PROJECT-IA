@@ -176,7 +176,7 @@ determinístico durante o treino.
   dela), leva o som do jogo a zero pelo `AudioProvider.Fade` na mesma curva, dispara o estático
   `WinScreenUI.CutToWhite` e segue como a tela de game over: texto → Animator do texto (o mesmo `Text (TMP).controller`) →
   "Seu tempo de jogo: mm:ss" (`GameManager.ElapsedTime`) → "Aperte qualquer botão" → qualquer botão, menos Pause/Cancel do
-  input map, vai à cena `Credits`. Não há ida automática ao menu. O tempo conta desde o load (tutorial e fuga inclusos), para
+  input map, vai à cena `Credits` (véu preto de 6 s por cima de tudo, só o "aperte" some na hora). Não há ida automática ao menu. O tempo conta desde o load (tutorial e fuga inclusos), para
   no pause/diálogo (timeScale 0) e em Won/Lost, atravessa o `Restart()` por memória estática e zera no `EndSession`. O player (`PlayerEscapedSequence`) só ouve o `CutToWhite` e desliga o que
   é dele; a cutscene final congela o Seeker no mesmo evento. Ninguém referencia a tela.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`

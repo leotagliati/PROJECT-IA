@@ -274,7 +274,6 @@ MonoBehaviour:
   continueLabel: {fileID: 1050797611095952654}
   continueDelay: 1
   continueFadeDuration: 0.6
-  exitFadeDuration: 0.6
   blackFadeDuration: 6
   creditsScene: Credits
   stingerSoundId: 
