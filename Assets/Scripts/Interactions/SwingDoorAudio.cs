@@ -112,6 +112,15 @@ public class SwingDoorAudio : MonoBehaviour
         if (creakSource == null)
             return;
 
+        // Jogo parado (diálogo, pause): o FixedUpdate da porta não roda, o AngularSpeed fica congelado no último valor
+        // e o SmoothDamp com deltaTime zero não decai — o rangido seguia em loop durante a conversa.
+        if (Time.deltaTime <= 0f)
+        {
+            if (creakSource.isPlaying)
+                creakSource.Pause();
+            return;
+        }
+
         float target = Mathf.InverseLerp(profile.creakMinSpeed, profile.creakFullSpeed, door.AngularSpeed);
         creakGain = Mathf.SmoothDamp(creakGain, target, ref creakGainVelocity, profile.creakResponse);
 
