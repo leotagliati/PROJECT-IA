@@ -30,7 +30,10 @@ public class MenuSelectionWaker : MonoBehaviour
             return;
         }
 
-        if (!NavigateHeld(eventSystem))
+        // No controle, menu aberto sempre tem algo selecionado: sem seleção o Submit (A) não faz nada, e quem abre
+        // um menu pelo controle não sabe que precisa mexer o analógico antes. Com mouse fica sem seleção, para não
+        // haver dois destaques (ver PointerSelectable). O Submit também acorda, para o primeiro A não se perder.
+        if (!NavigateHeld(eventSystem) && !SubmitPressed(eventSystem) && !GamepadActive)
             return;
 
         var target = lastSelected != null && lastSelected.activeInHierarchy
@@ -40,6 +43,9 @@ public class MenuSelectionWaker : MonoBehaviour
         if (target != null)
             eventSystem.SetSelectedGameObject(target);
     }
+
+    /// <summary>O último input veio do controle (o mesmo esquema que troca os ícones de tecla).</summary>
+    public static bool GamepadActive => InputIcons.ActiveBindingGroup == "Gamepad";
 
     // Quem troca de tela define o alvo que a primeira navegação vai acordar.
     public void Remember(GameObject focus) => lastSelected = focus;

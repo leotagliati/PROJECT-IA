@@ -422,7 +422,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "Gamepad",
-                    "action": "Restart",
+                    "action": "Pause",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
