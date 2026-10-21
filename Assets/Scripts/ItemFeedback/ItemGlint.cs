@@ -30,11 +30,15 @@ public class ItemGlint : MonoBehaviour
     private RendererOverlay overlay;
     private MaterialPropertyBlock block;
     private HighlightTarget highlight;
+    private ThrowableItem throwable;
 
     private void Awake()
     {
-        Renderer[] renderers = GetComponentsInChildren<Renderer>(includeInactive: true);
+        // Só malhas: os cacos da garrafa (ParticleSystemRenderer num filho) ganhariam a faixa no smash.
+        Renderer[] renderers = System.Array.FindAll(GetComponentsInChildren<Renderer>(includeInactive: true),
+                                             r => r is MeshRenderer || r is SkinnedMeshRenderer);
         highlight = GetComponent<HighlightTarget>();
+        throwable = GetComponent<ThrowableItem>();
 
         if (glintMaterial == null || renderers.Length == 0)
         {
@@ -69,11 +73,14 @@ public class ItemGlint : MonoBehaviour
 
     private void Update()
     {
-        if (!pauseWhileHighlighted || highlight == null)
-            return;
+        // A chave some ao ser pega, mas o arremessável continua existindo na mão: lá a faixa só atrapalha. Depois do
+        // arremesso ela volta, para o jogador achar a garrafa de novo.
+        bool held = throwable != null && throwable.IsHeld;
 
         // Sob a mira o outline assume; fora dela a faixa volta.
-        if (highlight.IsHighlighted)
+        bool underAim = pauseWhileHighlighted && highlight != null && highlight.IsHighlighted;
+
+        if (held || underAim)
             overlay.Detach();
         else if (!overlay.Attached)
         {

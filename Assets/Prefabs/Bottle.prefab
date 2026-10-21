@@ -205,7 +205,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   glintMaterial: {fileID: 2100000, guid: 876828fe711f4f2b95bb878e8fce6bc8, type: 2}
-  color: {r: 1, g: 1, b: 1, a: 1}
+  color: {r: 0.55, g: 1, b: 0.7, a: 1}
   strength: 0.8
   randomizePhase: 1
   pauseWhileHighlighted: 1
@@ -248,7 +248,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &705549034705942195
 Transform:
   m_ObjectHideFlags: 0

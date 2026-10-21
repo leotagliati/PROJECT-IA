@@ -187,7 +187,11 @@ public class InteractionController : MonoBehaviour
 
         var component = target as Component;
         targetAnchor = component != null ? component.GetComponentInChildren<InteractionAnchor>() : null;
-        targetRenderers = component != null && targetAnchor == null ? component.GetComponentsInChildren<Renderer>() : null;
+        // Partículas fora: as bounds de um ParticleSystem parado (os cacos da garrafa) não ficam no item e
+        // arrastavam o centro para fora da tela, sumindo com o prompt.
+        targetRenderers = component != null && targetAnchor == null
+            ? Array.FindAll(component.GetComponentsInChildren<Renderer>(), r => r is not ParticleSystemRenderer)
+            : null;
 
         TargetChanged?.Invoke(target);
     }
