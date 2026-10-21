@@ -102,8 +102,14 @@ public class DialogueController : MonoBehaviour
         PlayerInputProvider.Acquire();
         PlayerInputProvider.SetMode(InputMode.UI);
 
-        if (cameraPoint != null && DialogueCamera.Current != null)
-            DialogueCamera.Current.Focus(cameraPoint);
+        if (cameraPoint != null)
+        {
+            if (DialogueCamera.Current != null)
+                DialogueCamera.Current.Focus(cameraPoint);
+            else
+                Debug.LogWarning($"[DialogueController] '{asset.name}' pede o ponto de câmera '{cameraPoint.name}', " +
+                                 "mas não há DialogueCamera na câmera do player: a câmera fica onde está.", cameraPoint);
+        }
 
         view.Show();
         ShowLine(0);
