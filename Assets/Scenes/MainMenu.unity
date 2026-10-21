@@ -13643,7 +13643,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hoverScale: 1.2
+  hoverOffset: {x: 20, y: 0}
   animationSpeed: 0.15
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
@@ -26923,7 +26923,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hoverScale: 1.2
+  hoverOffset: {x: 20, y: 0}
   animationSpeed: 0.15
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}
@@ -41853,9 +41853,13 @@ MonoBehaviour:
   _playSfxId: suspenseStart
   _playSfxVolume: 1
   _menuGroup: {fileID: 0}
-  _gameScene: Cena Final V8
+  _gameScene:
+    sceneAsset: {fileID: 102900000, guid: 27c5e6313a0e0cf4cb222b683d591d55, type: 3}
+    scenePath: Assets/Scenes/Deco/Cena Final - AJUSTADO.unity
   _loadingScreen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
-  _creditsScene: Credits
+  _creditsScene:
+    sceneAsset: {fileID: 102900000, guid: 9d7b9b158c3130c419edf25e8c4e59d1, type: 3}
+    scenePath: Assets/Scenes/Credits.unity
   _creditsFadeTime: 0.6
 --- !u!114 &947511566
 MonoBehaviour:
@@ -64228,6 +64232,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   menuRoot: {fileID: 0}
+  ignoreSliders: 1
   gap: 24
   spinDuration: 0.35
   spinAxis: {x: 1, y: 0, z: 0}
@@ -80857,7 +80862,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2d1d92fd2a159a24e8b97cd95c36ab64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hoverScale: 1.2
+  hoverOffset: {x: 20, y: 0}
   animationSpeed: 0.15
   brightness: 2
   hoverSound: {fileID: 8300000, guid: a7e5ca2493d5a21428818f33085bb080, type: 3}

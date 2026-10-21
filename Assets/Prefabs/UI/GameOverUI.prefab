@@ -115,6 +115,9 @@ MonoBehaviour:
   buttons:
   - {fileID: 332104515471332058}
   - {fileID: 5107594676010994486}
+  menuScene:
+    sceneAsset: {fileID: 102900000, guid: 0569112b743f9264ab0b75cba3c399b8, type: 3}
+    scenePath: Assets/Scenes/MainMenu.unity
   backgroundFadeDuration: 1
   textDelay: 1
   textFadeDuration: 0.8

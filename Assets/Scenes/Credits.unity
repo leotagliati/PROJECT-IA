@@ -2339,7 +2339,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   typewriter: {fileID: 1044073992}
   warmup: {fileID: 0}
-  menuScene: MainMenu
+  menuScene:
+    sceneAsset: {fileID: 102900000, guid: 0569112b743f9264ab0b75cba3c399b8, type: 3}
+    scenePath: Assets/Scenes/MainMenu.unity
   exitDelayAfterEnd: 2
   fadeTime: 0.8
   fadeColor: {r: 0, g: 0, b: 0, a: 1}

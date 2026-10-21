@@ -1157,7 +1157,9 @@ MonoBehaviour:
   settingsScreen: {fileID: 1545490591}
   settingsButton: {fileID: 279588714}
   selectionWaker: {fileID: 7311905142860417002}
-  mainMenuScene: MainMenu
+  mainMenuScene:
+    sceneAsset: {fileID: 102900000, guid: 0569112b743f9264ab0b75cba3c399b8, type: 3}
+    scenePath: Assets/Scenes/MainMenu.unity
 --- !u!1 &1192652939
 GameObject:
   m_ObjectHideFlags: 0

@@ -94712,6 +94712,7 @@ GameObject:
   - component: {fileID: 1012911244}
   - component: {fileID: 1012911243}
   - component: {fileID: 9100000012}
+  - component: {fileID: 9100000013}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -94870,7 +94871,9 @@ MonoBehaviour:
   settingsScreen: {fileID: 1545490591}
   settingsButton: {fileID: 279588714}
   selectionWaker: {fileID: 7311905142860417002}
-  mainMenuScene: MainMenu
+  mainMenuScene:
+    sceneAsset: {fileID: 102900000, guid: 0569112b743f9264ab0b75cba3c399b8, type: 3}
+    scenePath: Assets/Scenes/MainMenu.unity
   pauseSoundId: pause_open
   resumeSoundId: pause_close
 --- !u!1 &1013126836
@@ -194707,6 +194710,26 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   soundId: rumble
+--- !u!114 &9100000013
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1012911237}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 944d66db972a0a8489211feb0e708e93, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  screen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
+  progressChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  collections: []
+  variantsPerFrame: 8
+  framesPerPass: 8
+  fadeOutTime: 0.6
 --- !u!1 &9200000001
 GameObject:
   m_ObjectHideFlags: 0

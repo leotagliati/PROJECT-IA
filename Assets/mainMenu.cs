@@ -1,7 +1,6 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // Fica na própria câmera do menu: é ela que voa até o monitor no Play.
@@ -32,8 +31,8 @@ public class mainMenu : MonoBehaviour
     [Header("Menu")]
     [Tooltip("Opcional: CanvasGroup do menu, some junto com a aproximação.")]
     [SerializeField] private CanvasGroup _menuGroup;
-    [Tooltip("Por nome, não por índice: o índice muda sempre que a lista do Build Settings muda.")]
-    [SerializeField] private string _gameScene = "Cena Final V8";
+    [Tooltip("Arraste a cena do jogo. Precisa estar ligada no Build Settings.")]
+    [SerializeField] private SceneReference _gameScene;
 
     [Header("Loading")]
     [Tooltip("O mesmo prefab da tela do LoadingWarmup da cena de destino. Entra quando o fade fecha e cobre o " +
@@ -42,7 +41,7 @@ public class mainMenu : MonoBehaviour
     [SerializeField] private GameObject _loadingScreen;
 
     [Header("Créditos")]
-    [SerializeField] private string _creditsScene = "Credits";
+    [SerializeField] private SceneReference _creditsScene;
     [SerializeField] private float _creditsFadeTime = 0.6f;
 
     private bool _transitioning;
@@ -79,11 +78,17 @@ public class mainMenu : MonoBehaviour
     // Sem o voo da câmera: ele é a "entrada no jogo", e os créditos são só um desvio do menu.
     private IEnumerator CreditsTransition()
     {
+        AsyncOperation load = _creditsScene.LoadAsync();
+        if (load == null)
+        {
+            _transitioning = false;
+            yield break;
+        }
+
+        load.allowSceneActivation = false;
+
         if (EventSystem.current != null)
             EventSystem.current.enabled = false;
-
-        AsyncOperation load = SceneManager.LoadSceneAsync(_creditsScene);
-        load.allowSceneActivation = false;
 
         Image fade = CreateFadeOverlay();
 
@@ -118,16 +123,23 @@ public class mainMenu : MonoBehaviour
 
     private IEnumerator PlayTransition()
     {
+        // Carrega em paralelo com a animação e só ativa no fim — senão o hitch do load cai
+        // no meio do movimento ou a cena troca antes do fade fechar. Primeiro de tudo: cena não configurada
+        // aborta aqui, com o menu ainda utilizável, em vez de voar até o monitor e travar no preto.
+        AsyncOperation load = _gameScene.LoadAsync();
+        if (load == null)
+        {
+            _transitioning = false;
+            yield break;
+        }
+
+        load.allowSceneActivation = false;
+
         // Trava o input da UI na hora: hover/seleção continuariam tocando som durante o voo.
         if (EventSystem.current != null)
             EventSystem.current.enabled = false;
 
         AudioProvider.PlayFollowing(_playSfxId, transform, _playSfxVolume);
-
-        // Carrega em paralelo com a animação e só ativa no fim — senão o hitch do load cai
-        // no meio do movimento ou a cena troca antes do fade fechar.
-        AsyncOperation load = SceneManager.LoadSceneAsync(_gameScene);
-        load.allowSceneActivation = false;
 
         Image fade = CreateFadeOverlay();
 

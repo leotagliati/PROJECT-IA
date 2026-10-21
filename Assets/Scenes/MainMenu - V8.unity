@@ -37081,9 +37081,14 @@ MonoBehaviour:
   _playSfxId: suspenseStart
   _playSfxVolume: 1
   _menuGroup: {fileID: 0}
+  _gameScene:
+    sceneAsset: {fileID: 102900000, guid: fda1cb0f60bd1834cb4a8a4b042bf232, type: 3}
+    scenePath: Assets/Scenes/Cena Final V8.unity
   _gameSceneIndex: 2
   _loadingScreen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
-  _creditsScene: Credits
+  _creditsScene:
+    sceneAsset: {fileID: 102900000, guid: 9d7b9b158c3130c419edf25e8c4e59d1, type: 3}
+    scenePath: Assets/Scenes/Credits.unity
   _creditsFadeTime: 0.6
 --- !u!114 &947511566
 MonoBehaviour:

@@ -1,7 +1,6 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
@@ -15,7 +14,8 @@ public class CreditsScreen : MonoBehaviour
     [Tooltip("Opcional. Vazio = a máquina começa na hora.")]
     [SerializeField] private LoadingWarmup warmup;
 
-    [SerializeField] private string menuScene = "MainMenu";
+    [Tooltip("Arraste a cena do menu. Precisa estar ligada no Build Settings.")]
+    [SerializeField] private SceneReference menuScene;
 
     [Tooltip("Espera extra antes de voltar ao menu, contada depois que a máquina termina — e ela só termina " +
              "depois do tempo de leitura da última página (ou de alguém apertar \"voltar ao menu\"). 0 = na hora.")]
@@ -66,7 +66,10 @@ public class CreditsScreen : MonoBehaviour
         if (typewriter != null)
             typewriter.enabled = false;
 
-        AsyncOperation load = SceneManager.LoadSceneAsync(menuScene);
+        AsyncOperation load = menuScene.LoadAsync();
+        if (load == null)
+            yield break;
+
         load.allowSceneActivation = false;
 
         Image fade = CreateFadeOverlay();

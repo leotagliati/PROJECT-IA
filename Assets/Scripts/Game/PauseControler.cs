@@ -14,8 +14,8 @@ public class PauseControler : MonoBehaviour
     [SerializeField] private Selectable settingsButton;
     [Tooltip("No root do menu: acorda a seleção quando o jogador navega por teclado/controle.")]
     [SerializeField] private MenuSelectionWaker selectionWaker;
-    [Tooltip("Cena carregada pelo botão de voltar ao menu (precisa estar no Build Settings).")]
-    [SerializeField] private string mainMenuScene = "MainMenu";
+    [Tooltip("Cena carregada pelo botão de voltar ao menu. Arraste a cena; precisa estar ligada no Build Settings.")]
+    [SerializeField] private SceneReference mainMenuScene;
 
     [Header("Sons (ids da AudioLibrary; vazio = sem som)")]
     [SerializeField] private string pauseSoundId = "pause_open";
@@ -138,7 +138,7 @@ public class PauseControler : MonoBehaviour
         GameManager.ResetTutorial();
         HintDirector.ForgetProgress();
         DialogueTrigger.ForgetDialog();
-        SceneManager.LoadScene(mainMenuScene);
+        mainMenuScene.Load();
     }
 
     public void Quit()

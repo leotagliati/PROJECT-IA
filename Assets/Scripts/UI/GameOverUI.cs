@@ -29,6 +29,9 @@ public class GameOverUI : MonoBehaviour
     [Tooltip("Na ordem de navegação. O primeiro recebe o foco ao fim da sequência.")]
     [SerializeField] private Selectable[] buttons;
 
+    [Tooltip("Cena do botão de sair (fora do Editor). Arraste a cena; precisa estar ligada no Build Settings.")]
+    [SerializeField] private SceneReference menuScene;
+
     [Header("Tempos (segundos)")]
     [SerializeField, Min(0.01f)] private float backgroundFadeDuration = 1f;
 
@@ -118,7 +121,7 @@ public class GameOverUI : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-        SceneManagement.SceneManager.LoadScene("MainMenu");
+        menuScene.Load();
 #endif
     }
 

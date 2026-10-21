@@ -250,6 +250,13 @@ determinístico durante o treino.
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.
 
+## Fluxo de cenas
+
+Troca de cena em gameplay (`mainMenu`, `PauseControler`, `CreditsScreen`, `GameOverUI`) usa `SceneReference`:
+arraste o asset da cena no Inspector. Nada de nome nem de índice digitados — renomear/mover a cena não quebra, e
+reordenar o Build Settings também não (o índice é procurado pelo caminho na hora). Cena fora do Build Settings vira
+erro no Console (no Editor ainda abre, pelo caminho). Recarregar a cena atual continua pelo `buildIndex` dela.
+
 ## Tags e layers
 
 Definidos em `ProjectSettings/TagManager.asset` e assumidos pelo código:
