@@ -2003,6 +2003,7 @@ GameObject:
   - component: {fileID: 18082737}
   - component: {fileID: 18082736}
   - component: {fileID: 18082735}
+  - component: {fileID: 18082742}
   m_Layer: 0
   m_Name: MonsterNote
   m_TagString: Untagged
@@ -2142,6 +2143,23 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 1.578, y: 39.044, z: 88.055}
+--- !u!114 &18082742
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 18082734}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a83588bd8836855428adfce7d9bfda33, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  glintMaterial: {fileID: 2100000, guid: 876828fe711f4f2b95bb878e8fce6bc8, type: 2}
+  color: {r: 1, g: 1, b: 1, a: 1}
+  strength: 0.505
+  randomizePhase: 1
+  pauseWhileHighlighted: 1
 --- !u!1 &19119409
 GameObject:
   m_ObjectHideFlags: 0
