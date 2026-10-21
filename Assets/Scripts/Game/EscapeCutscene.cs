@@ -57,6 +57,10 @@ public class EscapeCutscene : MonoBehaviour
     [Header("HUD")]
     [SerializeField] private GameObject[] hideOnStart;
 
+    // Barras de cinema: entram quando o jogo assume o player e saem quando o controle volta. Não entram no
+    // TakeControl, que também roda no Restart (tela preta) e na vitória (andar para a luz).
+    [SerializeField] private CinematicBars cinematicBars;
+
     [Header("Walk")]
     [SerializeField, Min(0.01f)] private float alignDuration = 0.4f;
     [SerializeField, Min(0.01f)] private float turnSmoothing = 0.3f;
@@ -193,6 +197,9 @@ public class EscapeCutscene : MonoBehaviour
 
         TakeControl();
         SetHud(false);
+
+        if (cinematicBars != null)
+            cinematicBars.Show();
 
         StartCoroutine(Run());
     }
@@ -423,6 +430,9 @@ public class EscapeCutscene : MonoBehaviour
 
         // A barra de stamina importa na fuga.
         SetHud(true);
+
+        if (cinematicBars != null)
+            cinematicBars.Hide();
 
         if (showHint && hints != null && !string.IsNullOrEmpty(escapeHintText))
             hintHandle = hints.Show(escapeHintText, escapeHintDuration);
