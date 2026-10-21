@@ -255,3 +255,21 @@ MonoBehaviour:
     Volume: 0.7
     PitchJitter: 0.05
     MaxDistance: 0
+  - Id: lamp_burst
+    Clips:
+    - {fileID: 8300000, guid: 1b47c198e413abd9c57e806e21de15fb, type: 3}
+    Volume: 1
+    PitchJitter: 0.1
+    MaxDistance: 0
+  - Id: lamp_buzz
+    Clips:
+    - {fileID: 8300000, guid: a7516ab0de7c029dc990a692def01441, type: 3}
+    Volume: 0.35
+    PitchJitter: 0.05
+    MaxDistance: 8
+  - Id: lamp_flicker
+    Clips:
+    - {fileID: 8300000, guid: 7106fb4df51e8054214da510d88f6f66, type: 3}
+    Volume: 0.5
+    PitchJitter: 0.05
+    MaxDistance: 10

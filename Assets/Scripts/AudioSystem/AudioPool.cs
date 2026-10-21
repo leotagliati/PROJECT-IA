@@ -13,6 +13,7 @@ public class AudioPool : MonoBehaviour
     private Transform[] _followTargets;   // slot que persegue um objeto em movimento (passos, inimigo)
     private float[] _startTimes;          // pra roubar sempre a voz mais antiga
     private int[] _generations;           // incrementa a cada Play no slot; ver AudioHandle
+    private float[] _entryVolumes;        // volume da entrada, para SetVolume escalar sobre ele
     private int _cursor;
     private AudioSource _uiSource;
 
@@ -32,6 +33,7 @@ public class AudioPool : MonoBehaviour
         _followTargets = new Transform[size];
         _startTimes = new float[size];
         _generations = new int[size];
+        _entryVolumes = new float[size];
 
         for (int i = 0; i < size; i++)
         {
@@ -128,6 +130,7 @@ public class AudioPool : MonoBehaviour
         _followTargets[slot] = follow;
         _startTimes[slot] = Time.unscaledTime;
         _generations[slot]++;
+        _entryVolumes[slot] = entry.Volume;
 
         source.Play();
         return new AudioHandle(slot, _generations[slot]);
@@ -144,6 +147,12 @@ public class AudioPool : MonoBehaviour
             return;
 
         StopSlot(handle.Slot);
+    }
+
+    public void SetVolume(AudioHandle handle, float volumeScale)
+    {
+        if (Owns(handle))
+            _sources[handle.Slot].volume = _entryVolumes[handle.Slot] * volumeScale;
     }
 
     public void StopAll()

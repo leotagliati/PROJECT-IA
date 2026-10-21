@@ -150,6 +150,13 @@ public static class AudioProvider
             _pool.Stop(handle);
     }
 
+    /// <summary>Muda o volume de um som em andamento (escala sobre o volume da entrada). No-op se o slot foi roubado.</summary>
+    public static void SetVolume(AudioHandle handle, float volumeScale)
+    {
+        if (_pool != null)
+            _pool.SetVolume(handle, volumeScale);
+    }
+
     public static void StopAll()
     {
         if (_pool != null)
