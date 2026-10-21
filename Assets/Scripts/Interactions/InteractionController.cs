@@ -22,7 +22,9 @@ public class InteractionController : MonoBehaviour
     [Tooltip("Solta quando a mão (o ponto na mira) se afasta isto do ponto agarrado: porta travada no limite e o jogador olhou para longe.")]
     [SerializeField] private float dragSlipDistance = 1.2f;
 
-    private readonly RaycastHit[] hits = new RaycastHit[16];
+    // NonAlloc não devolve os mais próximos quando estoura, e sim quaisquer N: com estante cheia de
+    // livros (cada um com collider) 16 já cortava a chave fora.
+    private readonly RaycastHit[] hits = new RaycastHit[32];
     private static readonly IComparer<RaycastHit> byDistance = new HitDistanceComparer();
 
     private Camera cam;
@@ -120,9 +122,17 @@ public class InteractionController : MonoBehaviour
         int count = Physics.RaycastNonAlloc(ray, hits, raycastDistance, ~0, triggerInteraction);
         Array.Sort(hits, 0, count, byDistance);
 
+        Collider blocker = null;
+
         for (int i = 0; i < count; i++)
         {
             Collider col = hits[i].collider;
+
+            // A mobília do mapa está na layer Wall com um box no volume inteiro: a chave na
+            // prateleira fica dentro dele. Depois do primeiro bloqueio, só vale o que está dentro
+            // desse mesmo collider; o que está atrás (parede de verdade) continua bloqueado.
+            if (blocker != null && !IsInside(blocker, hits[i].point))
+                break;
 
             interactable = col.GetComponentInParent<IInteractable>();
             highlight = col.GetComponentInParent<HighlightTarget>();
@@ -137,8 +147,13 @@ public class InteractionController : MonoBehaviour
                 break;
             }
 
-            if ((blockingMask.value & (1 << col.gameObject.layer)) != 0)
-                break;
+            if (blocker == null && (blockingMask.value & (1 << col.gameObject.layer)) != 0)
+            {
+                // ClosestPoint não funciona em MeshCollider côncavo: esse bloqueia como antes.
+                if (col is MeshCollider mesh && !mesh.convex)
+                    break;
+                blocker = col;
+            }
         }
 
         SetInteractable(interactable);
@@ -354,6 +369,11 @@ public class InteractionController : MonoBehaviour
             activeDrag.EndDrag();
 
         activeDrag = null;
+    }
+
+    private static bool IsInside(Collider col, Vector3 point)
+    {
+        return (col.ClosestPoint(point) - point).sqrMagnitude < 1e-6f;
     }
 
     private static bool IsDestroyed(object target)

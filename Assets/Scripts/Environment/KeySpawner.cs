@@ -50,6 +50,33 @@ public class KeySpawner : MonoBehaviour
     /// <summary>Remove as chaves que ainda estão no mapa e sorteia de novo. Para restart de partida.</summary>
     public void Respawn()
     {
+        ClearSpawnedKeys();
+        SpawnKeys();
+    }
+
+    // Debug: uma chave em cada ponto, para conferir no Play se todos são alcançáveis pela mira.
+    [ContextMenu("Spawnar chave em todos os pontos")]
+    private void SpawnAtAllPoints()
+    {
+        if (!Application.isPlaying)
+        {
+            Debug.LogWarning("[KeySpawner] Use no Play Mode: a chave precisa do jogador para ser testada.", this);
+            return;
+        }
+
+        if (keyPrefab == null)
+        {
+            Debug.LogError("[KeySpawner] O prefab da chave não foi atribuído no Inspector!", this);
+            return;
+        }
+
+        ClearSpawnedKeys();
+        foreach (Transform point in CollectPoints())
+            SpawnAt(point);
+    }
+
+    private void ClearSpawnedKeys()
+    {
         foreach (GameObject key in spawnedKeys)
         {
             // Chave já coletada se destruiu sozinha (KeyItem.Interact); a referência vira null.
@@ -58,7 +85,6 @@ public class KeySpawner : MonoBehaviour
         }
 
         spawnedKeys.Clear();
-        SpawnKeys();
     }
 
     private void SpawnKeys()
@@ -89,15 +115,18 @@ public class KeySpawner : MonoBehaviour
         {
             int j = rng.Next(i, points.Count);
             (points[i], points[j]) = (points[j], points[i]);
-
-            // A rotação do ponto é somada à do prefab, não a substitui: a correção de eixo do
-            // FBX (-90 em X) mora no prefab, e o ponto só diz para onde a chave aponta.
-            Transform point = points[i];
-            Quaternion rotation = point.rotation * keyPrefab.transform.rotation;
-            GameObject key = Instantiate(keyPrefab, point.position, rotation, transform);
-            key.name = $"{keyPrefab.name} ({point.name})";
-            spawnedKeys.Add(key);
+            SpawnAt(points[i]);
         }
+    }
+
+    private void SpawnAt(Transform point)
+    {
+        // A rotação do ponto é somada à do prefab, não a substitui: a correção de eixo do
+        // FBX (-90 em X) mora no prefab, e o ponto só diz para onde a chave aponta.
+        Quaternion rotation = point.rotation * keyPrefab.transform.rotation;
+        GameObject key = Instantiate(keyPrefab, point.position, rotation, transform);
+        key.name = $"{keyPrefab.name} ({point.name})";
+        spawnedKeys.Add(key);
     }
 
     // Cópia: o sorteio embaralha a lista, e não queremos reordenar o que está serializado.
@@ -115,8 +144,13 @@ public class KeySpawner : MonoBehaviour
         }
         else
         {
+            // As chaves nascem como filhas do spawner, e o Destroy só vale no fim do frame: sem
+            // esse filtro, um respawn sorteia as chaves antigas como pontos.
             foreach (Transform child in transform)
-                points.Add(child);
+            {
+                if (child.GetComponentInChildren<KeyItem>(true) == null)
+                    points.Add(child);
+            }
         }
 
         return points;
