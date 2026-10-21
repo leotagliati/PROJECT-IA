@@ -171,10 +171,13 @@ determinístico durante o treino.
   e `ThemeMusic` buscam Seekers **inativos** também. Pego, não há game over: tela preta, Seeker desativado
   na pose da cena, player no `Respawn` (antes do trigger), sem recarregar a cena; o trigger rearma e a cutscene
   inteira se repete na próxima passada. A vitória é um `EscapeTrigger` no fim do corredor e
-  termina no menu principal (`GameManager.LoadMainMenu`, o mesmo do "Voltar ao menu" do pause), não em reload.
+  termina nos créditos (`GameManager.EndSession`, o mesmo do "Voltar ao menu" do pause), não em reload.
 - **Vitória**: a `WinScreenUI` (prefab `WinScreen`) é dona da sequência: em `Won` faz o clarão (o branco é a Image
   dela), leva o som do jogo a zero pelo `AudioProvider.Fade` na mesma curva, dispara o estático
-  `WinScreenUI.CutToWhite` e mostra o texto. O player (`PlayerEscapedSequence`) só ouve o `CutToWhite` e desliga o que
+  `WinScreenUI.CutToWhite` e segue como a tela de game over: texto → Animator do texto (o mesmo `Text (TMP).controller`) →
+  "Seu tempo de jogo: mm:ss" (`GameManager.ElapsedTime`) → "Aperte qualquer botão" → qualquer botão, menos Pause/Cancel do
+  input map, vai à cena `Credits`. Não há ida automática ao menu. O tempo conta desde o load (tutorial e fuga inclusos), para
+  no pause/diálogo (timeScale 0) e em Won/Lost, atravessa o `Restart()` por memória estática e zera no `EndSession`. O player (`PlayerEscapedSequence`) só ouve o `CutToWhite` e desliga o que
   é dele; a cutscene final congela o Seeker no mesmo evento. Ninguém referencia a tela.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
   (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
@@ -228,7 +231,8 @@ determinístico durante o treino.
 - **Diálogo**: view-controller. `DialogueController` (um por cena, **fora** do root da view) é o comportamento:
   fala atual, ritmo da digitação, o que o avançar faz, e pausa + input no mapa UI enquanto a conversa dura.
   `DialogueView` só exibe (textos, caracteres revelados, prompt "Aperte [ícone] para pular") e lê o input, que
-  repassa em `AdvancePressed`. As falas vêm de um `DialogueAsset` (ScriptableObject). O avançar é a action
+  repassa em `AdvancePressed`. A lista `hideWhileOpen` dela esconde UI do HUD por
+  CanvasGroup (alpha 0, reforçado no `LateUpdate`) enquanto a conversa dura e restaura o alpha original ao fechar. As falas vêm de um `DialogueAsset` (ScriptableObject). O avançar é a action
   `UI/DialogueAdvance`, com teclas concretas de propósito: o `Submit` é por usage e não tem ícone.
   `DialogueTrigger` é a única ponte com a interação (`started` dispara quando a conversa realmente abre,
   `finished` quando termina); pausa e dicas só leem `DialogueController.IsOpen`. O diálogo

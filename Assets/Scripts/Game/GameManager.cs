@@ -2,7 +2,6 @@ using System;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
-using UnityEngine.Serialization;
 
 public enum GameState
 {
@@ -18,20 +17,12 @@ public enum GameState
 [DefaultExecutionOrder(-100)]
 public class GameManager : MonoBehaviour
 {
-    // A ida ao menu depois da vitória mora aqui, e não na tela: acontece mesmo com uma UI mal
-    // configurada ou ausente (a WinScreenUI faz o clarão e o texto, mas não decide quando a partida acaba).
-    // A derrota NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
+    // O fim da vitória (texto, tempo, "aperte qualquer botão" e a ida aos créditos) é da WinScreenUI: aqui a vitória
+    // só muda o estado. A derrota também NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
     //
     // Tutorial já concluído: o spawn fica fora da sala do tutorial e a partida já abre em Playing.
     // A memória é estática porque o reload recria o GameManager; só o menu principal a apaga (ForgetTutorial).
     [Header("Fim de jogo")]
-    [Tooltip("Segundos depois de escapar até carregar o menu principal (clarão 2s + mensagem).")]
-    [FormerlySerializedAs("reloadDelayAfterWon")]
-    [SerializeField, Min(0f)] private float menuDelayAfterWon = 5.5f;
-
-    [Tooltip("Cena carregada depois da vitória (precisa estar no Build Settings).")]
-    [SerializeField] private string mainMenuScene = "MainMenu";
-
     [Tooltip("Onde o jogador nasce se o tutorial já foi concluído nesta sessão.")]
     [SerializeField] private Transform respawnPoint;
 
@@ -47,6 +38,10 @@ public class GameManager : MonoBehaviour
     [SerializeField] private UnityEvent gameStarted;
 
     private static bool tutorialCompleted;
+
+    // O Restart (game over / pause) recarrega a cena e recria o GameManager, mas a partida é a mesma: o tempo passa
+    // por aqui, em memória, sem arquivo. Só EndSession (menu/créditos) o zera.
+    private static float carriedElapsedTime;
 
     public static GameManager Current { get; private set; }
 
@@ -85,6 +80,9 @@ public class GameManager : MonoBehaviour
 
         Current = this;
 
+        ElapsedTime = carriedElapsedTime;
+        carriedElapsedTime = 0f;
+
         if (tutorialCompleted)
             SkipTutorial();
     }
@@ -101,7 +99,11 @@ public class GameManager : MonoBehaviour
     {
         switch (State)
         {
+            // Tempo de jogo desde o load, tutorial e fuga final inclusos. Pause e diálogo zeram o timeScale, então o
+            // deltaTime vira 0 e o contador para sozinho; Won/Lost não entram.
+            case GameState.Preparing:
             case GameState.Playing:
+            case GameState.Escaping:
                 ElapsedTime += Time.deltaTime;
                 break;
         }
@@ -133,12 +135,13 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Voltar ao menu encerra a sessão: um jogo novo passa pelo tutorial, pelas dicas e pelo diálogo de novo.
-    /// Fonte única para o pause e para o fim da vitória.
+    /// Sair para o menu ou para os créditos encerra a sessão: um jogo novo passa pelo tutorial, pelas dicas e pelo
+    /// diálogo de novo, e o tempo de jogo recomeça. Fonte única para o pause e para o fim da vitória.
     /// </summary>
-    public static void LoadMainMenu(string scene)
+    public static void EndSession(string scene)
     {
         ResetTutorial();
+        carriedElapsedTime = 0f;
         HintDirector.ForgetProgress();
         DialogueTrigger.ForgetDialog();
 
@@ -150,10 +153,10 @@ public class GameManager : MonoBehaviour
         SceneManager.LoadScene(scene);
     }
 
-    private void ReturnToMainMenu() => LoadMainMenu(mainMenuScene);
-
     public void Restart()
     {
+        carriedElapsedTime = ElapsedTime;
+
         var scene = SceneManager.GetActiveScene();
 #if UNITY_EDITOR
         // Cenas de teste fora do Build Settings têm buildIndex -1; no Editor dá para carregar pelo path.
@@ -196,9 +199,6 @@ public class GameManager : MonoBehaviour
             return;
 
         SetState(outcome);
-
-        if (outcome == GameState.Won)
-            Invoke(nameof(ReturnToMainMenu), menuDelayAfterWon);
     }
 
     private void SetState(GameState next)
@@ -223,5 +223,6 @@ public class GameManager : MonoBehaviour
         Current = null;
         StateChanged = null;
         tutorialCompleted = false;
+        carriedElapsedTime = 0f;
     }
 }

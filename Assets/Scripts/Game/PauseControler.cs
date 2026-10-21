@@ -125,7 +125,7 @@ public class PauseControler : MonoBehaviour
     }
 
     // O OnDestroy e o PauseAudio.OnDisable desfazem pausa, input e áudio quando a cena descarrega.
-    public void BackToMenu() => GameManager.LoadMainMenu(mainMenuScene);
+    public void BackToMenu() => GameManager.EndSession(mainMenuScene);
 
     public void Quit()
     {

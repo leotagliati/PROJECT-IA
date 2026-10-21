@@ -24,6 +24,9 @@ public class DialogueView : MonoBehaviour
     [Tooltip("Opcional. Recebe o texto abaixo com o ícone da tecla no esquema ativo (teclado/controle).")]
     [SerializeField] private TMP_Text promptText;
 
+    [Tooltip("Somem enquanto a conversa está aberta e voltam ao alpha que tinham. Via CanvasGroup (posto se faltar).")]
+    [SerializeField] private GameObject[] hideWhileOpen;
+
     [SerializeField] private string typingPrompt = "Aperte {0} para pular";
     [SerializeField] private string waitingPrompt = "Aperte {0} para continuar";
 
@@ -31,6 +34,8 @@ public class DialogueView : MonoBehaviour
     private bool lineComplete;
     private bool skippable;
     private bool shown;
+    private CanvasGroup[] hiddenGroups;
+    private float[] hiddenAlphas;
 
     public event Action AdvancePressed;
 
@@ -57,6 +62,8 @@ public class DialogueView : MonoBehaviour
         advance = PlayerInputProvider.Actions.asset.FindAction(AdvanceAction, throwIfNotFound: true);
         advance.performed += OnAdvance;
         InputIcons.SchemeChanged += RefreshPrompt;
+
+        HideOthers();
     }
 
     public void Hide()
@@ -66,6 +73,67 @@ public class DialogueView : MonoBehaviour
 
         Unsubscribe();
         Root.SetActive(false);
+        RestoreOthers();
+    }
+
+    // CanvasGroup e não SetActive: desativar o objeto desligaria os scripts dele (eventos, corrotinas) e o
+    // estado se perderia até a conversa acabar. Guarda todos os alphas antes de zerar, para um item repetido
+    // na lista não gravar o 0 como "original".
+    private void HideOthers()
+    {
+        if (hideWhileOpen == null || hideWhileOpen.Length == 0)
+            return;
+
+        hiddenGroups = new CanvasGroup[hideWhileOpen.Length];
+        hiddenAlphas = new float[hideWhileOpen.Length];
+
+        for (int i = 0; i < hideWhileOpen.Length; i++)
+        {
+            if (hideWhileOpen[i] == null)
+                continue;
+
+            var group = hideWhileOpen[i].GetComponent<CanvasGroup>();
+            if (group == null)
+                group = hideWhileOpen[i].AddComponent<CanvasGroup>();
+
+            hiddenGroups[i] = group;
+            hiddenAlphas[i] = group.alpha;
+        }
+
+        ApplyHidden();
+    }
+
+    // Ordem inversa: item repetido termina no alpha original. Grupo destruído (troca de cena) é pulado.
+    private void RestoreOthers()
+    {
+        if (hiddenGroups == null)
+            return;
+
+        for (int i = hiddenGroups.Length - 1; i >= 0; i--)
+        {
+            if (hiddenGroups[i] != null)
+                hiddenGroups[i].alpha = hiddenAlphas[i];
+        }
+
+        hiddenGroups = null;
+        hiddenAlphas = null;
+    }
+
+    private void ApplyHidden()
+    {
+        foreach (CanvasGroup group in hiddenGroups)
+        {
+            if (group != null)
+                group.alpha = 0f;
+        }
+    }
+
+    // Reforço: quem mexe no próprio alpha todo Update (ex.: StaminaBarUI sem pausa) reapareceria durante a
+    // conversa. O LateUpdate roda depois de todos os Update, então o zero sempre vence.
+    private void LateUpdate()
+    {
+        if (shown && hiddenGroups != null)
+            ApplyHidden();
     }
 
     private void Unsubscribe()
