@@ -24,6 +24,9 @@ public class SeekerManager : Agent
     // conhecida + 3 da fronteira de exploração + a janela 5x5 de células já visitadas.
     public const int ObservationCount = 16 + 25;
 
+    // Sem a fronteira: os SeekerV1–V3.onnx são de antes dela (26/09).
+    public const int LegacyObservationCount = 13 + 25;
+
     [Header("-----Systems-----")]
     [SerializeField] private SeekerPerceptionSystem _perceptionSystem;
     [SerializeField] private SeekerMovementSystem _movementSystem;
@@ -39,6 +42,8 @@ public class SeekerManager : Agent
     [SerializeField] private SeekerMode _mode = SeekerMode.Training;
     [SerializeField] private int _maxEpisodeSteps = 5000;
     [SerializeField] private float _maxHiderDistance = 20f;
+    [Tooltip("Vetor de 38 sem a fronteira de exploração, para rodar os SeekerV1–V3.onnx.")]
+    [SerializeField] private bool _legacyObservations = false;
 
     private Vector3 _initialLocalPosition;
     private Quaternion _initialLocalRotation;
@@ -271,18 +276,13 @@ public class SeekerManager : Agent
         // paredes) até a célula não visitada mais próxima, e a distância dele. É o que a janela
         // não tem quando está toda em 1 — cercado de visitadas e paredes, sem isto a observação
         // é constante e a política não tem para onde ir. Mesmo referencial do vetor do hider. (3)
-        if (_explorationMemory.HasFrontier)
+        if (!_legacyObservations)
         {
-            Vector3 step = _explorationMemory.FrontierStepDirectionWorld;
+            bool hasFrontier = _explorationMemory.HasFrontier;
+            Vector3 step = hasFrontier ? _explorationMemory.FrontierStepDirectionWorld : Vector3.zero;
             sensor.AddObservation(step.x);
             sensor.AddObservation(step.z);
-            sensor.AddObservation(_explorationMemory.FrontierDistanceNormalized);
-        }
-        else
-        {
-            sensor.AddObservation(0f);
-            sensor.AddObservation(0f);
-            sensor.AddObservation(0f);
+            sensor.AddObservation(hasFrontier ? _explorationMemory.FrontierDistanceNormalized : 0f);
         }
 
         // Janela 5x5 de células já visitadas ao redor do agente. (25)
@@ -482,10 +482,11 @@ public class SeekerManager : Agent
             return;
 
         int declared = behaviorParameters.BrainParameters.VectorObservationSize;
-        if (declared != ObservationCount)
+        int emitted = _legacyObservations ? LegacyObservationCount : ObservationCount;
+        if (declared != emitted)
         {
             Debug.LogError(
-                $"{name}: VectorObservationSize = {declared} mas o agente emite {ObservationCount} observações. " +
+                $"{name}: VectorObservationSize = {declared} mas o agente emite {emitted} observações. " +
                 "Ajuste no Behavior Parameters, senão o treino roda com o vetor truncado.", this);
         }
     }

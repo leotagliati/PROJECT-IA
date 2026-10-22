@@ -59,6 +59,10 @@ public class HiderAgent : MonoBehaviour
     /// </summary>
     public Vector3 Spawn()
     {
+        // O seeker pode começar o episódio antes do Awake daqui (arena religada: ele ativa primeiro na hierarquia).
+        if (_rigidbody == null)
+            _rigidbody = GetComponent<Rigidbody>();
+
         if (_spawnPoints != null && _spawnPoints.Length > 0)
             _rigidbody.position = _spawnPoints[Random.Range(0, _spawnPoints.Length)].position;
 

@@ -18,6 +18,8 @@ namespace Assets.Scripts.Seeker
         [Header("-----Currículo-----")]
         [SerializeField] private GameObject _maze;
         [SerializeField] private string _mazeParameterName = "maze_enabled";
+        [Tooltip("maze_enabled sem trainer (inferência): chance de labirinto por episódio.")]
+        [SerializeField, Range(0f, 1f)] private float _defaultMazeChance = 0f;
 
         [Header("-----Regime de recompensa na lição do labirinto-----")]
         // Os dois termos de shaping que funcionam em sala aberta atrapalham no labirinto.
@@ -113,7 +115,7 @@ namespace Assets.Scripts.Seeker
         private void ApplyCurriculum()
         {
             float mazeProbability = Academy.Instance.EnvironmentParameters
-                .GetWithDefault(_mazeParameterName, 0f);
+                .GetWithDefault(_mazeParameterName, _defaultMazeChance);
 
             // maze_enabled é lido como PROBABILIDADE por episódio e por arena, não como flag
             // global. Com várias arenas na cena e 0.5, o mesmo batch carrega os dois regimes.
