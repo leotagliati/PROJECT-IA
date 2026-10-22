@@ -5,15 +5,29 @@ using UnityEngine;
 /// quem decide é o UnityEvent que chama <see cref="Apply"/> (ex.: o <c>started</c> do DialogueTrigger da porta, com
 /// a câmera presa no enquadramento da conversa).
 ///
-/// O estado inicial — paredes ligadas, substitutos desligados — é o da cena; este componente não o força.
+/// Partida nova começa com as paredes ligadas e os substitutos desligados, seja qual for o estado salvo na cena;
+/// reinício com o tutorial já concluído começa direto no estado do Apply.
 /// </summary>
 public class ToggleWalls : MonoBehaviour
 {
-    [Tooltip("Começam ativas na cena; Apply desliga.")]
+    [Tooltip("Ativas no começo da partida; Apply desliga.")]
     [SerializeField] private GameObject[] temporaryWalls;
 
-    [Tooltip("Ficam no lugar das paredes temporárias; começam desativadas na cena e Apply liga.")]
+    [Tooltip("Ficam no lugar das paredes temporárias; desativadas no começo da partida e Apply liga.")]
     [SerializeField] private GameObject[] replacements;
+
+    // No Awake, antes de qualquer Start: o tutorialSkipped do GameManager (Start) que chama o Apply não é desfeito.
+    private void Awake()
+    {
+        SetAllActive(temporaryWalls, true);
+        SetAllActive(replacements, false);
+    }
+
+    private void Start()
+    {
+        if (GameManager.Current != null && GameManager.Current.SkippedTutorial)
+            Apply();
+    }
 
     public void Apply()
     {
