@@ -53,6 +53,8 @@ namespace Assets.Scripts.Free
         [SerializeField] private SeekerStaticVisual _staticVisual;
         // Grito de raiva ao desistir do jogador, só no jogo. Vazio = acha ou cria.
         [SerializeField] private SeekerLostRoar _lostRoar;
+        // Fala de estática fatiada, só no jogo. Vazio = acha ou cria.
+        [SerializeField] private SeekerGibberish _gibberish;
         // Vazio = o FreeArenaController nos pais.
         [SerializeField] private FreeArenaController _arenaController;
 
@@ -248,6 +250,9 @@ namespace Assets.Scripts.Free
             _lostRoar = Find(_lostRoar);
             if (_lostRoar == null && IsGameMode && _animationSystem != null)
                 _lostRoar = _animationSystem.gameObject.AddComponent<SeekerLostRoar>();
+            _gibberish = Find(_gibberish);
+            if (_gibberish == null && IsGameMode)
+                _gibberish = gameObject.AddComponent<SeekerGibberish>();
             _rigidbody = GetComponent<Rigidbody>();
         }
 

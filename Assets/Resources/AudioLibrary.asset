@@ -216,6 +216,16 @@ MonoBehaviour:
     PitchJitter: 0.03
     MinDistance: 12
     MaxDistance: 60
+  - Id: seeker_gibberish
+    Clips:
+    - {fileID: 8300000, guid: 6fc1f9892ff040f99100b0a91700e155, type: 3}
+    - {fileID: 8300000, guid: 54325d49c9a546f5bb43dd689c4355cc, type: 3}
+    - {fileID: 8300000, guid: c34f909d0ea14115a0635ad7361ee497, type: 3}
+    - {fileID: 8300000, guid: 6eedb18f72b849dbb15dedb89508ca37, type: 3}
+    Volume: 0.3
+    PitchJitter: 0
+    MinDistance: 6
+    MaxDistance: 40
   - Id: throwable_impact
     Clips:
     - {fileID: 8300000, guid: bfd4c5c5d2ba73a4c9d4ad9c2009accb, type: 3}
