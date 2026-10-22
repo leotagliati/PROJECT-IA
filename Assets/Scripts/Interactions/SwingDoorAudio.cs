@@ -112,6 +112,15 @@ public class SwingDoorAudio : MonoBehaviour
         if (creakSource == null)
             return;
 
+        // Diálogo e bilhete zeram o timeScale sem pausar o listener: a porta congela no meio do giro e a
+        // velocidade parada manteria o rangido em loop.
+        if (Time.deltaTime <= 0f)
+        {
+            if (creakSource.isPlaying)
+                creakSource.Pause();
+            return;
+        }
+
         float target = Mathf.InverseLerp(profile.creakMinSpeed, profile.creakFullSpeed, door.AngularSpeed);
         creakGain = Mathf.SmoothDamp(creakGain, target, ref creakGainVelocity, profile.creakResponse);
 
