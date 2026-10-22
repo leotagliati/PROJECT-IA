@@ -160,6 +160,19 @@ determinístico durante o treino.
 - **Estado do jogador**: `PlayerMovement.CurrentState` (`PlayerState` + evento
   `StateChanged`) é a fonte de verdade para "está andando/correndo/pulando". Quem precisa
   reagir (áudio, IA, UI) lê isso em vez de recalcular por conta própria.
+- **Final**: `EscapeCutscene` é um trigger corredor adentro depois da porta de saída. Põe o `GameManager` em
+  `GameState.Escaping` (a IA de verdade para e cala: só age em `Playing`), troca a porta em pé pela caída e ativa o
+  `SeekerChasePuppet` (modelo do monstro sem IA, desativado na porta) enquanto o player está de costas; vira o player,
+  passa 2 s na câmera da cabeça do Seeker (que pega emprestada a RenderTexture do player) e devolve o controle.
+  Enquanto isso, barras de cinema (Canvas próprio, criado em código) e o HUD da lista `hideDuringCutscene` desligado.
+  O menu *PROJECT-IA → Final: montar cutscene na cena aberta* (`EscapeSceneSetup`) liga tudo isso na cena. A
+  perseguição é o `SeekerChaseState` do boneco recebendo `Tick(true)` — por isso `ChaseMusic`, `SeenPostFX` e
+  `ThemeMusic` procuram Seekers **inativos** também. Pego: a morte normal (`PlayerCaughtSequence`, com o
+  `LookTarget` trocado para o boneco, e game over); desde a cutscene a sessão lembra o checkpoint (estático, como o
+  tutorial; só o `EndSession` apaga), e o reload põe o player no `EscapeCheckpoint` com a porta de saída destrancada
+  sem som (`Lockable.UnlockSilently`). `GameManager.PauseLocked` (só enquanto o controle está tirado) recusa o pause
+  e cala o `HintController`. O `EscapeTrigger` no fim do corredor dá a vitória: clarão da `PlayerEscapedSequence` → `WinScreenUI` →
+  qualquer botão → créditos (`GameManager.EndSession`, o mesmo do "Voltar ao menu" do pause). A vitória não recarrega.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
   (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
   Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela

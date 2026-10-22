@@ -73,7 +73,12 @@ public class DoorLock : MonoBehaviour, IInteractable, IHoldFeedback
     public void OnHoldCanceled() => StopWorking();
 
     /// <summary>Abre sem cobrar chave. Para scripts de cena, cutscene, debug.</summary>
-    public virtual void Unlock()
+    public virtual void Unlock() => Open(playSound: true);
+
+    /// <summary>Abre sem chave e sem som: estado restaurado no load (checkpoint), não uma ação vista.</summary>
+    public void UnlockSilently() => Open(playSound: false);
+
+    private void Open(bool playSound)
     {
         if (IsUnlocked)
             return;
@@ -81,7 +86,8 @@ public class DoorLock : MonoBehaviour, IInteractable, IHoldFeedback
         IsUnlocked = true;
         StopWorking();
 
-        AudioProvider.PlayAt(openSoundId, transform.position);
+        if (playSound)
+            AudioProvider.PlayAt(openSoundId, transform.position);
         Unlocked?.Invoke(this);
 
         gameObject.SetActive(false);

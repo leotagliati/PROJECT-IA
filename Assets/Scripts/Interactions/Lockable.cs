@@ -35,6 +35,14 @@ public class Lockable : MonoBehaviour
             doorLock.Unlocked -= HandleLockUnlocked;
     }
 
+    /// <summary>Tira todos os cadeados sem chave e sem som (checkpoint restaurado no load).</summary>
+    public void UnlockSilently()
+    {
+        // Cópia: o Unlocked de cada cadeado tira ele da lista no meio do laço.
+        foreach (DoorLock doorLock in locks.ToArray())
+            doorLock.UnlockSilently();
+    }
+
     /// <summary>Falha com som e mensagem se ainda trancado.</summary>
     public bool TryRefuse(out InteractionResult result)
     {

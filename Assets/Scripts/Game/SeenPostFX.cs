@@ -105,7 +105,7 @@ public class SeenPostFX : MonoBehaviour
             _chaseMusic.JumpscareTriggered += Burst;
 
         if (_seekers == null || _seekers.Length == 0)
-            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsSortMode.None);
+            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsInactive.Include, FindObjectsSortMode.None);
     }
 
     // Volumes são objetos à parte: desligar o script não apaga o efeito sozinho.

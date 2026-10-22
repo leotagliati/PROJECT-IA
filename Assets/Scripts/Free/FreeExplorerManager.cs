@@ -198,8 +198,9 @@ namespace Assets.Scripts.Free
             if (!_matchRunning && _lostRoar != null)
                 _lostRoar.Cancel();
 
-            // Fim de jogo: o monstro cala; dali em diante só o áudio da PlayerCaughtSequence.
-            if ((state == GameState.Won || state == GameState.Lost) && _audioSystem != null)
+            // Fim de jogo: o monstro cala; dali em diante só o áudio da PlayerCaughtSequence. No final (Escaping) também:
+            // quem persegue é o boneco da EscapeCutscene, e a estática deste vazaria de onde ele parou.
+            if ((state is GameState.Escaping or GameState.Won or GameState.Lost) && _audioSystem != null)
                 _audioSystem.Silence();
         }
 

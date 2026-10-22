@@ -39,6 +39,12 @@ public class PlayerCaughtSequence : MonoBehaviour
 
     public event Action CutToBlack;
 
+    /// <summary>Troca o alvo da virada antes do Lost, para quando quem pegou não é o monstro de sempre (o final).</summary>
+    public Transform LookTarget
+    {
+        set => lookTarget = value;
+    }
+
     private AudioHandle stingerHandle;
     private AudioHandle screamHandle;
 

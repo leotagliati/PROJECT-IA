@@ -194,6 +194,12 @@ MonoBehaviour:
     Volume: 1
     PitchJitter: 0.08
     MaxDistance: 0
+  - Id: door_break
+    Clips:
+    - {fileID: 8300000, guid: 2303b7ff4db56a049bc4923654f72614, type: 3}
+    Volume: 1
+    PitchJitter: 0.05
+    MaxDistance: 0
   - Id: typewriter_hit
     Clips:
     - {fileID: 8300000, guid: 2f986b5f79dc5604f94a9c64940be610, type: 3}

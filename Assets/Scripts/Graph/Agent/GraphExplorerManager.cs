@@ -279,8 +279,9 @@ namespace Assets.Scripts.Graph
                 _locomotion.Stop();
 
             // Fim de jogo: tudo do monstro cala (estática e passos); dali em diante só o áudio da
-            // PlayerCaughtSequence, como no SeekerManager.
-            if ((state == GameState.Won || state == GameState.Lost) && _audioSystem != null)
+            // PlayerCaughtSequence, como no SeekerManager. No final (Escaping) também: quem persegue é o boneco da
+            // EscapeCutscene.
+            if ((state is GameState.Escaping or GameState.Won or GameState.Lost) && _audioSystem != null)
                 _audioSystem.Silence();
         }
 
