@@ -175,7 +175,9 @@ determinístico durante o treino.
   qualquer botão → créditos (`GameManager.EndSession`, o mesmo do "Voltar ao menu" do pause). A vitória não recarrega.
   A `WinScreenUI` é clara de propósito (off-white, texto escuro, `determination`): preto, vermelho e estática são a
   linguagem da morte, e qualquer tela nesse estilo lê como game over. O título é digitado (`maxVisibleCharacters`, som
-  `dialogue_type`); a arrumação sai do menu *PROJECT-IA → Final: montar tela de vitória*.
+  `dialogue_type`); a arrumação sai do menu *PROJECT-IA → Final: montar tela de vitória*. Tempo de jogo e mortes são
+  da sessão (`GameManager.ElapsedTime`/`Deaths`, estáticos como o tutorial): contam tutorial, caça e fuga somando as
+  tentativas, param com timeScale 0 e em Won/Lost, atravessam o `Restart()` e zeram no `EndSession`.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
   (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
   Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela

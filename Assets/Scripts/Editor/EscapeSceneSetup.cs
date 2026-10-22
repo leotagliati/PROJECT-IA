@@ -18,6 +18,7 @@ public static class EscapeSceneSetup
 {
     private const string CreditsScenePath = "Assets/Scenes/Credits.unity";
     private const string WinFontPath = "Assets/TextMesh Pro/Fonts/determination SDF.asset";
+    private const string SkullPath = "Assets/Images/HUD/skull.png";
 
     // Paleta da tela de vitória: o clarão assenta num branco quente, texto quase preto.
     private static readonly Color WinBackground = new Color32(0xF3, 0xF0, 0xE8, 0xFF);
@@ -269,6 +270,17 @@ public static class EscapeSceneSetup
             "Aperte qualquer botão");
         prompt.alignment = TextAlignmentOptions.BottomRight;
 
+        // Segunda coluna, ao lado do tempo: "Mortes", caveira e o número.
+        TMP_Text deathsCaption = Label(root, so.FindProperty("deathsCaption").objectReferenceValue as TMP_Text,
+            "DeathsCaption", font, leftBlock, new Vector2(0f, 1f), new Vector2(170f, -27f), new Vector2(200f, 28f), 21f,
+            WinMuted, "Mortes");
+        RectTransform skull = Icon(root, "DeathsIcon", SkullSprite(), leftBlock, new Vector2(170f, -62f), new Vector2(24f, 24f));
+        TMP_Text deaths = Label(root, so.FindProperty("deathsLabel").objectReferenceValue as TMP_Text, "DeathsValue", font,
+            leftBlock, new Vector2(0f, 1f), new Vector2(202f, -55f), new Vector2(200f, 42f), 35f, WinInk, "3");
+        so.FindProperty("deathsCaption").objectReferenceValue = deathsCaption;
+        so.FindProperty("deathsIcon").objectReferenceValue = skull.GetComponent<Image>();
+        so.FindProperty("deathsLabel").objectReferenceValue = deaths;
+
         so.FindProperty("messageLabel").objectReferenceValue = title;
         so.FindProperty("message").stringValue = "Você escapou.";
         so.FindProperty("divider").objectReferenceValue = divider;
@@ -360,6 +372,49 @@ public static class EscapeSceneSetup
         line.raycastTarget = false;
         Place(line.rectTransform, anchor, new Vector2(0f, 1f), position, size);
         return line.rectTransform;
+    }
+
+    private static RectTransform Icon(RectTransform root, string name, Sprite sprite, Vector2 anchor, Vector2 position,
+        Vector2 size)
+    {
+        Transform child = root.Find(name);
+        Image icon = child != null ? child.GetComponent<Image>() : null;
+        if (icon == null)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
+            Undo.RegisterCreatedObjectUndo(go, "Montar tela de vitória");
+            go.transform.SetParent(root, false);
+            icon = go.GetComponent<Image>();
+        }
+
+        Undo.RecordObject(icon, "Montar tela de vitória");
+        Undo.RecordObject(icon.rectTransform, "Montar tela de vitória");
+        icon.sprite = sprite;
+        icon.color = WinInk;
+        icon.raycastTarget = false;
+        icon.preserveAspect = true;
+        Place(icon.rectTransform, anchor, new Vector2(0f, 1f), position, size);
+        return icon.rectTransform;
+    }
+
+    // Pixel art: sem filtro e sem compressão, senão os 12x12 viram borrão.
+    private static Sprite SkullSprite()
+    {
+        if (AssetImporter.GetAtPath(SkullPath) is TextureImporter importer
+            && (importer.textureType != TextureImporterType.Sprite || importer.filterMode != FilterMode.Point))
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.filterMode = FilterMode.Point;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.mipmapEnabled = false;
+            importer.SaveAndReimport();
+        }
+
+        Sprite sprite = AssetDatabase.LoadAssetAtPath<Sprite>(SkullPath);
+        if (sprite == null)
+            Debug.LogWarning($"Final: sprite da caveira não achado em {SkullPath}.");
+        return sprite;
     }
 
     private static void Place(RectTransform rect, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size)

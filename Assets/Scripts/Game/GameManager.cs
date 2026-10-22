@@ -33,6 +33,11 @@ public class GameManager : MonoBehaviour
 
     private static bool tutorialCompleted;
 
+    // Estáticos pela mesma razão do tutorialCompleted: o Restart do game over recarrega a cena e recria o GameManager,
+    // mas a sessão é a mesma. Só o EndSession zera.
+    private static float sessionTime;
+    private static int sessionDeaths;
+
     public static GameManager Current { get; private set; }
 
     public static event Action<GameState> StateChanged;
@@ -46,7 +51,14 @@ public class GameManager : MonoBehaviour
 
     public bool AllowsPause => !IsOver && !PauseLocked;
 
-    public float ElapsedTime { get; private set; }
+    /// <summary>
+    /// Tempo de jogo da sessão: tutorial, caça e fuga, somando as tentativas. Pause, diálogo e notas zeram o
+    /// timeScale e param o contador sozinhos; a tela de game over (Lost) não conta.
+    /// </summary>
+    public float ElapsedTime => sessionTime;
+
+    /// <summary>Quantas vezes o jogador foi pego nesta sessão.</summary>
+    public int Deaths => sessionDeaths;
 
     /// <summary>Esta carga abriu direto em Playing (tutorial já concluído): quem só faz sentido na abertura da caça se cala.</summary>
     public bool SkippedTutorial { get; private set; }
@@ -78,9 +90,10 @@ public class GameManager : MonoBehaviour
     {
         switch (State)
         {
+            case GameState.Preparing:
             case GameState.Playing:
             case GameState.Escaping:
-                ElapsedTime += Time.deltaTime;
+                sessionTime += Time.deltaTime;
                 break;
         }
     }
@@ -107,6 +120,8 @@ public class GameManager : MonoBehaviour
         HintDirector.ForgetProgress();
         DialogueTrigger.ForgetDialog();
         EscapeCutscene.ForgetCheckpoint();
+        sessionTime = 0f;
+        sessionDeaths = 0;
 
         // O PlayerCamera trava o cursor e nada no menu destrava; pelo pause ele já vinha solto, pela vitória não.
         Cursor.lockState = CursorLockMode.None;
@@ -166,6 +181,9 @@ public class GameManager : MonoBehaviour
         if (IsOver)
             return;
 
+        if (outcome == GameState.Lost)
+            sessionDeaths++;
+
         SetState(outcome);
     }
 
@@ -191,5 +209,7 @@ public class GameManager : MonoBehaviour
         Current = null;
         StateChanged = null;
         tutorialCompleted = false;
+        sessionTime = 0f;
+        sessionDeaths = 0;
     }
 }

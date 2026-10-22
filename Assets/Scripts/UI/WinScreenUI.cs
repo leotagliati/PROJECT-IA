@@ -39,6 +39,12 @@ public class WinScreenUI : MonoBehaviour
     [SerializeField] private TMP_Text timeLabel;
     [SerializeField, Min(0.01f)] private float timeFade = 0.6f;
 
+    [Header("Mortes")]
+    [Tooltip("Entram junto com o tempo de jogo. Todos opcionais.")]
+    [SerializeField] private TMP_Text deathsCaption;
+    [SerializeField] private Graphic deathsIcon;
+    [SerializeField] private TMP_Text deathsLabel;
+
     [Header("Continuar")]
     [SerializeField] private TMP_Text continueLabel;
     [SerializeField] private string continueMessage = "Aperte qualquer botão";
@@ -73,6 +79,9 @@ public class WinScreenUI : MonoBehaviour
         SetText(messageLabel, string.Empty);
         SetAlpha(timeCaption, 0f);
         SetAlpha(timeLabel, 0f);
+        SetAlpha(deathsCaption, 0f);
+        SetAlpha(deathsLabel, 0f);
+        SetAlpha(deathsIcon, 0f);
         SetAlpha(continueLabel, 0f);
 
         if (divider != null)
@@ -113,16 +122,17 @@ public class WinScreenUI : MonoBehaviour
         if (divider != null)
             yield return Fade(k => divider.sizeDelta = new Vector2(dividerWidth * k, divider.sizeDelta.y), dividerGrow);
 
-        if (timeLabel != null)
-        {
-            float seconds = GameManager.Current != null ? GameManager.Current.ElapsedTime : 0f;
-            timeLabel.text = FormatTime(seconds);
-        }
+        GameManager game = GameManager.Current;
+        SetText(timeLabel, FormatTime(game != null ? game.ElapsedTime : 0f));
+        SetText(deathsLabel, (game != null ? game.Deaths : 0).ToString());
 
         yield return Fade(a =>
         {
             SetAlpha(timeCaption, a);
             SetAlpha(timeLabel, a);
+            SetAlpha(deathsCaption, a);
+            SetAlpha(deathsLabel, a);
+            SetAlpha(deathsIcon, a);
         }, timeFade);
 
         yield return new WaitForSeconds(continueDelay);
@@ -217,6 +227,17 @@ public class WinScreenUI : MonoBehaviour
     {
         if (label != null)
             label.alpha = alpha;
+    }
+
+    // A cor do ícone é a do menu de montagem; só o alpha muda aqui.
+    private static void SetAlpha(Graphic graphic, float alpha)
+    {
+        if (graphic == null)
+            return;
+
+        Color color = graphic.color;
+        color.a = alpha;
+        graphic.color = color;
     }
 
     private static void SetText(TMP_Text label, string text)
