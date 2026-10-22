@@ -211,7 +211,6 @@ namespace Assets.Scripts.Free
                 if (_playerTarget == null)
                     _playerTarget = player.AddComponent<FreePlayerTarget>();
 
-                // O corpo fino que a visão mira; adicione na mão no PlayerDummy para ajustar o raio.
                 if (player.GetComponentInChildren<TargetVisionBody>() == null)
                     player.AddComponent<TargetVisionBody>();
                 return _playerTarget;
