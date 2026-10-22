@@ -63,10 +63,10 @@ namespace Assets.Scripts.Seeker
 
         [Header("-----Som-----")]
         [Tooltip("Entrada da AudioLibrary (vazio = sem som).")]
-        [SerializeField] private string _roarSoundId = "jumpscare";
+        [SerializeField] private string _roarSoundId = "seeker_roar";
 
         [Tooltip("Volume em relação ao da entrada.")]
-        [SerializeField, Range(0f, 2f)] private float _roarVolume = 0.6f;
+        [SerializeField, Range(0f, 2f)] private float _roarVolume = 1f;
 
         [Tooltip("Pitch em relação ao da entrada (< 1 = mais grave).")]
         [SerializeField, Range(0.3f, 1.5f)] private float _roarPitch = 0.7f;

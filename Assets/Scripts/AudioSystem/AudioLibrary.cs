@@ -27,6 +27,10 @@ public class AudioLibrary : ScriptableObject
         // Variação aleatória de pitch, em fração (0.1 = ±10%).
         [Range(0f, 0.5f)] public float PitchJitter = 0.1f;
 
+        // Até aqui o som toca em volume cheio; 0 = padrão da library. Som de evento (estouro, grito)
+        // precisa de valor alto: com 1 m ele já chega fraco do outro lado de um cômodo grande.
+        public float MinDistance = 0f;
+
         // 0 = usa o alcance padrão da library.
         public float MaxDistance = 0f;
     }

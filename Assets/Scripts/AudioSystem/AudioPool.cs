@@ -122,7 +122,7 @@ public class AudioPool : MonoBehaviour
         source.clip = entry.Clips[Random.Range(0, entry.Clips.Length)];
         source.volume = entry.Volume * volumeScale;
         source.pitch = (1f + Random.Range(-entry.PitchJitter, entry.PitchJitter)) * pitchScale;
-        source.minDistance = _library.MinDistance;
+        source.minDistance = entry.MinDistance > 0f ? entry.MinDistance : _library.MinDistance;
         source.maxDistance = entry.MaxDistance > 0f ? entry.MaxDistance : _library.MaxDistance;
         source.loop = loop;
         source.transform.position = position;

@@ -83,7 +83,7 @@ public class FridgeAmbience : MonoBehaviour
         humSource.loop = true;
         humSource.spatialBlend = 1f;
         humSource.rolloffMode = library.Rolloff;
-        humSource.minDistance = library.MinDistance;
+        humSource.minDistance = entry.MinDistance > 0f ? entry.MinDistance : library.MinDistance;
         humSource.maxDistance = entry.MaxDistance > 0f ? entry.MaxDistance : library.MaxDistance;
         humSource.outputAudioMixerGroup = library.MixerGroup;
         humSource.clip = entry.Clips[Random.Range(0, entry.Clips.Length)];
