@@ -1,0 +1,496 @@
+using System;
+using System.Collections;
+using Legacy_v5_1.Seeker;
+using Unity.MLAgents;
+using Unity.MLAgents.Actuators;
+using Unity.MLAgents.Policies;
+using Unity.MLAgents.Sensors;
+using UnityEngine;
+namespace Legacy_v5_1
+{
+
+/// <summary>
+/// Orquestrador do agente: é o único que conhece os callbacks do ML-Agents e a ordem do step
+/// (sentir -> observar -> agir -> avaliar -> terminar). Não calcula recompensa nem lê o mundo;
+/// monta o SeekerStepContext e delega.
+/// </summary>
+public enum SeekerMode
+{
+    Training,
+    Game,
+}
+
+public class SeekerManager : Agent
+{
+    // 8 proximidades de parede + 2 flags de frescor + 3 do vetor até a última posição
+    // conhecida + 3 da fronteira de exploração + a janela 5x5 de células já visitadas.
+    public const int ObservationCount = 16 + 25;
+
+    [Header("-----Systems-----")]
+    [SerializeField] private SeekerPerceptionSystem _perceptionSystem;
+    [SerializeField] private SeekerMovementSystem _movementSystem;
+    [SerializeField] private SeekerRewardSystem _rewardSystem;
+    [SerializeField] private SeekerExplorationMemory _explorationMemory;
+    [SerializeField] private SeekerArenaController _arenaController;
+    [SerializeField] private SeekerAnimationSystem _animationSystem;
+    [SerializeField] private SeekerChaseState _chaseState;
+    [SerializeField] private SeekerAudioSystem _audioSystem;
+    [SerializeField] private SeekerStaticVisual _staticVisual;
+
+    [Header("-----Settings-----")]
+    [SerializeField] private SeekerMode _mode = SeekerMode.Training;
+    [SerializeField] private int _maxEpisodeSteps = 5000;
+    [SerializeField] private float _maxHiderDistance = 20f;
+
+    private Vector3 _initialLocalPosition;
+    private Quaternion _initialLocalRotation;
+    private Vector3 _previousStepPosition;
+    private int _elapsedSteps;
+    private bool _episodeEnding;
+    private bool _touchingWall;
+    private bool _hunting = true;
+
+    // Histórico de posições para o teste de travado (deslocamento líquido em N steps).
+    // Dimensionado pela janela do reward system: é ele quem decide o que é "travado".
+    private Vector3[] _recentPositions;
+    private int _recentCount;
+    private int _recentNext;
+
+    public event Action HiderCaught;
+
+    // ------------------------------------------------------------------ telemetria
+    // Só leitura, para o SeekerDebugOverlay. Não é API para outros sistemas do agente.
+
+    public SeekerMode Mode => _mode;
+
+    public bool IsHunting => _hunting;
+
+    public int ElapsedSteps => _elapsedSteps;
+
+    public int MaxEpisodeSteps => _maxEpisodeSteps;
+
+    public float MaxHiderDistance => _maxHiderDistance;
+
+    /// <summary>Última ação aplicada ao movimento (X/Z em mundo), já zerada fora da caça.</summary>
+    public Vector2 LastAction { get; private set; }
+
+    public SeekerPerceptionSystem Perception => _perceptionSystem;
+
+    public SeekerRewardSystem Rewards => _rewardSystem;
+
+    public SeekerExplorationMemory Exploration => _explorationMemory;
+
+    public SeekerArenaController Arena => _arenaController;
+
+    public SeekerChaseState Chase => _chaseState;
+
+    public SeekerMovementSystem Movement => _movementSystem;
+
+    /// <summary>
+    /// Deslocamento real ÷ deslocamento pedido, média móvel (~20 steps). Perto de 1 o agente
+    /// anda o que manda; perto de 0 está empurrando algo. É a resposta objetiva para "está preso?".
+    /// </summary>
+    public float MovementEfficiency { get; private set; } = 1f;
+
+    /// <summary>Deslocamento líquido na janela de travado, como foi entregue ao último step.</summary>
+    public float RecentNetDisplacementForDebug { get; private set; }
+
+    // Percepção é amostrada uma vez por step de física. Como CollectObservations e
+    // OnActionReceived rodam em cadências diferentes (Decision Period > 1), quem chegar primeiro
+    // dispara o Tick e o outro reaproveita o mesmo snapshot.
+    private int _physicsStep;
+    private int _lastPerceptionStep = -1;
+
+    public override void Initialize()
+    {
+        // Checagem explícita, e não ??=: o operador de null-coalescing ignora o "fake null" que
+        // o Unity devolve para referências não atribuídas.
+        if (_perceptionSystem == null)
+            _perceptionSystem = GetComponentInChildren<SeekerPerceptionSystem>();
+
+        if (_movementSystem == null)
+            _movementSystem = GetComponentInChildren<SeekerMovementSystem>();
+
+        if (_rewardSystem == null)
+            _rewardSystem = GetComponentInChildren<SeekerRewardSystem>();
+
+        if (_explorationMemory == null)
+            _explorationMemory = GetComponentInChildren<SeekerExplorationMemory>();
+
+        if (_arenaController == null)
+            _arenaController = GetComponentInParent<SeekerArenaController>();
+
+        if (_animationSystem == null)
+            _animationSystem = GetComponentInChildren<SeekerAnimationSystem>();
+
+        if (_animationSystem != null)
+            _animationSystem.Initialize();
+
+        if (_chaseState == null)
+            _chaseState = GetComponentInChildren<SeekerChaseState>();
+
+        if (_audioSystem == null)
+            _audioSystem = GetComponentInChildren<SeekerAudioSystem>();
+
+        if (_audioSystem != null)
+            _audioSystem.Initialize();
+
+        if (_staticVisual == null)
+            _staticVisual = GetComponentInChildren<SeekerStaticVisual>();
+
+        if (_staticVisual != null)
+            _staticVisual.Initialize();
+
+        // A grade é indexada em coordenadas da arena: com 9 cópias do ambiente na cena,
+        // usar coordenadas de mundo faria as arenas compartilharem células. A layer de parede
+        // é a da percepção — a mesma resposta para "isto é parede" em raycast, contato e grade.
+        if (_explorationMemory != null && _arenaController != null && _perceptionSystem != null)
+            _explorationMemory.Configure(_arenaController, _perceptionSystem.WallLayer);
+
+        _initialLocalPosition = transform.localPosition;
+        _initialLocalRotation = transform.localRotation;
+
+        int window = _rewardSystem != null ? Mathf.Max(1, _rewardSystem.StuckWindowSteps) : 1;
+        _recentPositions = new Vector3[window];
+
+        ValidateSetup();
+    }
+
+    protected override void OnEnable()
+    {
+        // Assina ANTES do base: com o Academy já de pé (cena recarregada), o base.OnEnable roda
+        // Initialize + OnEpisodeBegin na hora, e uma exceção ali pulava a assinatura. Sem ela o
+        // seeker nunca ouvia o Preparing e caçava com o _hunting inicial (true) desde o spawn.
+        if (_mode == SeekerMode.Game)
+            GameManager.StateChanged += HandleGameState;
+
+        base.OnEnable();
+
+        // Não depende só do evento: sincroniza com o estado atual. O GameManager (ordem -100)
+        // já passou pelo Awake aqui; o Preparing do Start dele chega depois e confirma.
+        if (_mode == SeekerMode.Game && GameManager.Current != null)
+            HandleGameState(GameManager.Current.State);
+    }
+
+    protected override void OnDisable()
+    {
+        base.OnDisable();
+        if (_mode == SeekerMode.Game)
+            GameManager.StateChanged -= HandleGameState;
+    }
+
+    private void HandleGameState(GameState state)
+    {
+        _hunting = state == GameState.Playing;
+        _perceptionSystem.VisionEnabled = _hunting;
+
+        if (state == GameState.Won || state == GameState.Lost)
+        {
+            _episodeEnding = true;
+            if (_animationSystem != null)
+                _animationSystem.Tick(Vector3.zero, false);
+
+            // Tudo do seeker cala aqui — estática e passos. Dali em diante o único áudio é o
+            // da PlayerCaughtSequence; sem isto o jumpscare abre com ele andando ao fundo.
+            if (_audioSystem != null)
+                _audioSystem.Silence();
+        }
+    }
+
+    public override void OnEpisodeBegin()
+    {
+        _elapsedSteps = 0;
+        _episodeEnding = false;
+        _touchingWall = false;
+
+        _arenaController.ResetEpisode();
+
+        if (_arenaController.TryGetSeekerSpawn(out Vector3 position, out Quaternion rotation))
+            transform.SetPositionAndRotation(position, rotation);
+        else
+            transform.SetLocalPositionAndRotation(_initialLocalPosition, _initialLocalRotation);
+
+        // Âncora do termo de aproximação. Sem reancorar no respawn, o primeiro step do
+        // episódio mediria o salto do teleporte como progresso rumo ao hider.
+        _previousStepPosition = transform.position;
+        _recentCount = 0;
+        _recentNext = 0;
+
+        _movementSystem.ResetMovement();
+        _perceptionSystem.ResetHiderMemory();
+        _explorationMemory.ResetEpisode();
+        _rewardSystem.ResetEpisode();
+
+        if (_animationSystem != null)
+            _animationSystem.ResetEpisode();
+
+        // Chase antes do áudio: o áudio reflete o Blend no reset.
+        if (_chaseState != null)
+            _chaseState.ResetEpisode();
+
+        if (_audioSystem != null)
+            _audioSystem.ResetEpisode();
+
+        // O reset acontece no mesmo step de física que encerrou o episódio anterior, então o
+        // dedup precisa ser invalidado: sem isso a primeira observação da nova run enxergaria
+        // o snapshot tirado antes do respawn.
+        _lastPerceptionStep = -1;
+        TickPerception();
+    }
+
+    public override void CollectObservations(VectorSensor sensor)
+    {
+        TickPerception();
+
+        // Proximidade de paredes nas 8 direções. (8)
+        sensor.AddObservation(_perceptionSystem.WallProximities);
+
+        // Frescor da informação do hider. (2)
+        sensor.AddObservation(_perceptionSystem.IsSeeingHider);
+        sensor.AddObservation(_perceptionSystem.HasSeenHider);
+
+        // Direção e distância até a última posição conhecida, no referencial do MUNDO — igual
+        // ao referencial das ações (X/Z), então "alvo pra lá" mapeia direto em "mova pra lá". (3)
+        if (_perceptionSystem.HasSeenHider)
+        {
+            Vector3 toLast = _perceptionSystem.LastKnownHiderPosition - transform.position;
+            Vector2 planar = new(toLast.x, toLast.z);
+            float distance = planar.magnitude;
+            Vector2 unit = distance > 1e-4f ? planar / distance : Vector2.zero;
+
+            sensor.AddObservation(unit.x); // direção mundo X
+            sensor.AddObservation(unit.y); // direção mundo Z
+            sensor.AddObservation(Mathf.Clamp01(distance / _maxHiderDistance));
+        }
+        else
+        {
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+        }
+
+        // Fronteira de exploração: primeiro passo do caminho (BFS na grade, respeitando as
+        // paredes) até a célula não visitada mais próxima, e a distância dele. É o que a janela
+        // não tem quando está toda em 1 — cercado de visitadas e paredes, sem isto a observação
+        // é constante e a política não tem para onde ir. Mesmo referencial do vetor do hider. (3)
+        if (_explorationMemory.HasFrontier)
+        {
+            Vector3 step = _explorationMemory.FrontierStepDirectionWorld;
+            sensor.AddObservation(step.x);
+            sensor.AddObservation(step.z);
+            sensor.AddObservation(_explorationMemory.FrontierDistanceNormalized);
+        }
+        else
+        {
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+        }
+
+        // Janela 5x5 de células já visitadas ao redor do agente. (25)
+        sensor.AddObservation(_explorationMemory.Window);
+    }
+
+    public override void OnActionReceived(ActionBuffers actions)
+    {
+        if (_episodeEnding)
+            return;
+
+        TickPerception();
+
+        // Avalia primeiro, age depois: esta posição já é o resultado do move pedido no step
+        // anterior — a simulação de física roda entre um OnActionReceived e o próximo.
+        Vector3 currentPosition = transform.position;
+
+        AddReward(_rewardSystem.EvaluateStep(BuildStepContext(currentPosition)));
+        PushRecentPosition(currentPosition);
+
+        // Telemetria: a posição atual é o resultado da AÇÃO ANTERIOR (LastAction ainda é ela).
+        float expected = _movementSystem.StepDistance * LastAction.magnitude;
+        if (expected > 1e-4f)
+        {
+            Vector3 delta = currentPosition - _previousStepPosition;
+            float moved = new Vector2(delta.x, delta.z).magnitude;
+            MovementEfficiency = Mathf.Lerp(MovementEfficiency, Mathf.Clamp01(moved / expected), 0.1f);
+        }
+
+        _previousStepPosition = currentPosition;
+
+        Vector3 direction = _hunting
+            ? new(actions.ContinuousActions[0], 0f, actions.ContinuousActions[1])
+            : Vector3.zero;
+        _movementSystem.Move(direction);
+        LastAction = new Vector2(direction.x, direction.z);
+
+        if (_animationSystem != null)
+            _animationSystem.Tick(direction, _perceptionSystem.IsSeeingHider);
+
+        if (_chaseState != null)
+            _chaseState.Tick(_perceptionSystem.IsSeeingHider);
+
+        // Consumida depois de cobrada. Se o contato continuar, o OnCollisionStay do próximo
+        // step de física marca de novo; se acabou, ela fica false sozinha.
+        _touchingWall = false;
+
+        _perceptionSystem.ForgetIfArrived(currentPosition);
+
+        _elapsedSteps++;
+        if (_mode == SeekerMode.Training && _elapsedSteps >= _maxEpisodeSteps)
+            FinishEpisode(won: false);
+    }
+
+    private void FixedUpdate() => _physicsStep++;
+
+    private void TickPerception()
+    {
+        if (_lastPerceptionStep == _physicsStep)
+            return;
+
+        _lastPerceptionStep = _physicsStep;
+        _perceptionSystem.Tick();
+        _explorationMemory.Tick(transform.position);
+    }
+
+    private SeekerStepContext BuildStepContext(Vector3 currentPosition)
+    {
+        RecentNetDisplacementForDebug = RecentNetDisplacement(currentPosition);
+
+        return new SeekerStepContext(
+            _previousStepPosition,
+            currentPosition,
+            _perceptionSystem.IsSeeingHider,
+            _perceptionSystem.HasSeenHider,
+            _perceptionSystem.LastKnownHiderPosition,
+            _perceptionSystem.ClosestWallProximity,
+            _maxEpisodeSteps,
+            _touchingWall,
+            _explorationMemory.EnteredNewCell,
+            _arenaController.ApproachRewardScale,
+            _arenaController.WallProximityScale,
+            IsHeadingIntoBlockedCell(),
+            RecentNetDisplacementForDebug,
+            _recentCount >= _recentPositions.Length,
+            _explorationMemory.FrontierIndex,
+            _explorationMemory.FrontierDistanceCells);
+    }
+
+    /// <summary>
+    /// A ação do step anterior (LastAction ainda é ela: avaliação vem antes de agir) apontava
+    /// para célula bloqueada? Olha uma célula à frente da posição em que a ação foi escolhida.
+    /// </summary>
+    private bool IsHeadingIntoBlockedCell()
+    {
+        if (_explorationMemory == null || LastAction.sqrMagnitude < 0.01f)
+            return false;
+
+        Vector3 heading = new Vector3(LastAction.x, 0f, LastAction.y).normalized;
+        return _explorationMemory.IsBlockedAtWorld(_previousStepPosition + heading * _explorationMemory.CellSize);
+    }
+
+    private float RecentNetDisplacement(Vector3 currentPosition)
+    {
+        if (_recentCount < _recentPositions.Length)
+            return 0f;
+
+        // Com o buffer cheio, _recentNext é justamente a posição mais antiga (N steps atrás).
+        Vector3 delta = currentPosition - _recentPositions[_recentNext];
+        return new Vector2(delta.x, delta.z).magnitude;
+    }
+
+    private void PushRecentPosition(Vector3 position)
+    {
+        _recentPositions[_recentNext] = position;
+        _recentNext = (_recentNext + 1) % _recentPositions.Length;
+        _recentCount = Mathf.Min(_recentCount + 1, _recentPositions.Length);
+    }
+
+    // Pegar o hider é um evento discreto, então continua por evento.
+    private void OnCollisionEnter(Collision collision) => HandleContact(collision.gameObject);
+
+    private void OnTriggerEnter(Collider other) => HandleContact(other.gameObject);
+
+    // Encostar em parede é uma condição contínua. OnCollisionStay dispara uma vez por step
+    // POR collider, então aqui só marca a flag — quem cobra é o step, uma vez só, mesmo que
+    // o agente esteja tocando várias paredes ao mesmo tempo numa quina.
+    private void OnCollisionStay(Collision collision)
+    {
+        if (IsWall(collision.gameObject))
+            _touchingWall = true;
+    }
+
+    // Parede é identificada por LAYER, e não por tag. A percepção já usa _wallLayer nos
+    // raycasts, então a tag era uma segunda fonte de verdade para a mesma pergunta — e foi
+    // exatamente o que quebrou no Map_8: os objetos do mapa estão na layer Wall, mas nenhum
+    // deles leva a tag, então a penalidade de contato simplesmente nunca era cobrada. Sem
+    // erro, sem log: só um termo da recompensa morto.
+    private bool IsWall(GameObject other) =>
+        (_perceptionSystem.WallLayer.value & (1 << other.layer)) != 0;
+
+    private void HandleContact(GameObject other)
+    {
+        if (_episodeEnding)
+            return;
+
+        if (!other.CompareTag("Goal"))
+            return;
+
+        if (_mode == SeekerMode.Game)
+        {
+            _episodeEnding = true;
+            HiderCaught?.Invoke();
+            GameManager.Current?.PlayerCaught();
+            return;
+        }
+
+        AddReward(_rewardSystem.HiderFoundReward);
+        FinishEpisode(won: true);
+    }
+
+    private void FinishEpisode(bool won)
+    {
+        _episodeEnding = true;
+        _arenaController.ShowOutcome(won);
+
+        float delay = _arenaController.EpisodeEndDelay;
+        if (delay <= 0f)
+        {
+            EndEpisode();
+            return;
+        }
+
+        StartCoroutine(EndEpisodeAfterDelay(delay));
+    }
+
+    private IEnumerator EndEpisodeAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        EndEpisode();
+    }
+
+    // Erros de wiring em ML-Agents são silenciosos e só aparecem como treino que não converge.
+    private void ValidateSetup()
+    {
+        if (_perceptionSystem == null || _movementSystem == null || _rewardSystem == null || _explorationMemory == null)
+            Debug.LogError($"{name}: sistema do seeker faltando — confira os componentes filhos.", this);
+
+        if (_arenaController == null)
+            Debug.LogError($"{name}: SeekerArenaController não encontrado nos pais.", this);
+
+        if (_mode == SeekerMode.Game && GameManager.Current == null)
+            Debug.LogError($"{name}: modo Game sem GameManager na cena.", this);
+
+        var behaviorParameters = GetComponent<BehaviorParameters>();
+        if (behaviorParameters == null)
+            return;
+
+        int declared = behaviorParameters.BrainParameters.VectorObservationSize;
+        if (declared != ObservationCount)
+        {
+            Debug.LogError(
+                $"{name}: VectorObservationSize = {declared} mas o agente emite {ObservationCount} observações. " +
+                "Ajuste no Behavior Parameters, senão o treino roda com o vetor truncado.", this);
+        }
+    }
+}
+
+}

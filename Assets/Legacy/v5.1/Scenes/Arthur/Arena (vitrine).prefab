@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &8063311532968572355
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 42.309406
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 1.8684373
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -160.01657
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 510890705343981057, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6880996314692672322, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
+      propertyPath: m_Name
+      value: Arena (vitrine)
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 8c773aa0ef2cd9b2e300af06206c8429, type: 3}
