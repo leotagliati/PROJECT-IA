@@ -17,8 +17,15 @@ public class PlayerCamera : MonoBehaviour
     private Vector2 lookInput;
     private float xRotation = 0f;
 
-    /// <summary>Pitch atual em graus. Positivo = olhando para baixo (convenção do Euler X do Unity).</summary>
-    public float Pitch => xRotation;
+    /// <summary>
+    /// Pitch atual em graus. Positivo = olhando para baixo (convenção do Euler X do Unity). O set é para quem dirige o
+    /// olhar por código (EscapeCutscene).
+    /// </summary>
+    public float Pitch
+    {
+        get => xRotation;
+        set => xRotation = Mathf.Clamp(value, -90f, 90f);
+    }
 
     private void OnEnable()
     {

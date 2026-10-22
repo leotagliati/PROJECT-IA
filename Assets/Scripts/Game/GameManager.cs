@@ -7,6 +7,8 @@ public enum GameState
 {
     Preparing,
     Playing,
+    // Final (EscapeCutscene): a caça acabou, a vitória ainda não. A IA de verdade só age em Playing.
+    Escaping,
     Won,
     Lost,
 }
@@ -14,16 +16,12 @@ public enum GameState
 [DefaultExecutionOrder(-100)]
 public class GameManager : MonoBehaviour
 {
-    // O reload da vitória mora aqui, e não na tela: a partida recomeça mesmo com uma UI mal
-    // configurada (a WinScreenUI sem labels se desliga no Awake e nunca reiniciaria).
-    // A derrota NÃO recarrega sozinha: a tela de game over espera o jogador escolher um botão.
+    // Nem a vitória nem a derrota recarregam sozinhas: a WinScreenUI leva aos créditos e a tela de game over espera o
+    // jogador escolher um botão.
     //
     // Tutorial já concluído: o spawn fica fora da sala do tutorial e a partida já abre em Playing.
     // A memória é estática porque o reload recria o GameManager; só o menu principal a apaga (ForgetTutorial).
     [Header("Reinício")]
-    [Tooltip("Segundos depois de escapar até recarregar a cena (clarão 2s + mensagem).")]
-    [SerializeField, Min(0f)] private float reloadDelayAfterWon = 5.5f;
-
     [Tooltip("Onde o jogador nasce se o tutorial já foi concluído nesta sessão.")]
     [SerializeField] private Transform respawnPoint;
 
@@ -42,6 +40,11 @@ public class GameManager : MonoBehaviour
     public GameState State { get; private set; } = GameState.Preparing;
     public bool IsPlaying => State == GameState.Playing;
     public bool IsOver => State == GameState.Won || State == GameState.Lost;
+
+    /// <summary>Trava do pause enquanto uma sequência tira o controle do jogador. Quem liga é quem desliga.</summary>
+    public bool PauseLocked { get; set; }
+
+    public bool AllowsPause => !IsOver && !PauseLocked;
 
     public float ElapsedTime { get; private set; }
 
@@ -76,6 +79,7 @@ public class GameManager : MonoBehaviour
         switch (State)
         {
             case GameState.Playing:
+            case GameState.Escaping:
                 ElapsedTime += Time.deltaTime;
                 break;
         }
@@ -94,9 +98,30 @@ public class GameManager : MonoBehaviour
     /// <summary>Esquece que o tutorial foi concluído: o próximo load passa por ele de novo.</summary>
     public static void ResetTutorial() => tutorialCompleted = false;
 
+    /// <summary>
+    /// Sair para o menu (pause) ou para os créditos (vitória): um jogo novo passa pelo tutorial, dicas e diálogo de novo.
+    /// </summary>
+    public static void EndSession()
+    {
+        ResetTutorial();
+        HintDirector.ForgetProgress();
+        DialogueTrigger.ForgetDialog();
+        EscapeCutscene.ForgetCheckpoint();
+
+        // O PlayerCamera trava o cursor e nada no menu destrava; pelo pause ele já vinha solto, pela vitória não.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
     public void PlayerCaught() => Finish(GameState.Lost);
 
     public void PlayerEscaped() => Finish(GameState.Won);
+
+    public void BeginEscape()
+    {
+        if (State == GameState.Playing)
+            SetState(GameState.Escaping);
+    }
 
     public void Restart()
     {
@@ -142,9 +167,6 @@ public class GameManager : MonoBehaviour
             return;
 
         SetState(outcome);
-
-        if (outcome == GameState.Won)
-            Invoke(nameof(Restart), reloadDelayAfterWon);
     }
 
     private void SetState(GameState next)

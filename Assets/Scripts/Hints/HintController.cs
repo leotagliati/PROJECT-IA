@@ -152,7 +152,9 @@ public class HintController : MonoBehaviour
         float now = Time.time;
         active.RemoveAll(entry => entry.expiresAt <= now);
 
-        bool hidden = PauseControler.IsPaused || DialogueController.IsOpen || TutorialNoteController.IsOpen || active.Count == 0;
+        // PauseLocked: uma sequência (a cutscene final) tirou o controle do jogador; as dicas voltam com ele.
+        bool hidden = PauseControler.IsPaused || DialogueController.IsOpen || TutorialNoteController.IsOpen
+                      || (game != null && game.PauseLocked) || active.Count == 0;
         view.SetText(hidden ? null : Format(active[active.Count - 1].text));
     }
 

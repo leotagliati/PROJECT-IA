@@ -107,7 +107,7 @@ public class ChaseMusic : MonoBehaviour
     private void Start()
     {
         if (_seekers == null || _seekers.Length == 0)
-            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsSortMode.None);
+            _seekers = FindObjectsByType<SeekerChaseState>(FindObjectsInactive.Include, FindObjectsSortMode.None);
     }
 
     private void OnEnable() => GameManager.StateChanged += HandleGameState;

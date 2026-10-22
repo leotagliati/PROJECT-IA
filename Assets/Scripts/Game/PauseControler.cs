@@ -70,7 +70,7 @@ public class PauseControler : MonoBehaviour
 
     public void Pause()
     {
-        if (IsPaused || (GameManager.Current != null && GameManager.Current.IsOver))
+        if (IsPaused || (GameManager.Current != null && !GameManager.Current.AllowsPause))
             return;
 
         IsPaused = true;
@@ -132,12 +132,9 @@ public class PauseControler : MonoBehaviour
     }
 
     // O OnDestroy e o PauseAudio.OnDisable desfazem pausa, input e áudio quando a cena descarrega.
-    // Voltar ao menu encerra a sessão: um jogo novo passa pelo tutorial de novo.
     public void BackToMenu()
     {
-        GameManager.ResetTutorial();
-        HintDirector.ForgetProgress();
-        DialogueTrigger.ForgetDialog();
+        GameManager.EndSession();
         mainMenuScene.Load();
     }
 
