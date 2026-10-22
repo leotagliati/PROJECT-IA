@@ -275,12 +275,18 @@ namespace Assets.Scripts.Graph
             _target = target;
 
             // O corpo do alvo (CapsuleCollider do hider, CharacterController do jogador) para mirar cabeça e peito.
+            // Com TargetVisionBody (o jogador), a largura mirada é a dele, mais fina.
             _targetCollider = null;
+            _targetVisionBody = null;
             if (target is Component component && component != null)
+            {
                 _targetCollider = component.GetComponentInChildren<Collider>();
+                _targetVisionBody = component.GetComponentInChildren<TargetVisionBody>();
+            }
         }
 
         private Collider _targetCollider;
+        private TargetVisionBody _targetVisionBody;
         private bool _spottedThisEpisode;
         private LayerMask _wallsWithoutGraph;
 
@@ -557,7 +563,7 @@ namespace Assets.Scripts.Graph
 
             Vector3 side = Vector3.Cross(Vector3.up, planar / distance) * _targetHalfWidth;
 
-            if (_targetCollider == null || !_targetCollider.enabled)
+            if (!TryGetTargetBody(out Bounds body))
             {
                 // Sem corpo para mirar: linha horizontal na altura do olho, como os nós.
                 return IsClear(eye, target, walls)
@@ -567,8 +573,22 @@ namespace Assets.Scripts.Graph
             // Corpo inteiro em 3D: basta _minVisibleSamples pontos dentro do quadro e com linha livre.
             bool framed = distance > _closeSenseDistance;
             float halfAngle = (IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle) * 0.5f;
-            return CountVisibleSamples(eye, ViewForward(seeker), framed, halfAngle, _targetCollider.bounds, walls,
+            return CountVisibleSamples(eye, ViewForward(seeker), framed, halfAngle, body, walls,
                                        _minVisibleSamples, false) >= _minVisibleSamples;
+        }
+
+        // O corpo mirado: o fino (TargetVisionBody) se houver, senão o collider. False = sem corpo.
+        private bool TryGetTargetBody(out Bounds body)
+        {
+            if (_targetVisionBody != null && _targetVisionBody.IsUsable)
+            {
+                body = _targetVisionBody.Bounds;
+                return true;
+            }
+
+            bool usable = _targetCollider != null && _targetCollider.enabled;
+            body = usable ? _targetCollider.bounds : default;
+            return usable;
         }
 
         /// <summary>
@@ -742,10 +762,10 @@ namespace Assets.Scripts.Graph
 
             // Os raios de verdade até a grade do CORPO do alvo: azul-claro cheio = livre, cinza = bloqueado, cinza
             // apagado = fora do quadro (cone ou vertical). Não olha o alcance; para depurar "por que não me vê".
-            if (GraphTarget.IsLive(_target) && _targetCollider != null && _targetCollider.enabled)
+            if (GraphTarget.IsLive(_target) && TryGetTargetBody(out Bounds body))
             {
                 float angle = IsSeeing ? Mathf.Max(_viewAngle, _lockedViewAngle) : _viewAngle;
-                CountVisibleSamples(eye, forward, true, angle * 0.5f, _targetCollider.bounds, Walls, int.MaxValue, true);
+                CountVisibleSamples(eye, forward, true, angle * 0.5f, body, Walls, int.MaxValue, true);
 
                 Gizmos.color = new Color(0.4f, 0.7f, 1f, 0.6f);
             }

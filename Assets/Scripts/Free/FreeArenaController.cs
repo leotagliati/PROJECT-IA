@@ -193,7 +193,8 @@ namespace Assets.Scripts.Free
         public IGraphTarget Target => _gameMode ? PlayerTarget : Hider;
 
         /// <summary>
-        /// O jogador (modo de jogo), achado pela tag entre os objetos ATIVOS; ganha um FreePlayerTarget se não tiver.
+        /// O jogador (modo de jogo), achado pela tag entre os objetos ATIVOS; ganha FreePlayerTarget e TargetVisionBody
+        /// se não tiver.
         /// </summary>
         public FreePlayerTarget PlayerTarget
         {
@@ -209,6 +210,10 @@ namespace Assets.Scripts.Free
                 _playerTarget = player.GetComponent<FreePlayerTarget>();
                 if (_playerTarget == null)
                     _playerTarget = player.AddComponent<FreePlayerTarget>();
+
+                // O corpo fino que a visão mira; adicione na mão no PlayerDummy para ajustar o raio.
+                if (player.GetComponentInChildren<TargetVisionBody>() == null)
+                    player.AddComponent<TargetVisionBody>();
                 return _playerTarget;
             }
         }
