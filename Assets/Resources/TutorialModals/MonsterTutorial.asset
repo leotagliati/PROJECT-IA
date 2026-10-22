@@ -12,8 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 342580753b604c64a5d98407b733973f, type: 3}
   m_Name: MonsterTutorial
   m_EditorClassIdentifier: 
-  body: "Aquela... coisa...\nEla fica patrulhando o escrit\xF3rio, me procurando.\nParece
-    que ela reage ao som, e \xE9 esperta.\nTamb\xE9m n\xE3o deveria jogar luz nela.\nSe
-    chegar perto, melhor ficar escondida...\nApagar a luz e agachar \xE9 uma boa
-    ideia."
+  body: "aquela coisa n\xE3o \xE9 gente.\nfica rondando o escrit\xF3rio, me procurando.\nouve
+    tudo. e odeia luz.\n\nse chegar perto: apaga a lanterna,\nagacha e n\xE3o respira."
   clip: {fileID: 32900000, guid: 30ee20b319c283645b2553c20d7533d1, type: 3}

@@ -14,8 +14,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   lines:
   - speaker: Sharon
-    text: "Encontrei a porta! Mas ela t\xE1 trancada... tem 3 cadeados."
+    text: "A sa\xEDda!"
+    soundId: 
   - speaker: Sharon
-    text: "Preciso encontrar 3 chaves. E r\xE1pido."
+    text: "Tr\xEAs cadeados? Desde quando essa porta tem cadeado?"
+    soundId: 
   - speaker: Sharon
-    text: "Sinto que n\xE3o estou s\xF3 nesse lugar..."
+    text: "As chaves t\xEAm que estar em algum lugar do escrit\xF3rio."
+    soundId: 
+  - speaker: Sharon
+    text: "...Tem algu\xE9m a\xED?"
+    soundId: 

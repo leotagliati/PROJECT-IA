@@ -141,6 +141,7 @@ public class DialogueController : MonoBehaviour
         DialogueAsset.Line current = dialogue.Lines[index];
 
         total = view.SetLine(current.speaker, current.text, canSkip: index > 0);
+        PlaySound(current.soundId);
         visible = 0;
         typed = 0f;
         typing = true;
@@ -165,7 +166,7 @@ public class DialogueController : MonoBehaviour
             visible++;
 
             if (visible % soundEveryCharacters == 0)
-                PlaySound();
+                PlaySound(typingSound);
         }
 
         view.SetVisibleCharacters(visible);
@@ -210,9 +211,9 @@ public class DialogueController : MonoBehaviour
     }
 
     // O pool de áudio é 3D: seguir o listener deixa o som "dentro da cabeça", como UI deve soar.
-    private void PlaySound()
+    private void PlaySound(string id)
     {
-        if (string.IsNullOrEmpty(typingSound))
+        if (string.IsNullOrEmpty(id))
             return;
 
         if (listener == null)
@@ -221,7 +222,7 @@ public class DialogueController : MonoBehaviour
             listener = found != null ? found.transform : transform;
         }
 
-        AudioProvider.PlayFollowing(typingSound, listener);
+        AudioProvider.PlayFollowing(id, listener);
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]

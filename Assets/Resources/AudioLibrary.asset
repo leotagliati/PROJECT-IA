@@ -279,3 +279,9 @@ MonoBehaviour:
     Volume: 0.5
     PitchJitter: 0.05
     MaxDistance: 10
+  - Id: female-hmm
+    Clips:
+    - {fileID: 8300000, guid: 59459043d2489f5488be1ed5105ff9cc, type: 3}
+    Volume: 1
+    PitchJitter: 0.05
+    MaxDistance: 10

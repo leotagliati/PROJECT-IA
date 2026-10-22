@@ -14,6 +14,9 @@ public class DialogueAsset : ScriptableObject
 
         [TextArea(2, 5)]
         public string text;
+
+        [Tooltip("Entrada da AudioLibrary tocada quando esta fala começa (um barulho ao fundo, por exemplo). Vazio = sem som.")]
+        public string soundId;
     }
 
     [SerializeField] private Line[] lines;
