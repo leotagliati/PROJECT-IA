@@ -185,18 +185,26 @@ namespace Assets.Scripts.Graph
 
         private void Awake()
         {
-            _rigidbody = GetComponent<Rigidbody>();
+            ResolveReferences();
+            if (_animationSystem != null)
+                _animationSystem.Initialize();
+        }
+
+        // Também no reset: ligando a arena com o Academy já rodando, o OnEpisodeBegin do seeker chega antes deste Awake;
+        // sem grafo o hider se desligava e, desligado, o Awake nunca rodava (sumia para sempre).
+        private void ResolveReferences()
+        {
+            if (_rigidbody == null)
+                _rigidbody = GetComponent<Rigidbody>();
 
             if (_graph == null)
             {
-                GraphArenaController arena = GetComponentInParent<GraphArenaController>();
-                _graph = arena != null ? arena.Graph : GetComponentInParent<NavGraph>();
+                GraphArenaController arena = GetComponentInParent<GraphArenaController>(true);
+                _graph = arena != null ? arena.Graph : GetComponentInParent<NavGraph>(true);
             }
 
             if (_animationSystem == null)
-                _animationSystem = GetComponentInChildren<GraphHiderAnimationSystem>();
-            if (_animationSystem != null)
-                _animationSystem.Initialize();
+                _animationSystem = GetComponentInChildren<GraphHiderAnimationSystem>(true);
         }
 
         /// <summary>
@@ -205,6 +213,7 @@ namespace Assets.Scripts.Graph
         /// </summary>
         public void ResetEpisode(in GraphEpisodeSettings settings, Transform seeker)
         {
+            ResolveReferences();
             _seeker = seeker;
             _mode = settings.HiderMode;
             _loose = settings.HiderLoose;

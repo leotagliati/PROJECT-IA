@@ -58,8 +58,11 @@ namespace Assets.Scripts.Seeker
                 return;
 
             Transform origin = _staticOrigin != null ? _staticOrigin : transform;
-            _static = CreateLoop(library, _staticId, origin, _staticPitch, out _staticVolume);
-            _chaseStatic = CreateLoop(library, _chaseStaticId, origin, _chaseStaticPitch, out _chaseStaticVolume);
+            // Religar o agente (SetActive) roda o Initialize de novo: sem o teste, cada volta somava mais dois loops.
+            if (_static == null)
+                _static = CreateLoop(library, _staticId, origin, _staticPitch, out _staticVolume);
+            if (_chaseStatic == null)
+                _chaseStatic = CreateLoop(library, _chaseStaticId, origin, _chaseStaticPitch, out _chaseStaticVolume);
             _loopsAlive = _static != null || _chaseStatic != null;
 
             ResetEpisode();
