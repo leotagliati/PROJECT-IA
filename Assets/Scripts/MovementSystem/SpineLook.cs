@@ -62,6 +62,20 @@ public class SpineLook : MonoBehaviour
     [Tooltip("Osso que endireita a cabeça. Vazio: o próprio osso que a câmera segue.")]
     [SerializeField] private Transform headBone;
 
+    [Header("Parede")]
+    [Tooltip("Recua a câmera na horizontal quando a cabeça curvada entraria em parede ou porta; a altura não muda.")]
+    [SerializeField] private bool headCollision = true;
+
+    [SerializeField] private LayerMask headCollisionMask = ~0;
+
+    [SerializeField, Min(0.01f)] private float headProbeRadius = 0.12f;
+
+    [Tooltip("Folga mantida da parede, em metros.")]
+    [SerializeField, Min(0f)] private float headSkin = 0.05f;
+
+    [Tooltip("Tempo para a câmera voltar quando a parede sai da frente. Entrar é na hora.")]
+    [SerializeField, Min(0.01f)] private float headReturnTime = 0.1f;
+
     [Header("Referências")]
     [SerializeField] private PlayerCamera playerCamera;
 
@@ -109,6 +123,10 @@ public class SpineLook : MonoBehaviour
     }
 
     private Leg[] legs = new Leg[0];
+
+    private readonly RaycastHit[] headHits = new RaycastHit[8];
+    private float headPullback;
+    private float headPullbackVelocity;
 
     /// <summary>Pitch aplicado ao osso neste frame, em graus. Positivo = curvado para frente.</summary>
     public float CurrentBend { get; private set; }
@@ -263,11 +281,62 @@ public class SpineLook : MonoBehaviour
 
         CommitBones();
 
-        Vector3 worldPosition = followBone.position + followBone.rotation * offsetInBone - strafeTwistDrift;
+        Vector3 worldPosition = KeepHeadOutOfWalls(followBone.position + followBone.rotation * offsetInBone - strafeTwistDrift);
 
         cameraTransform.SetPositionAndRotation(worldPosition, followBone.rotation * boneToCamera);
 
         AnchorLocalPosition = cameraTransform.localPosition;
+    }
+
+    /// <summary>
+    /// Curvada para a frente, a cabeça passa da borda da cápsula e entra na parede. Sonda do eixo do player (dentro da
+    /// cápsula, livre por garantia) até a câmera, na mesma altura: só a parte horizontal recua, a descida fica intacta.
+    /// </summary>
+    private Vector3 KeepHeadOutOfWalls(Vector3 desired)
+    {
+        if (!headCollision)
+        {
+            headPullback = 0f;
+            return desired;
+        }
+
+        Vector3 up = transform.up;
+        Vector3 axis = transform.position + up * Vector3.Dot(desired - transform.position, up);
+        Vector3 reach = desired - axis;
+        float length = reach.magnitude;
+
+        if (length < 1e-4f)
+            return desired;
+
+        Vector3 direction = reach / length;
+        float allowed = length;
+        int count = Physics.SphereCastNonAlloc(axis, headProbeRadius, direction, headHits, length, headCollisionMask,
+                                               QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < count; i++)
+        {
+            RaycastHit hit = headHits[i];
+
+            // Distância 0 = já nasceu sobreposto (teto acima da cápsula); o próprio corpo e o que ele carrega não contam.
+            if (hit.distance <= 0f || hit.collider.transform.IsChildOf(transform))
+                continue;
+
+            allowed = Mathf.Min(allowed, Mathf.Max(0f, hit.distance - headSkin));
+        }
+
+        float pullback = length - allowed;
+
+        if (pullback >= headPullback)
+        {
+            headPullback = pullback;
+            headPullbackVelocity = 0f;
+        }
+        else
+        {
+            headPullback = Mathf.SmoothDamp(headPullback, pullback, ref headPullbackVelocity, headReturnTime);
+        }
+
+        return desired - direction * Mathf.Min(headPullback, length);
     }
 
     /// <summary>
