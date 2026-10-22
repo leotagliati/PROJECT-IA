@@ -4,6 +4,7 @@ using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// Monta o final (<see cref="EscapeCutscene"/>) na cena aberta, a partir do que já foi posto à mão: o objeto
@@ -16,6 +17,13 @@ using UnityEngine;
 public static class EscapeSceneSetup
 {
     private const string CreditsScenePath = "Assets/Scenes/Credits.unity";
+    private const string WinFontPath = "Assets/TextMesh Pro/Fonts/determination SDF.asset";
+
+    // Paleta da tela de vitória: o clarão assenta num branco quente, texto quase preto.
+    private static readonly Color WinBackground = new Color32(0xF3, 0xF0, 0xE8, 0xFF);
+    private static readonly Color WinInk = new Color32(0x2A, 0x2A, 0x28, 0xFF);
+    private static readonly Color WinMuted = new Color32(0x7C, 0x7A, 0x73, 0xFF);
+    private static readonly Color WinFaint = new Color32(0x9C, 0x99, 0x8F, 0xFF);
 
     // O que fica na tela durante o jogo; a cutscene esconde e devolve. As dicas se calam sozinhas (PauseLocked).
     private static readonly string[] HudNames = { "Crosshair", "StaminaBar", "KeyUI" };
@@ -211,6 +219,15 @@ public static class EscapeSceneSetup
             Debug.LogWarning("Final: nenhum \"FallenDoor\" na cena; a porta só some no estrondo.", trigger);
     }
 
+    [MenuItem("PROJECT-IA/Final: montar tela de vitória")]
+    public static void SetupWinScreenMenu()
+    {
+        SetupWinScreen();
+        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+    }
+
+    // A tela "J": fundo off-white, bloco de texto à esquerda, "aperte qualquer botão" no canto inferior direito.
+    // Medidas no Canvas da cena (referência 800 de largura); refaz a arrumação inteira a cada vez que roda.
     private static void SetupWinScreen()
     {
         WinScreenUI win = Object.FindFirstObjectByType<WinScreenUI>(FindObjectsInactive.Include);
@@ -220,32 +237,138 @@ public static class EscapeSceneSetup
             return;
         }
 
+        var root = (RectTransform)win.transform;
+        Undo.RecordObject(root, "Montar tela de vitória");
+        root.anchorMin = Vector2.zero;
+        root.anchorMax = Vector2.one;
+        root.offsetMin = Vector2.zero;
+        root.offsetMax = Vector2.zero;
+
+        if (win.TryGetComponent(out Image background))
+        {
+            Undo.RecordObject(background, "Montar tela de vitória");
+            background.color = WinBackground;
+            background.raycastTarget = false;
+        }
+        else
+            Debug.LogWarning("Final: a WinScreen não tem Image de fundo; adicione uma para o off-white.", win);
+
         var so = new SerializedObject(win);
+        TMP_FontAsset font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(WinFontPath);
+
+        var leftBlock = new Vector2(0.09f, 0.5f);
+        TMP_Text title = Label(root, so.FindProperty("messageLabel").objectReferenceValue as TMP_Text, "Title", font,
+            leftBlock, new Vector2(0f, 1f), new Vector2(0f, 96f), new Vector2(700f, 72f), 68f, WinInk, "Você escapou.");
+        RectTransform divider = Line(root, leftBlock, new Vector2(0f, -2f), new Vector2(76f, 4f));
+        TMP_Text caption = Label(root, so.FindProperty("timeCaption").objectReferenceValue as TMP_Text, "TimeCaption", font,
+            leftBlock, new Vector2(0f, 1f), new Vector2(0f, -27f), new Vector2(400f, 28f), 21f, WinMuted, "Tempo de jogo");
+        TMP_Text time = Label(root, so.FindProperty("timeLabel").objectReferenceValue as TMP_Text, "TimeValue", font,
+            leftBlock, new Vector2(0f, 1f), new Vector2(0f, -55f), new Vector2(400f, 42f), 35f, WinInk, "12:47");
+        TMP_Text prompt = Label(root, so.FindProperty("continueLabel").objectReferenceValue as TMP_Text, "Continue", font,
+            new Vector2(0.93f, 0.09f), new Vector2(1f, 0f), Vector2.zero, new Vector2(400f, 24f), 17f, WinFaint,
+            "Aperte qualquer botão");
+        prompt.alignment = TextAlignmentOptions.BottomRight;
+
+        so.FindProperty("messageLabel").objectReferenceValue = title;
+        so.FindProperty("message").stringValue = "Você escapou.";
+        so.FindProperty("divider").objectReferenceValue = divider;
+        so.FindProperty("timeCaption").objectReferenceValue = caption;
+        so.FindProperty("timeLabel").objectReferenceValue = time;
+        so.FindProperty("continueLabel").objectReferenceValue = prompt;
 
         SerializedProperty credits = so.FindProperty("creditsScene.sceneAsset");
         if (credits.objectReferenceValue == null)
             credits.objectReferenceValue = AssetDatabase.LoadAssetAtPath<SceneAsset>(CreditsScenePath);
 
-        // "Aperte qualquer botão": cópia do texto da vitória, menor e mais abaixo.
-        SerializedProperty continueLabel = so.FindProperty("continueLabel");
-        var message = so.FindProperty("messageLabel").objectReferenceValue as TMP_Text;
-        if (continueLabel.objectReferenceValue == null && message != null)
+        so.ApplyModifiedProperties();
+
+        // O clarão é o único fade de entrada; na mesma cor do fundo, a tela entra por baixo dele sem troca visível.
+        PlayerEscapedSequence escaped = Object.FindFirstObjectByType<PlayerEscapedSequence>(FindObjectsInactive.Include);
+        var flash = escaped != null
+            ? new SerializedObject(escaped).FindProperty("whiteFade").objectReferenceValue as CanvasGroup
+            : null;
+        // Só a imagem do próprio objeto, nunca os filhos: na cena o clarão é o CanvasGroup da própria WinScreen, e
+        // pintar os filhos deixaria os textos da cor do fundo.
+        if (flash != null)
         {
-            GameObject copy = Object.Instantiate(message.gameObject, message.transform.parent);
-            Undo.RegisterCreatedObjectUndo(copy, "Montar final");
-            copy.name = "Continue (TMP)";
+            if (flash.gameObject != win.gameObject && flash.TryGetComponent(out Graphic graphic))
+            {
+                Undo.RecordObject(graphic, "Montar tela de vitória");
+                graphic.color = WinBackground;
+            }
+        }
+        else
+            Debug.LogWarning("Final: clarão (whiteFade da PlayerEscapedSequence) não achado; pinte a imagem dele de #F3F0E8.", win);
 
-            TMP_Text label = copy.GetComponent<TMP_Text>();
-            label.text = string.Empty;
-            label.fontSize = message.fontSize * 0.5f;
+        if (font == null)
+            Debug.LogWarning($"Final: fonte não achada em {WinFontPath}; os textos ficaram na fonte que já tinham.", win);
+        Debug.Log("Tela de vitória montada.", win);
+    }
 
-            var rect = (RectTransform)copy.transform;
-            rect.anchoredPosition = ((RectTransform)message.transform).anchoredPosition + Vector2.down * 120f;
-
-            continueLabel.objectReferenceValue = label;
+    private static TMP_Text Label(RectTransform root, TMP_Text existing, string name, TMP_FontAsset font, Vector2 anchor,
+        Vector2 pivot, Vector2 position, Vector2 size, float fontSize, Color color, string preview)
+    {
+        TMP_Text label = existing;
+        if (label == null)
+        {
+            Transform child = root.Find(name);
+            label = child != null ? child.GetComponent<TMP_Text>() : null;
         }
 
-        so.ApplyModifiedProperties();
+        if (label == null)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI));
+            Undo.RegisterCreatedObjectUndo(go, "Montar tela de vitória");
+            go.transform.SetParent(root, false);
+            label = go.GetComponent<TMP_Text>();
+        }
+
+        Undo.RecordObject(label.gameObject, "Montar tela de vitória");
+        Undo.RecordObject(label.rectTransform, "Montar tela de vitória");
+        Undo.RecordObject(label, "Montar tela de vitória");
+
+        label.gameObject.name = name;
+        Place(label.rectTransform, anchor, pivot, position, size);
+        if (font != null)
+            label.font = font;
+        label.fontSize = fontSize;
+        label.color = color;
+        label.alignment = pivot.x > 0.5f ? TextAlignmentOptions.TopRight : TextAlignmentOptions.TopLeft;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.overflowMode = TextOverflowModes.Overflow;
+        label.raycastTarget = false;
+        // Prévia no Editor; em jogo a WinScreenUI apaga e escreve na hora certa.
+        label.text = preview;
+        return label;
+    }
+
+    private static RectTransform Line(RectTransform root, Vector2 anchor, Vector2 position, Vector2 size)
+    {
+        Transform child = root.Find("Divider");
+        Image line = child != null ? child.GetComponent<Image>() : null;
+        if (line == null)
+        {
+            var go = new GameObject("Divider", typeof(RectTransform), typeof(Image));
+            Undo.RegisterCreatedObjectUndo(go, "Montar tela de vitória");
+            go.transform.SetParent(root, false);
+            line = go.GetComponent<Image>();
+        }
+
+        Undo.RecordObject(line, "Montar tela de vitória");
+        Undo.RecordObject(line.rectTransform, "Montar tela de vitória");
+        line.color = WinInk;
+        line.raycastTarget = false;
+        Place(line.rectTransform, anchor, new Vector2(0f, 1f), position, size);
+        return line.rectTransform;
+    }
+
+    private static void Place(RectTransform rect, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size)
+    {
+        rect.anchorMin = anchor;
+        rect.anchorMax = anchor;
+        rect.pivot = pivot;
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
     }
 
     // A porta de saída é a que pede mais chaves.

@@ -257,8 +257,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   mode: 0
-  onChance: 0.019
-  flickerChance: 0.03
+  onChance: 0.015
+  flickerChance: 0.015
   lampLight: {fileID: 1007342080692752910}
   emissionIntensity: 1
   lightCullDistance: 30
@@ -267,7 +267,8 @@ MonoBehaviour:
   soundDistance: 10
   flickerDropoutVolume: 0.3
   burstCheckInterval: 10
-  burstChance: 0.01
+  burstChance: 0.05
+  burstMaxDistance: 20
   nearRadius: 4
   nearBurstChance: 0.15
   nearBurstDelay: {x: 0.2, y: 1}

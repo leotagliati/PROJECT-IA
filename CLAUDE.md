@@ -173,6 +173,9 @@ determinístico durante o treino.
   sem som (`Lockable.UnlockSilently`). `GameManager.PauseLocked` (só enquanto o controle está tirado) recusa o pause
   e cala o `HintController`. O `EscapeTrigger` no fim do corredor dá a vitória: clarão da `PlayerEscapedSequence` → `WinScreenUI` →
   qualquer botão → créditos (`GameManager.EndSession`, o mesmo do "Voltar ao menu" do pause). A vitória não recarrega.
+  A `WinScreenUI` é clara de propósito (off-white, texto escuro, `determination`): preto, vermelho e estática são a
+  linguagem da morte, e qualquer tela nesse estilo lê como game over. O título é digitado (`maxVisibleCharacters`, som
+  `dialogue_type`); a arrumação sai do menu *PROJECT-IA → Final: montar tela de vitória*.
 - **Áudio**: `AudioProvider` é uma facade estática no molde do `PlayerInputProvider`
   (`AudioProvider.Play("footstep", x, z)`, `PlayAt`, `PlayFollowing`, `PlayLoop`/`Stop`).
   Nada na cena: no primeiro Play ele carrega `Assets/Resources/AudioLibrary.asset` (tabela
