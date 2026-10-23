@@ -72,6 +72,9 @@ public class PlayerMovement : MonoBehaviour
              "mistura Walk↔Run os dois clipes disparam, e sem o filtro o passo sai dobrado.")]
     [SerializeField, Range(0f, 1f)] private float footstepMinClipWeight = 0.5f;
 
+    [Tooltip("Volume do passo andando. Correndo e aterrissando é o cheio (1).")]
+    [SerializeField, Range(0f, 1f)] private float walkStepVolume = 0.65f;
+
     [Tooltip("Volume do passo agachado. É o mesmo clipe, só que abafado.")]
     [SerializeField, Range(0f, 1f)] private float crouchStepVolume = 0.35f;
 
@@ -481,7 +484,7 @@ public class PlayerMovement : MonoBehaviour
         switch (CurrentState)
         {
             case PlayerState.Walking:
-                PlayFootstep(footstepSoundId);
+                PlayFootstep(footstepSoundId, walkStepVolume);
                 PuffDust(0f);
                 break;
 
