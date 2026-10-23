@@ -346,3 +346,10 @@ MonoBehaviour:
     PitchJitter: 0.05
     MinDistance: 0
     MaxDistance: 10
+  - Id: credits_music
+    Clips:
+    - {fileID: 8300000, guid: 481a38a75d518cd47b16d8e11a36dacc, type: 3}
+    Volume: 0.35
+    PitchJitter: 0
+    MinDistance: 0
+    MaxDistance: 25

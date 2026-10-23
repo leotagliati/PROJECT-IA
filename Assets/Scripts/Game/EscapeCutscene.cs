@@ -244,6 +244,13 @@ public class EscapeCutscene : MonoBehaviour
         if (seekerCamera == null || playerCamera == null)
             yield break;
 
+        // De fora, o player sem cabeça (ShadowsOnly em primeira pessoa) aparece decapitado: mostra só para esta câmera.
+        ShowInReflections head = player.GetComponentInParent<ShowInReflections>();
+        if (head == null)
+            head = player.GetComponentInChildren<ShowInReflections>();
+        if (head != null)
+            head.ExtraCamera = seekerCamera;
+
         seekerCamera.transform.LookAt(playerCamera.transform.position);
         seekerCamera.targetTexture = playerCamera.targetTexture;
         playerCamera.enabled = false;
@@ -253,6 +260,8 @@ public class EscapeCutscene : MonoBehaviour
 
         seekerCamera.enabled = false;
         playerCamera.enabled = true;
+        if (head != null)
+            head.ExtraCamera = null;
     }
 
     // Congela quando a tela já está toda branca; até lá ele segue vindo atrás do player durante o clarão.

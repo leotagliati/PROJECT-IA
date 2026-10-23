@@ -24,13 +24,62 @@ public class CreditsScreen : MonoBehaviour
     [SerializeField, Min(0.01f)] private float fadeTime = 0.8f;
     [SerializeField] private Color fadeColor = Color.black;
 
+    [Header("Música")]
+    [Tooltip("Id da AudioLibrary (o volume vem da entrada). Vazio = sem música.")]
+    [SerializeField] private string musicId = "credits_music";
+
+    [SerializeField, Min(0.01f)] private float musicFadeIn = 1.5f;
+
+    [SerializeField, Min(0.01f)] private float musicFadeOut = 1.5f;
+
     private float _endTimer;
     private bool _leaving;
+    private AudioSource _music;
+    private float _musicVolume;
 
     private void Awake()
     {
         if (typewriter != null)
             typewriter.enabled = false;
+
+        SetupMusic();
+    }
+
+    // AudioSource próprio pelo mesmo motivo do ThemeMusic: trilha é 2D e não pode ter a voz roubada pelo pool.
+    private void SetupMusic()
+    {
+        AudioLibrary library = AudioProvider.Library;
+        if (string.IsNullOrEmpty(musicId) || AudioProvider.IsMuted || library == null)
+            return;
+
+        if (!library.TryGet(musicId, out AudioLibrary.SoundEntry entry))
+        {
+            Debug.LogWarning($"{name}: id '{musicId}' não está na AudioLibrary — créditos sem música.", this);
+            return;
+        }
+
+        _music = gameObject.AddComponent<AudioSource>();
+        _music.playOnAwake = false;
+        _music.loop = true;
+        _music.spatialBlend = 0f;
+        _music.clip = entry.Clips[0];
+        _music.outputAudioMixerGroup = library.MixerGroup;
+        _music.volume = 0f;
+        _musicVolume = entry.Volume;
+        _music.Play();
+        StartCoroutine(FadeMusicIn());
+    }
+
+    private IEnumerator FadeMusicIn()
+    {
+        for (float t = 0f; t < musicFadeIn && !_leaving; t += Time.unscaledDeltaTime)
+        {
+            _music.volume = _musicVolume * (t / musicFadeIn);
+            yield return null;
+        }
+
+        if (!_leaving)
+            _music.volume = _musicVolume;
     }
 
     private IEnumerator Start()
@@ -74,13 +123,23 @@ public class CreditsScreen : MonoBehaviour
 
         Image fade = CreateFadeOverlay();
 
-        for (float t = 0f; t < fadeTime; t += Time.unscaledDeltaTime)
+        // A música sai do volume em que estiver: pular durante o fade-in não dá um pulo para cima.
+        float musicFrom = _music != null ? _music.volume : 0f;
+
+        // A tela fica preta no fadeTime e espera nela até a música terminar de sair: trocar de cena antes cortaria o som.
+        float total = Mathf.Max(fadeTime, _music != null ? musicFadeOut : 0f);
+
+        for (float t = 0f; t < total; t += Time.unscaledDeltaTime)
         {
-            SetAlpha(fade, t / fadeTime);
+            SetAlpha(fade, Mathf.Clamp01(t / fadeTime));
+            if (_music != null)
+                _music.volume = musicFrom * (1f - Mathf.Clamp01(t / musicFadeOut));
             yield return null;
         }
 
         SetAlpha(fade, 1f);
+        if (_music != null)
+            _music.Stop();
         load.allowSceneActivation = true;
     }
 
