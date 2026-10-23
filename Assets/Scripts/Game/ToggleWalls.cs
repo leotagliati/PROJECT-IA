@@ -16,6 +16,9 @@ public class ToggleWalls : MonoBehaviour
     [Tooltip("Ficam no lugar das paredes temporárias; desativadas no começo da partida e Apply liga.")]
     [SerializeField] private GameObject[] replacements;
 
+    [Tooltip("Apply fecha e tranca de vez (ex.: a porta do tutorial). Os cadeados que sobraram somem.")]
+    [SerializeField] private SwingDoor[] sealedDoors;
+
     // No Awake, antes de qualquer Start: o tutorialSkipped do GameManager (Start) que chama o Apply não é desfeito.
     private void Awake()
     {
@@ -33,6 +36,10 @@ public class ToggleWalls : MonoBehaviour
     {
         SetAllActive(temporaryWalls, false);
         SetAllActive(replacements, true);
+
+        foreach (SwingDoor door in sealedDoors)
+            if (door != null)
+                door.Seal();
     }
 
     private static void SetAllActive(GameObject[] targets, bool active)

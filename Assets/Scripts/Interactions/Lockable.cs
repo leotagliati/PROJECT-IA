@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public class Lockable : MonoBehaviour
 {
@@ -12,11 +13,26 @@ public class Lockable : MonoBehaviour
     [Tooltip("Toca ao tentar usar trancado. Vazio = sem som.")]
     [SerializeField] private string lockedSoundId = "lockedDoor";
 
+    // "Trancada" seco faz o jogador caçar uma chave que não existe: quem explica é o diálogo do sealedRefused.
+    [Tooltip("Depois de Seal. Vazio = o prompt fica como o de uma porta comum e só o sealedRefused responde.")]
+    [SerializeField] private string sealedMessage = "";
+
+    [Tooltip("Tentou abrir depois de Seal. Ligue o Play de um DialogueTrigger fora da porta (senão ele tapa a porta " +
+             "no raycast).")]
+    [SerializeField] private UnityEvent sealedRefused;
+
+    private bool isSealed;
+
+    public bool IsSealed => isSealed;
+
     public int RemainingLocks => locks.Count;
 
-    public bool IsLocked => locks.Count > 0;
+    public bool IsLocked => isSealed || locks.Count > 0;
 
-    public string LockedMessage => IsLocked ? string.Format(lockedMessageFormat, locks.Count) : null;
+    public string LockedMessage =>
+        isSealed ? sealedMessage
+        : IsLocked ? string.Format(lockedMessageFormat, locks.Count)
+        : null;
 
     private void Awake()
     {
@@ -43,6 +59,23 @@ public class Lockable : MonoBehaviour
             doorLock.UnlockSilently();
     }
 
+    /// <summary>Tranca de vez: some com os cadeados que sobraram, senão uma chave da caça ainda abriria a porta.</summary>
+    public void Seal()
+    {
+        isSealed = true;
+
+        foreach (DoorLock doorLock in locks)
+        {
+            if (doorLock == null)
+                continue;
+
+            doorLock.Unlocked -= HandleLockUnlocked;
+            Destroy(doorLock.gameObject);
+        }
+
+        locks.Clear();
+    }
+
     /// <summary>Falha com som e mensagem se ainda trancado.</summary>
     public bool TryRefuse(out InteractionResult result)
     {
@@ -55,6 +88,10 @@ public class Lockable : MonoBehaviour
             AudioProvider.PlayAt(lockedSoundId, transform.position);
 
         result = InteractionResult.Fail(LockedMessage);
+
+        if (isSealed)
+            sealedRefused.Invoke();
+
         return true;
     }
 

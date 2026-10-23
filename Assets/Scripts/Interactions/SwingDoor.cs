@@ -71,6 +71,7 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
     private float autoTarget;
     private bool restingOnLow;
     private bool restingOnHigh;
+    private bool sealOnAwake;
 
     /// <summary>Saiu do batente.</summary>
     public event Action LeftClosed;
@@ -124,6 +125,9 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
 
         restingOnLow = angle <= Mathf.Min(minAngle, maxAngle) + contactRearmAngle;
         restingOnHigh = angle >= Mathf.Max(minAngle, maxAngle) - contactRearmAngle;
+
+        if (sealOnAwake)
+            CloseImmediately();
     }
 
     private void OnDisable()
@@ -140,7 +144,8 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
         if (grabbed)
             return false;
 
-        if (IsLocked)
+        // Lacrada sem mensagem parece uma porta comum: a resposta vem ao tentar (sealedRefused), não no prompt.
+        if (IsLocked && !string.IsNullOrEmpty(lockable.LockedMessage))
             prompt = prompt.Blocked(lockable.LockedMessage);
 
         return true;
@@ -157,6 +162,43 @@ public class SwingDoor : MonoBehaviour, IInteractable, IDraggable
         autoTarget = goingOpen ? OpenAngle : ClosedAngle;
         autoMoving = true;
         return InteractionResult.Success;
+    }
+
+    /// <summary>Bate fechada na hora e tranca de vez. Para porta longe do jogador: não anima nem toca som.</summary>
+    public void Seal()
+    {
+        if (lockable == null && !TryGetComponent(out lockable))
+            lockable = gameObject.AddComponent<Lockable>();
+
+        lockable.Seal();
+
+        // Porta em objeto inativo ainda não passou pelo Awake (sem body nem pose fechada): fecha quando acordar.
+        if (body == null)
+        {
+            sealOnAwake = true;
+            return;
+        }
+
+        CloseImmediately();
+    }
+
+    private void CloseImmediately()
+    {
+        grabbed = false;
+        autoMoving = false;
+        angularVelocity = 0f;
+        angle = ClosedAngle;
+
+        // Já no batente: sem isso o próximo passo de física dispara LimitReached e toca a batida.
+        bool closedIsLow = Mathf.Approximately(ClosedAngle, Mathf.Min(minAngle, maxAngle));
+        restingOnLow = closedIsLow;
+        restingOnHigh = !closedIsLow;
+
+        Quaternion parentRotation = transform.parent != null ? transform.parent.rotation : Quaternion.identity;
+        Quaternion closed = parentRotation * closedLocalRotation * Quaternion.AngleAxis(angle, LocalAxis);
+        // Teleporte, não MoveRotation: com interpolação ligada a porta varreria o caminho até o batente.
+        body.rotation = closed;
+        transform.rotation = closed;
     }
 
     public InteractionResult BeginDrag(InteractionController interactor, Vector3 grabPoint)

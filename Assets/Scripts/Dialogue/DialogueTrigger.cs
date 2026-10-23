@@ -9,6 +9,11 @@ using UnityEngine.Events;
 public class DialogueTrigger : MonoBehaviour, IInteractable
 {
     [SerializeField] private DialogueAsset dialogue;
+
+    [Tooltip("Opcional. Toca no lugar do dialogue depois da primeira conversa completa, e fica repetindo. Sem efeito " +
+             "com once ligado.")]
+    [SerializeField] private DialogueAsset repeatDialogue;
+
     [SerializeField] private string prompt = "Conversar";
 
     [Tooltip("Opcional. Onde a câmera para durante a conversa (posição e rotação: o eixo azul é para onde ela " +
@@ -82,7 +87,8 @@ public class DialogueTrigger : MonoBehaviour, IInteractable
 
         // O Play recusa com o jogo pausado, asset vazio ou conversa aberta: nesses casos nada abriu e o started
         // não pode disparar.
-        if (controller.Play(dialogue, OnFinished, cameraPoint))
+        DialogueAsset current = done && repeatDialogue != null ? repeatDialogue : dialogue;
+        if (controller.Play(current, OnFinished, cameraPoint))
             started.Invoke();
     }
 
