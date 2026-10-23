@@ -99615,6 +99615,7 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  loadingScreen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
 --- !u!4 &1012911239
 Transform:
   m_ObjectHideFlags: 0
@@ -99727,6 +99728,7 @@ MonoBehaviour:
   mainMenuScene:
     sceneAsset: {fileID: 102900000, guid: 0569112b743f9264ab0b75cba3c399b8, type: 3}
     scenePath: Assets/Scenes/MainMenu.unity
+  loadingScreen: {fileID: 2374738931007908376, guid: 6554d38c1edf2ec4080d219dc00301bb, type: 3}
   pauseSoundId: pause_open
   resumeSoundId: pause_close
 --- !u!1 &1013126836

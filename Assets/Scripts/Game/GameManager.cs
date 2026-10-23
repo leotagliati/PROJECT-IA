@@ -31,6 +31,9 @@ public class GameManager : MonoBehaviour
     [Tooltip("Dispara no reinício quando a partida já começa no game state Playing")]
     [SerializeField] private UnityEvent tutorialSkipped;
 
+    [Tooltip("O mesmo prefab da tela de loading do menu (Prefabs/UI/LoadingScreen). Vazio = só tela preta.")]
+    [SerializeField] private GameObject loadingScreen;
+
     private static bool tutorialCompleted;
 
     // Estáticos pela mesma razão do tutorialCompleted: o Restart do game over recarrega a cena e recria o GameManager,
@@ -138,19 +141,18 @@ public class GameManager : MonoBehaviour
             SetState(GameState.Escaping);
     }
 
-    public void Restart()
+    public void Restart() => LoadingTransition.Begin(ReloadAsync, loadingScreen);
+
+    private static AsyncOperation ReloadAsync()
     {
         var scene = SceneManager.GetActiveScene();
 #if UNITY_EDITOR
         // Cenas de teste fora do Build Settings têm buildIndex -1; no Editor dá para carregar pelo path.
         if (scene.buildIndex < 0)
-        {
-            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(
+            return UnityEditor.SceneManagement.EditorSceneManager.LoadSceneAsyncInPlayMode(
                 scene.path, new LoadSceneParameters(LoadSceneMode.Single));
-            return;
-        }
 #endif
-        SceneManager.LoadScene(scene.buildIndex);
+        return SceneManager.LoadSceneAsync(scene.buildIndex);
     }
 
     // No Awake: os seekers sincronizam com o State no OnEnable e já precisam ver Playing.

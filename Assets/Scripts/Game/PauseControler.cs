@@ -16,6 +16,8 @@ public class PauseControler : MonoBehaviour
     [SerializeField] private MenuSelectionWaker selectionWaker;
     [Tooltip("Cena carregada pelo botão de voltar ao menu. Arraste a cena; precisa estar ligada no Build Settings.")]
     [SerializeField] private SceneReference mainMenuScene;
+    [Tooltip("O mesmo prefab da tela de loading do menu (Prefabs/UI/LoadingScreen). Vazio = só tela preta.")]
+    [SerializeField] private GameObject loadingScreen;
 
     [Header("Sons (ids da AudioLibrary; vazio = sem som)")]
     [SerializeField] private string pauseSoundId = "pause_open";
@@ -59,7 +61,8 @@ public class PauseControler : MonoBehaviour
     private void OnToggleInput(InputAction.CallbackContext context)
     {
         // Pausar por cima do diálogo ou do bilhete devolveria timeScale e mapa Player com a caixa ainda aberta.
-        if (DialogueController.IsOpen || TutorialNoteController.IsOpen)
+        // Despausar durante a saída para o menu soltaria o jogo atrás da tela de loading.
+        if (DialogueController.IsOpen || TutorialNoteController.IsOpen || LoadingTransition.IsRunning)
             return;
 
         if (IsPaused)
@@ -134,8 +137,8 @@ public class PauseControler : MonoBehaviour
     // O OnDestroy e o PauseAudio.OnDisable desfazem pausa, input e áudio quando a cena descarrega.
     public void BackToMenu()
     {
-        GameManager.EndSession();
-        mainMenuScene.Load();
+        if (LoadingTransition.Begin(mainMenuScene, loadingScreen))
+            GameManager.EndSession();
     }
 
     public void Quit()
