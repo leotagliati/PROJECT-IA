@@ -161,8 +161,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerCamera: {fileID: 6399354207596021297}
-  pointerSensitivity: 0.5
-  stickSensitivity: 30
+  pointerSensitivity: 0.05
+  stickSensitivity: 7.5
 --- !u!114 &3947188273615540912
 MonoBehaviour:
   m_ObjectHideFlags: 0

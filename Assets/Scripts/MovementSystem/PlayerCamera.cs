@@ -7,12 +7,13 @@ public class PlayerCamera : MonoBehaviour
     [Header("Settings")]
     public Camera playerCamera; // Referência da nossa câmera
 
+    // Os dois são o nível 5 do slider (LookSensitivity 1x); o slider escala de 0,25x a 4x em volta deles.
     [Tooltip("Graus por unidade de delta do mouse/pointer. Independente do FPS.")]
-    public float pointerSensitivity = 0.5f;
+    public float pointerSensitivity = 0.05f;
 
     [Tooltip("Graus por segundo por unidade do stick (já escalado pelo processor do action).")]
     [FormerlySerializedAs("mouseSensitivity")]
-    public float stickSensitivity = 30f;
+    public float stickSensitivity = 7.5f;
 
     private Vector2 lookInput;
     private float xRotation = 0f;
