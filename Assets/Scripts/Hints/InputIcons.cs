@@ -125,7 +125,22 @@ public static class InputIcons
         if (actionOrMap is not InputAction action || action.activeControl == null)
             return;
 
-        InputDevice device = action.activeControl.device;
+        SwitchTo(action.activeControl.device);
+    }
+
+    /// <summary>
+    /// Para telas que leem botão cru (onAnyButtonPress) em vez de action, como os créditos: sem isso o esquema só
+    /// troca quando alguma action dispara, e lá nenhuma dispara.
+    /// </summary>
+    public static void NotifyDeviceUsed(InputDevice device)
+    {
+        Initialize();
+        if (forced == null && library != null)
+            SwitchTo(device);
+    }
+
+    private static void SwitchTo(InputDevice device)
+    {
         if (Supports(current, device))
             return;
 

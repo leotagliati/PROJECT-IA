@@ -28497,8 +28497,7 @@ PrefabInstance:
       objectReference: {fileID: 2065129558}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: typingPrompt
-      value: "Aperte qualquer tecla para digitar Aperte espa\xE7o para pular para
-        o final "
+      value: "Aperte qualquer {1} para digitar\nAperte {0} para pular para o final"
       objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: pageReadPoint
@@ -28506,11 +28505,11 @@ PrefabInstance:
       objectReference: {fileID: 1488867754}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: lastPagePrompt
-      value: Aperte para apagar a luzes
+      value: Aperte qualquer {1} para apagar as luzes
       objectReference: {fileID: 0}
     - target: {fileID: 3007012663633834495, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: nextPagePrompt
-      value: "Aperte  para a pr\xF3xima p\xE1gina"
+      value: "Aperte qualquer {1} para a próxima página"
       objectReference: {fileID: 0}
     - target: {fileID: 3025509663983869747, guid: 01f5a6b08c16c8648889a9853b62eb5a, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'

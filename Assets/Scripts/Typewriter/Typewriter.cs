@@ -68,13 +68,14 @@ public class Typewriter : MonoBehaviour
     [SerializeField, Min(0f)] private float pageInsertTime = 0.6f;
 
     [Header("Prompt")]
-    [Tooltip("Opcional. Texto na tela que diz o que a tecla faz agora. Sem ícone de propósito: qualquer tecla " +
-             "ou botão vale, e um ícone específico mentiria.")]
+    [Tooltip("Opcional. Texto na tela que diz o que a tecla faz agora.")]
     [SerializeField] private TMP_Text promptText;
 
-    [SerializeField] private string typingPrompt = "Aperte qualquer tecla para digitar\nAperte espaço para pular para o final";
-    [SerializeField] private string nextPagePrompt = "Aperte qualquer tecla para a próxima página";
-    [SerializeField] private string lastPagePrompt = "Aperte qualquer tecla para voltar ao menu";
+    // {0} = ícone do botão que completa a folha (Espaço / botão de baixo do controle), {1} = "tecla" ou "botão",
+    // pelo esquema ativo.
+    [SerializeField] private string typingPrompt = "Aperte qualquer {1} para digitar\nAperte {0} para pular para o final";
+    [SerializeField] private string nextPagePrompt = "Aperte qualquer {1} para a próxima página";
+    [SerializeField] private string lastPagePrompt = "Aperte qualquer {1} para voltar ao menu";
 
     [Header("Automático")]
     [SerializeField] private bool autoType = true;
@@ -168,6 +169,7 @@ public class Typewriter : MonoBehaviour
     private bool _changingPage;
     private bool _reading;
     private bool _skipRead;
+    private string _promptTemplate;
     private float _readStart;
 
     private float _cooldown;
@@ -252,16 +254,20 @@ public class Typewriter : MonoBehaviour
     private void OnEnable()
     {
         _anyButton = InputSystem.onAnyButtonPress.Call(OnAnyButton);
+        InputIcons.SchemeChanged += RefreshPrompt;
     }
 
     private void OnDisable()
     {
         _anyButton?.Dispose();
         _anyButton = null;
+        InputIcons.SchemeChanged -= RefreshPrompt;
     }
 
     private void OnAnyButton(InputControl control)
     {
+        InputIcons.NotifyDeviceUsed(control.device);
+
         // Esc e Start continuam reservados para voltar ao menu.
         if (control is KeyControl key && key.keyCode == Key.Escape)
             return;
@@ -281,8 +287,9 @@ public class Typewriter : MonoBehaviour
         if (_changingPage || IsFinished)
             return;
 
-        // Espaço completa instantaneamente a folha atual.
-        if (control is KeyControl spaceKey && spaceKey.keyCode == Key.Space)
+        // Espaço (ou o botão de baixo do controle) completa instantaneamente a folha atual.
+        if ((control is KeyControl spaceKey && spaceKey.keyCode == Key.Space)
+            || (control.device is Gamepad gamepad && control == gamepad.buttonSouth))
         {
             CompleteCurrentPage();
             return;
@@ -482,10 +489,33 @@ public class Typewriter : MonoBehaviour
     }
 
     // Vazio esconde: na transição entre páginas a tecla não faz nada, e um prompt ali mentiria.
-    private void SetPrompt(string text)
+    private void SetPrompt(string template)
     {
-        if (promptText != null)
-            promptText.text = text ?? string.Empty;
+        _promptTemplate = template;
+        RefreshPrompt();
+    }
+
+    private void RefreshPrompt()
+    {
+        if (promptText == null)
+            return;
+
+        if (string.IsNullOrEmpty(_promptTemplate))
+        {
+            promptText.text = string.Empty;
+            return;
+        }
+
+        bool gamepad = InputIcons.ActiveBindingGroup == "Gamepad";
+        string iconName = gamepad ? "buttonSouth" : "space";
+        TMP_SpriteAsset icons = InputIcons.Icons;
+
+        string skipKey = icons != null && icons.GetSpriteIndexFromName(iconName) >= 0
+            ? $"<sprite name=\"{iconName}\">"
+            : gamepad ? "[A]" : "[Espaço]";
+
+        promptText.spriteAsset = icons;
+        promptText.text = string.Format(_promptTemplate, skipKey, gamepad ? "botão" : "tecla");
     }
 
     private IEnumerator MoveSheet(Vector3 fromPosition, Quaternion fromRotation, Vector3 toPosition,
