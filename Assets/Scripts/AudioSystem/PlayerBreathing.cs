@@ -30,6 +30,17 @@ public class PlayerBreathing : MonoBehaviour
     [Tooltip("Quanto o loop calmo cai quando o ofegante está no máximo (1 = some).")]
     [SerializeField, Range(0f, 1f)] private float calmDuckAtFull = 1f;
 
+    // Calmo contínuo vira ruído no ouvido: aparece em rajadas de algumas respirações e some de novo. O ofegante não
+    // passa por isso, ele é o aviso de cansaço.
+    [Header("-----Respiração calma-----")]
+    [Tooltip("Segundos audível em cada rajada (mín, máx).")]
+    [SerializeField] private Vector2 calmBurstDuration = new Vector2(6f, 10f);
+
+    [Tooltip("Segundos em silêncio entre rajadas (mín, máx). A partida começa numa pausa.")]
+    [SerializeField] private Vector2 calmPauseDuration = new Vector2(20f, 40f);
+
+    [SerializeField, Min(0.01f)] private float calmFadeTime = 1.5f;
+
     [Header("-----Variação de pitch-----")]
     // Deriva lenta por ruído, e não sorteio por ciclo: salto de pitch no ponto de loop é
     // audível, deriva contínua não. A amplitude é o PitchJitter da entrada na library.
@@ -53,6 +64,9 @@ public class PlayerBreathing : MonoBehaviour
     private Voice _calm;
     private Voice _heavy;
     private float _exertion;
+    private float _calmBurstGain;
+    private bool _calmBurstOn;
+    private float _calmBurstTimer;
     private float _masterGain = 1f;
     private bool _gameOver;
 
@@ -96,6 +110,8 @@ public class PlayerBreathing : MonoBehaviour
 
         if (_calm == null && _heavy == null)
             enabled = false;
+
+        _calmBurstTimer = Random.Range(calmPauseDuration.x, calmPauseDuration.y);
     }
 
     private Voice CreateVoice(AudioLibrary library, string id, float[] exhaleTimes)
@@ -230,9 +246,10 @@ public class PlayerBreathing : MonoBehaviour
         }
 
         UpdateExertion();
+        UpdateCalmBurst();
 
         float heavyGain = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(heavyThreshold, 1f, _exertion));
-        float calmGain = 1f - heavyGain * calmDuckAtFull;
+        float calmGain = (1f - heavyGain * calmDuckAtFull) * _calmBurstGain;
 
         if (_gameOver)
             _masterGain = Mathf.MoveTowards(_masterGain, 0f, Time.deltaTime / fadeOutOnGameOver);
@@ -245,7 +262,8 @@ public class PlayerBreathing : MonoBehaviour
         bool calmExhaled = CrossedExhale(_calm);
         bool heavyExhaled = CrossedExhale(_heavy);
 
-        if (vapor != null && !_gameOver && (heavyGain >= 0.5f ? heavyExhaled : calmExhaled))
+        // Vapor sem som soaria errado: na pausa da calma, nada de baforada.
+        if (vapor != null && !_gameOver && (heavyGain >= 0.5f ? heavyExhaled : calmExhaled && calmGain >= 0.5f))
             vapor.Exhale(heavyGain);
 
         // O OnDisable chama o Silence.
@@ -275,6 +293,19 @@ public class PlayerBreathing : MonoBehaviour
         _exertion = sprinting
             ? Mathf.MoveTowards(_exertion, 1f, Time.deltaTime / timeToExhaust)
             : Mathf.MoveTowards(_exertion, 0f, Time.deltaTime / timeToRecover);
+    }
+
+    private void UpdateCalmBurst()
+    {
+        _calmBurstTimer -= Time.deltaTime;
+        if (_calmBurstTimer <= 0f)
+        {
+            _calmBurstOn = !_calmBurstOn;
+            Vector2 range = _calmBurstOn ? calmBurstDuration : calmPauseDuration;
+            _calmBurstTimer = Random.Range(range.x, range.y);
+        }
+
+        _calmBurstGain = Mathf.MoveTowards(_calmBurstGain, _calmBurstOn ? 1f : 0f, Time.deltaTime / calmFadeTime);
     }
 
     /// <summary>Alguma marca de expiração ficou entre o frame anterior e este, contando a volta do loop.</summary>

@@ -114,7 +114,7 @@ MonoBehaviour:
   - Id: breath
     Clips:
     - {fileID: 8300000, guid: a1085843894b5cf42b1ebe7f317e38d9, type: 3}
-    Volume: 0.08
+    Volume: 0.05
     PitchJitter: 0.06
     MinDistance: 0
     MaxDistance: 25
