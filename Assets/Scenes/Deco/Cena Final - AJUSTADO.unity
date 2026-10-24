@@ -76588,6 +76588,7 @@ MonoBehaviour:
   view: {fileID: 1802769586}
   openDelay: 0.4
   minVisibleTime: 0.8
+  holdToClose: 0.6
   openSound: note_open
   rememberAcrossReloads: 1
 --- !u!4 &741911925
@@ -119353,7 +119354,7 @@ MonoBehaviour:
     signal: 
     amount: 1
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: mover
     text: Use {Move} para se mover e {Look} para olhar ao redor
@@ -119364,7 +119365,7 @@ MonoBehaviour:
     signal: 
     amount: 1.5
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: agachar
     text: "{Crouch} para *agachar*. Agachado, seus passos quase n\xE3o fazem barulho"
@@ -119375,7 +119376,7 @@ MonoBehaviour:
     signal: 
     amount: 1
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: interagir
     text: Aperte {Interact} para *interagir* com objetos
@@ -119386,7 +119387,7 @@ MonoBehaviour:
     signal: 
     amount: 1
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: chave
     text: Procure pela *chave* para abrir a porta
@@ -119397,7 +119398,7 @@ MonoBehaviour:
     signal: chave_coletada
     amount: 1
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: espiar
     text: Segure {PeekLeft} ou {PeekRight} para *espiar* pelas quinas
@@ -119408,18 +119409,18 @@ MonoBehaviour:
     signal: 
     amount: 0.5
     timeout: 12
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
   - id: correr
     text: Segure {Sprint} para *correr*
-    after: tremor_terminou
+    after: 
     delay: 0.3
     waitFor: 2
     actions: Sprint
     signal: 
     amount: 1
     timeout: 0
-    skipIfAlreadyDone: 1
+    skipIfAlreadyDone: 0
     voiceId: 
 --- !u!114 &1209857372
 MonoBehaviour:
@@ -176978,6 +176979,9 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  lockRefused:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!114 &1839194912 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 8703921016752887684, guid: b87a12caa94ce1a49914e705c9cf08ea, type: 3}
