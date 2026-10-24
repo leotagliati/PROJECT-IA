@@ -636,7 +636,7 @@ MonoBehaviour:
   root: {fileID: 8020532844619127908}
   bodyText: {fileID: 1654602908433143637}
   promptText: {fileID: 5603295373341617530}
-  prompt: Aperte {0} para continuar
+  prompt: Segure {0} para continuar
   videoImage: {fileID: 2727026129374280680}
   videoPlayer: {fileID: 7339634769586813125}
   markup: {fileID: 0}

@@ -23,6 +23,11 @@ public class TutorialNoteController : MonoBehaviour
              "sem isso o bilhete fecharia sem ser lido.")]
     [SerializeField, Min(0f)] private float minVisibleTime = 0.8f;
 
+    // Só o delay não bastava: quem ainda está clicando (mirando a garrafa, por exemplo) fechava sem ler logo depois.
+    [Tooltip("Segundos reais segurando o avançar para fechar. 0 = um toque fecha. Só conta um aperto que começou " +
+             "depois de o bilhete abrir.")]
+    [SerializeField, Min(0f)] private float holdToClose = 0.6f;
+
     [Tooltip("Id da AudioLibrary tocado ao abrir. Vazio = sem som.")]
     [SerializeField] private string openSound = "note_open";
 
@@ -46,6 +51,8 @@ public class TutorialNoteController : MonoBehaviour
     private float openedAt;
     private bool promptShown;
     private bool open;
+    private bool holdArmed;
+    private float holdElapsed;
 
     private float previousTimeScale;
     private InputMode previousMode;
@@ -139,6 +146,8 @@ public class TutorialNoteController : MonoBehaviour
         current = request;
         open = true;
         openedAt = Time.unscaledTime;
+        holdArmed = false;
+        holdElapsed = 0f;
 
         seen.Add(request.note.name);
 
@@ -160,18 +169,42 @@ public class TutorialNoteController : MonoBehaviour
 
     private void Update()
     {
-        if (open && !promptShown && ReadyToClose())
+        if (!open)
+            return;
+
+        if (!promptShown && ReadyToClose())
         {
             promptShown = true;
             view.SetPromptVisible(true);
         }
+
+        if (holdToClose <= 0f)
+            return;
+
+        bool held = view.AdvanceHeld;
+
+        // O botão que pegou a garrafa pode vir apertado desde antes de abrir: só arma depois de soltar uma vez.
+        if (!held)
+            holdArmed = true;
+
+        float previous = holdElapsed;
+        holdElapsed = held && holdArmed && ReadyToClose() ? holdElapsed + Time.unscaledDeltaTime : 0f;
+
+        if (holdElapsed >= holdToClose)
+        {
+            Close(notify: true);
+            return;
+        }
+
+        if (holdElapsed != previous)
+            view.SetHoldProgress(holdElapsed / holdToClose);
     }
 
     private bool ReadyToClose() => Time.unscaledTime - openedAt >= minVisibleTime;
 
     private void OnAdvance()
     {
-        if (open && ReadyToClose())
+        if (open && holdToClose <= 0f && ReadyToClose())
             Close(notify: true);
     }
 

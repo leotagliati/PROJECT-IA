@@ -24,7 +24,13 @@ public class TutorialNoteView : MonoBehaviour
     [SerializeField] private TMP_Text promptText;
 
     [Tooltip("{0} = ícone da tecla de fechar no esquema ativo.")]
-    [SerializeField] private string prompt = "Aperte {0} para continuar";
+    [SerializeField] private string prompt = "Segure {0} para continuar";
+
+    [Tooltip("Opcional. Image Filled que enche enquanto o fechar é segurado. Vazio = o prompt sai apagado e acende " +
+             "com o progresso.")]
+    [SerializeField] private Image holdFill;
+
+    [SerializeField, Range(0f, 1f)] private float promptIdleAlpha = 0.55f;
 
     [Header("Vídeo")]
     [Tooltip("Atrás da janela transparente da moldura.")]
@@ -61,6 +67,8 @@ public class TutorialNoteView : MonoBehaviour
     public event Action AdvancePressed;
 
     public GameObject Root => root != null ? root : gameObject;
+
+    public bool AdvanceHeld => shown && advance != null && advance.IsPressed();
 
     private void Awake()
     {
@@ -156,6 +164,23 @@ public class TutorialNoteView : MonoBehaviour
     {
         promptVisible = visible;
         RefreshPrompt();
+        SetHoldProgress(0f);
+    }
+
+    /// <summary>0..1 do segurar para fechar.</summary>
+    public void SetHoldProgress(float progress)
+    {
+        if (holdFill != null)
+        {
+            holdFill.enabled = promptVisible;
+            holdFill.fillAmount = progress;
+        }
+        else if (promptText != null)
+        {
+            Color color = promptText.color;
+            color.a = promptVisible ? Mathf.Lerp(promptIdleAlpha, 1f, progress) : 1f;
+            promptText.color = color;
+        }
     }
 
     private void Unsubscribe()
