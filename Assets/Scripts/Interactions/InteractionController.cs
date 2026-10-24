@@ -5,10 +5,10 @@ using UnityEngine.InputSystem;
 
 public class InteractionController : MonoBehaviour
 {
-    [Tooltip("Alcance do raycast: outline e o ponto de 'tem algo ali'.")]
+    [Tooltip("Alcance do raycast: o ponto de 'tem algo ali'.")]
     [SerializeField] private float raycastDistance = 10f;
 
-    [Tooltip("Alcance para interagir de fato.")]
+    [Tooltip("Alcance para interagir de fato, e o do outline.")]
     [SerializeField] private float interactDistance = 2.5f;
 
     [SerializeField] private LayerMask blockingMask;
@@ -157,7 +157,8 @@ public class InteractionController : MonoBehaviour
         }
 
         SetInteractable(interactable);
-        SetHighlightTarget(highlight);
+        // De longe só a bolinha do widget: a silhueta junto do prompt é o sinal de que já dá para pegar.
+        SetHighlightTarget(highlight != null && currentHitDistance <= interactDistance ? highlight : null);
         RefreshPrompt();
         UpdateHold();
     }
