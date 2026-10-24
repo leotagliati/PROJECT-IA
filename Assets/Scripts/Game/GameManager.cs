@@ -122,6 +122,7 @@ public class GameManager : MonoBehaviour
         ResetTutorial();
         HintDirector.ForgetProgress();
         DialogueTrigger.ForgetDialog();
+        TutorialNoteController.ForgetSeen();
         EscapeCutscene.ForgetCheckpoint();
         sessionTime = 0f;
         sessionDeaths = 0;

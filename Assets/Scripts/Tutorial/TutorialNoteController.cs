@@ -202,4 +202,7 @@ public class TutorialNoteController : MonoBehaviour
         closedFrame = -1;
         seen.Clear();
     }
+
+    /// <summary>Esquece os bilhetes vistos: um jogo novo pelo menu mostra todos de novo.</summary>
+    public static void ForgetSeen() => seen.Clear();
 }
