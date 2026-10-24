@@ -118,11 +118,8 @@ public class GameOverUI : MonoBehaviour
 
     public void Quit()
     {
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying = false;
-#else
+        GameManager.EndSession();
         menuScene.Load();
-#endif
     }
 
     private IEnumerator ShowRoutine()
