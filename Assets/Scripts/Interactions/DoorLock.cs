@@ -28,6 +28,9 @@ public class DoorLock : MonoBehaviour, IInteractable, IHoldFeedback
 
     public event Action<DoorLock> Unlocked;
 
+    /// <summary>Tentou destrancar sem chave.</summary>
+    public event Action<DoorLock> Refused;
+
     private void Awake()
     {
         restRotation = transform.localRotation;
@@ -56,7 +59,10 @@ public class DoorLock : MonoBehaviour, IInteractable, IHoldFeedback
         PlayerInventory inventory = interactor.Inventory;
 
         if (inventory == null || !inventory.TryUseKey(1))
+        {
+            Refused?.Invoke(this);
             return InteractionResult.Fail(noKeyMessage);
+        }
 
         Unlock();
         return InteractionResult.Success;

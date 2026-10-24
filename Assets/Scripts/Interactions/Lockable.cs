@@ -21,6 +21,11 @@ public class Lockable : MonoBehaviour
              "no raycast).")]
     [SerializeField] private UnityEvent sealedRefused;
 
+    // Na porta do começo, quem tentava o cadeado antes da porta concluía "trancada, vou procurar outro lugar", e não
+    // há outro lugar: o diálogo que solta a caça tem que abrir por aqui também.
+    [Tooltip("Tentou um cadeado desta porta sem chave. Ligue o Play de um DialogueTrigger, por exemplo.")]
+    [SerializeField] private UnityEvent lockRefused;
+
     private bool isSealed;
 
     public bool IsSealed => isSealed;
@@ -42,13 +47,19 @@ public class Lockable : MonoBehaviour
     private void OnEnable()
     {
         foreach (DoorLock doorLock in locks)
+        {
             doorLock.Unlocked += HandleLockUnlocked;
+            doorLock.Refused += HandleLockRefused;
+        }
     }
 
     private void OnDisable()
     {
         foreach (DoorLock doorLock in locks)
+        {
             doorLock.Unlocked -= HandleLockUnlocked;
+            doorLock.Refused -= HandleLockRefused;
+        }
     }
 
     /// <summary>Tira todos os cadeados sem chave e sem som (checkpoint restaurado no load).</summary>
@@ -70,6 +81,7 @@ public class Lockable : MonoBehaviour
                 continue;
 
             doorLock.Unlocked -= HandleLockUnlocked;
+            doorLock.Refused -= HandleLockRefused;
             Destroy(doorLock.gameObject);
         }
 
@@ -98,6 +110,9 @@ public class Lockable : MonoBehaviour
     private void HandleLockUnlocked(DoorLock doorLock)
     {
         doorLock.Unlocked -= HandleLockUnlocked;
+        doorLock.Refused -= HandleLockRefused;
         locks.Remove(doorLock);
     }
+
+    private void HandleLockRefused(DoorLock doorLock) => lockRefused.Invoke();
 }
