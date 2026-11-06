@@ -196,6 +196,7 @@ public class PlayerThrow : MonoBehaviour
             origin = SafeOrigin(aim.position, origin);
 
         held.Launch(origin, velocity, ownColliders);
+        Telemetry.BottleThrown();
         held = null;
 
         phase = Phase.Recovering;

@@ -264,6 +264,13 @@ determinístico durante o treino.
 - **Stamina**: `StaminaBarUI` só lê o `PlayerStamina` e pinta o prefab `Prefabs/UI/StaminaBar` (Container
   9-slice, Fill `Filled`, Icon; sprites cinza em `Images/HUD`, a cor vem do componente). Não monta mais a barra em
   código: sem o `fill` atribuído ele se desliga com erro. Some com a barra cheia e durante diálogo/bilhete.
+- **Telemetria de playtest** (`Assets/Scripts/Telemetry/`): `PlaytestTelemetry` nasce sozinho no boot
+  (`DontDestroyOnLoad`) se `Resources/PlaytestTelemetryConfig` deixar (Editor ligado, build desligada) e manda o
+  contrato v1 de eventos ao relay do app (`http://127.0.0.1:8787/events`, lote a cada 0,2 s, fila de 500). O
+  contrato é combinado com o app: não renomeie tipos nem campos de `TelemetryEvents.cs`. Quase tudo é inferido de
+  `GameManager.StateChanged` e do `sceneLoaded` (carga com sessão aberta = tentativa nova); o estado do seeker é lido
+  por `SeekerTelemetryWatcher`, posto em runtime, só leitura. O código de treino não conhece telemetria; ela se
+  desliga com `Academy.IsCommunicatorOn`. Só `KeyItem` e `PlayerThrow` chamam `Telemetry.*`.
 - **Outline**: `ObjectHighlighter` faz raycast do centro da tela e troca o objeto para a
   layer `Outline` (a render feature em `Assets/Render Features/` desenha o contorno);
   `HighlightTarget` guarda a layer original para restaurar.

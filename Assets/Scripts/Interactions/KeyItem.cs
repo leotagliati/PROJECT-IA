@@ -24,6 +24,7 @@ public class KeyItem : MonoBehaviour, IInteractable
             return InteractionResult.Fail("Sem inventário");
 
         interactor.Inventory.AddKey(1);
+        Telemetry.KeyCollected(this, interactor.Inventory.KeyCount);
 
         // PlayAt usa fonte do pool: o som sobrevive ao Destroy.
         AudioProvider.PlayAt(pickupSoundId, transform.position);
